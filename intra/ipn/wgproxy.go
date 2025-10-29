@@ -1526,39 +1526,60 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		return
 	}
 
+	why := ""
+
 	defer func() {
 		cur := h.status.Load()
-		if cur == END || cur == TPU { // stopped or paused
-			log.E("wg: %s listener: %s; status %s; ignoring2", h.tag(), op, pxstatus(s))
-			return
+		stoppedOrPaused := cur == END || cur == TPU
+		logeif(stoppedOrPaused)("wg: %s listener: %s; status %s => %s; ignoring2? %t, why: %s",
+			h.tag(), op, pxstatus(cur), pxstatus(s), stoppedOrPaused, why)
+		if !stoppedOrPaused {
+			h.status.Cas(cur, s)
 		}
-		h.status.Cas(cur, s)
 	}()
 
+	now := now()
+	age := now - h.since
 	if err != nil { // failing
-		s = TKO
 		if op == wg.Opn { // could not open conn to wg endpoint
 			s = TNT
-		}
-		if op == wg.Rcv && timedout(err) {
+			why = "TNT: could not open conn"
+		} else if op == wg.Rcv && timedout(err) {
 			s = TZZ // wirtes and reads have succeeded in the recent past
+			why = "TZZ: timeout"
+		} else {
+			s = TKO
+			why = "TKO: " + err.Error()
 		}
 	} else { // ok
 		s = TOK
+		why = "TOK: ok"
 		if op == wg.Rcv { // read ok
-			h.latestRx.Store(now())
+			h.latestRx.Store(now)
+			why = "TOK: read ok"
 		} else if op == wg.Snd { // write ok
-			h.latestTx.Store(now())
+			h.latestTx.Store(now)
+			why = "TOK: write ok"
 		} // else: not a transport message
 	}
 
-	if s != TNT { // s may also be TOK (for successful handshakes but not for transport data)
+	const tenSecMillis = 10 * 1000
+	// s may also be TOK (for successful handshakes but not for transport data)
+	if age > tenSecMillis && (s == TOK || s == TKO) {
 		lastSuccessfulRead := h.latestRx.Load()
-		writeElapsedMs := h.latestTx.Load() - lastSuccessfulRead // may be negative
+		lastSuccessfulWrite := h.latestTx.Load()
+		writeElapsedMs := lastSuccessfulWrite - lastSuccessfulRead // may be negative
+
 		// if no reads since last write, mark as unresponsive
 		// if status is "up" but writes (Snd) have not yet happened
 		// then reads (Rcv) are expected to timeout; so ignore them
-		if lastSuccessfulRead <= 0 || writeElapsedMs > markTNTAfterMillis {
+		if lastSuccessfulRead <= age && lastSuccessfulWrite <= age {
+			why = "TZZ: idling after start/refresh"
+			s = TZZ // possibly idling
+		} else if (s == TKO && lastSuccessfulRead <= age && lastSuccessfulWrite > age) ||
+			(s == TOK && writeElapsedMs > markTNTAfterMillis) {
+			why = fmt.Sprintf("TNT: [w ok, r !ok] (if %d == -1) OR [w !ok, no r] (if %d == -2); %s",
+				s, s, pxstatus(s))
 			s = TNT // writes succeeded; but reads have never or not in the past 20s
 		}
 	}
@@ -1574,8 +1595,8 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 
 	if s == TNT {
 		if n := h.remote.Load().MaybeRefresh(); n > 0 {
-			log.I("wg: %s listener: %s, state: %s; refreshed n domains: %d",
-				h.tag(), op, pxstatus(s), n)
+			log.I("wg: %s listener: %s, state: %s; refreshed n domains: %d; why: %s",
+				h.tag(), op, pxstatus(s), n, why)
 		}
 	}
 }
