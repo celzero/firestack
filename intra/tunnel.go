@@ -491,6 +491,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		} else {
 			out.RDNSIn.ProxySince = "down"
 		}
+		out.RDNSIn.ProxyStatus = ss.Status
 	}
 	return out, nil
 }

@@ -176,6 +176,7 @@ type RDNSInfo struct {
 	ProxiesHas6 bool
 	ProxyLastOK string
 	ProxySince  string
+	ProxyStatus string
 	Proxies     string
 
 	AutoMode          string

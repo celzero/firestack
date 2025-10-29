@@ -139,12 +139,13 @@ type wgtun struct {
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
 	// TODO: move status to a state-machine for all proxies
-	status     *core.Volatile[int] // status of this interface
-	latestPing atomic.Int64        // last ping time in unix millis
-	latestRx   atomic.Int64        // last rx time in unix millis
-	latestTx   atomic.Int64        // last tx time in unix millis
-	errRx      atomic.Int64        // rx error count
-	errTx      atomic.Int64        // tx error count
+	status        *core.Volatile[int] // status of this interface
+	latestRefresh atomic.Int64        // last refresh time in unix millis
+	latestPing    atomic.Int64        // last ping time in unix millis
+	latestRx      atomic.Int64        // last rx time in unix millis
+	latestTx      atomic.Int64        // last tx time in unix millis
+	errRx         atomic.Int64        // rx error count
+	errTx         atomic.Int64        // tx error count
 }
 
 type wgconn interface {
@@ -333,6 +334,7 @@ func (w *wgproxy) Refresh() (err error) {
 		return err
 	}
 
+	w.latestRefresh.Store(now())
 	resetDevice := (resetDeviceOnTNT && status == TNT) ||
 		(resetDeviceOnTUP && status == TUP)
 
@@ -864,6 +866,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		refreshBa:     core.NewBarrier[bool](refreshInterval),
 		since:         now(),
 	}
+	t.latestRefresh.Store(t.since)
 	t.desiredmtu.Store(uint32(ifopts.mtu))
 	t.netmtu.Store(uint32(lp.mtu))
 	t.allowedIPs(ifopts.allowed)
@@ -1138,7 +1141,9 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.ErrTx = w.errTx.Load()
 	out.LastRx = w.latestRx.Load()
 	out.LastTx = w.latestTx.Load()
+	out.LastRefresh = w.latestRefresh.Load()
 	out.Since = w.since
+	out.Status = pxstatus(w.status.Load()).String()
 
 	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %s",
 		w.tag(), out.Rx, out.Tx, core.FmtUnixMillisAsPeriod(out.LastOK))

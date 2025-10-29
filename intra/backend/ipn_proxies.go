@@ -248,8 +248,12 @@ type RouterStats struct {
 	LastTx int64
 	// last (most recent) handshake or ping or connect millis
 	LastOK int64
+	// last refresh time in millis
+	LastRefresh int64
 	// uptime in millis
 	Since int64
+	// Current proxy status
+	Status string
 }
 
 type RpnServers interface {
