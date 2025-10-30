@@ -1545,7 +1545,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			s = TNT
 			why = "TNT: could not open conn"
 		} else if op == wg.Rcv && timedout(err) {
-			s = TZZ // wirtes and reads have succeeded in the recent past
+			s = TZZ // writes and reads have succeeded in the recent past
 			why = "TZZ: timeout"
 		} else {
 			s = TKO

@@ -38,7 +38,7 @@ var (
 		// destination
 		`([a-f0-9]{8,32}):([a-f0-9]{4})\s+` +
 		`[a-f0-9]{2}\s+` + // st
-		// transfer queue, recieve queue
+		// transfer queue, receive queue
 		`[a-f0-9]{8}:[a-f0-9]{8}\s+` +
 		// tr tm->when
 		`[a-f0-9]{2}:[a-f0-9]{8}\s+` +
