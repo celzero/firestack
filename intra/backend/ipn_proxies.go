@@ -238,14 +238,18 @@ type RouterStats struct {
 	Rx int64
 	// bytes transmitted
 	Tx int64
-	// receive errors
+	// receive error count
 	ErrRx int64
-	// transmit errors
+	// transmit error count
 	ErrTx int64
 	// last (most recent) receive in millis
-	LastRx int64
-	// last (most recent) transmit in millis
 	LastTx int64
+	// last (most recent) transmit in millis
+	LastRx int64
+	// last successful receive in millis
+	LastGoodRx int64
+	// last successful transmit in millis
+	LastGoodTx int64
 	// last (most recent) handshake or ping or connect millis
 	LastOK int64
 	// last refresh time in millis

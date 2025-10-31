@@ -1141,8 +1141,10 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.Addr = w.IfAddr() // may be empty
 	out.ErrRx = w.errRx.Load()
 	out.ErrTx = w.errTx.Load()
-	out.LastRx = w.latestGoodRx.Load()
-	out.LastTx = w.latestGoodTx.Load()
+	out.LastRx = w.latestRx.Load()
+	out.LastTx = w.latestTx.Load()
+	out.LastGoodRx = w.latestGoodRx.Load()
+	out.LastGoodTx = w.latestGoodTx.Load()
 	out.LastRefresh = w.latestRefresh.Load()
 	out.Since = w.since
 	out.Status = pxstatus(w.status.Load()).String()
@@ -1533,11 +1535,12 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	defer func() {
 		cur := h.status.Load()
 		stoppedOrPaused := cur == END || cur == TPU
-		logeif(stoppedOrPaused)("wg: %s listener: %s; status %s => %s; ignoring2? %t, why: %s",
-			h.tag(), op, pxstatus(cur), pxstatus(s), stoppedOrPaused, why)
+		updated := false
 		if !stoppedOrPaused {
-			h.status.Cas(cur, s)
+			updated = h.status.Cas(cur, s)
 		}
+		logeif(!updated)("wg: %s listener: %s; status %s => %s; end/pause? %t, ignored? %t, why: %s",
+			h.tag(), op, pxstatus(cur), pxstatus(s), stoppedOrPaused, !updated, why)
 	}()
 
 	now := now()
