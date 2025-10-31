@@ -1613,8 +1613,8 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			why = "TZZ: idling after start/refresh"
 			s = TZZ // possibly idling
 		} else if readThres || writeThres || readWriteDeviation {
-			why = fmt.Sprintf("TNT: r !ok? %t, w !ok? %t, rw apart? %t; cur: %s",
-				readThres, writeThres, readWriteDeviation, pxstatus(s))
+			why = fmt.Sprintf("TNT: r !ok? %t, w !ok? %t, rw apart? %t; overriding: %s",
+				readThres, writeThres, readWriteDeviation, why)
 			s = TNT
 		}
 	}

@@ -412,10 +412,10 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		}
 
 		if err != nil && !timedout(err) {
-			log.E("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
+			log.E("wg: bind: recv: %s recvfrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
 				s.id, addr, n, usingamz, overwritten, anyTransportTyp, err)
 		} else if settings.Debug {
-			log.V("wg: bind: %s recvFrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
+			log.V("wg: bind: recv: %s recvfrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
 				s.id, addr, n, usingamz, overwritten, anyTransportTyp, err)
 		}
 		return numMsgs, err
@@ -662,15 +662,19 @@ func clos(c io.Closer) {
 	core.CloseOp(c, core.CopRW)
 }
 
-// transportType reports whether unobs is a transport message.
-// "unobs" must be free of Amnezia-like obfuscations.
 func transportType(unobs []byte) (y bool) {
+	return messageType(unobs, device.MessageTransportType)
+}
+
+// messageType reports whether unobs is of type t message.
+// "unobs" must be free of Amnezia-like obfuscations.
+func messageType(unobs []byte, t uint32) (y bool) {
 	var typ uint32
 	n := len(unobs)
 
 	defer func() {
 		if settings.Debug && !y {
-			log.V("wg: bind: transportType: len(%d) type(%d) => trans? %t", n, typ, y)
+			log.V("wg: bind: messageType: len(%d) msgt(%d) == t(%d)? %t", n, typ, t, y)
 		}
 	}()
 
@@ -679,6 +683,6 @@ func transportType(unobs []byte) (y bool) {
 	}
 
 	typ = binary.LittleEndian.Uint32(unobs)
-	y = typ == device.MessageTransportType
+	y = typ == t
 	return
 }
