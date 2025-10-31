@@ -1149,8 +1149,13 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.Since = w.since
 	out.Status = pxstatus(w.status.Load()).String()
 
-	log.VV("proxy: wg: %s stats: rx: %d, tx: %d, lastok: %s",
-		w.tag(), out.Rx, out.Tx, core.FmtUnixMillisAsPeriod(out.LastOK))
+	if settings.Debug {
+		log.VV("proxy: wg: %s stats: rx: %d, tx: %d, r: %s (good: %s), w: %s (good: %s), lastok: %s",
+			w.tag(), out.Rx, out.Tx,
+			core.FmtUnixMillisAsPeriod(out.LastRx), core.FmtUnixMillisAsPeriod(out.LastGoodRx),
+			core.FmtUnixMillisAsPeriod(out.LastTx), core.FmtUnixMillisAsPeriod(out.LastGoodTx),
+			core.FmtUnixMillisAsPeriod(out.LastOK))
+	}
 	return out
 }
 

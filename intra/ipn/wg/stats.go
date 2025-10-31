@@ -22,6 +22,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // from: github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/android/backend/Statistics.java
@@ -75,7 +76,9 @@ func newStats(owner string) *ifstats {
 
 // add adds a new peer's statistics to the map.
 func (s *ifstats) add(key string, rx, tx, latestHandshake int64) bool {
-	log.VV("wg: ReadStats: %s: add %s, %d, %d, %d", s.o, key, rx, tx, latestHandshake)
+	if settings.Debug {
+		log.VV("wg: ReadStats: %s: add %s, %d, %d, %d", s.o, key, rx, tx, latestHandshake)
+	}
 	s.stats[key] = peerstats{RxBytes: rx, TxBytes: tx, LatestHandshakeEpochMillis: latestHandshake}
 	return latestHandshake > 0
 }
@@ -125,8 +128,10 @@ func (s *ifstats) LatestRecentHandshake() int64 {
 	for _, stats := range s.stats {
 		least = max(least, stats.LatestHandshakeEpochMillis)
 	}
-	log.VV("wg: ReadStats: %s: LatestRecentHandshake: %s, Peers: %d",
-		s.o, core.FmtUnixMillisAsPeriod(least), len(s.stats))
+	if settings.Debug {
+		log.VV("wg: ReadStats: %s: LatestRecentHandshake: %s, Peers: %d",
+			s.o, core.FmtUnixMillisAsPeriod(least), len(s.stats))
+	}
 	return least
 }
 
@@ -196,8 +201,9 @@ func readStats(who, config string) (*ifstats, error) {
 	}
 	stats.lastTouched = time.Now()
 
-	log.V("wg: ReadStats: %s: %d peers, %d lines, any OK? %t", who, k, n, anyStatOK)
-
+	if settings.Debug {
+		log.V("wg: ReadStats: %s: %d peers, %d lines, any OK? %t", who, k, n, anyStatOK)
+	}
 	if !anyStatOK {
 		return stats, errAllStatsNotOK // negative ttl on barrier
 	}
