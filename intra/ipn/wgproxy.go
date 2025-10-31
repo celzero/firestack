@@ -142,8 +142,10 @@ type wgtun struct {
 	status        *core.Volatile[int] // status of this interface
 	latestRefresh atomic.Int64        // last refresh time in unix millis
 	latestPing    atomic.Int64        // last ping time in unix millis
-	latestRx      atomic.Int64        // last rx time in unix millis
-	latestTx      atomic.Int64        // last tx time in unix millis
+	latestGoodRx  atomic.Int64        // last successful rx time in unix millis
+	latestGoodTx  atomic.Int64        // last successful tx time in unix millis
+	latestRx      atomic.Int64        // last (successful or not) rx time in unix millis
+	latestTx      atomic.Int64        // last (successful or not) tx time in unix millis
 	errRx         atomic.Int64        // rx error count
 	errTx         atomic.Int64        // tx error count
 }
@@ -1139,8 +1141,8 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.Addr = w.IfAddr() // may be empty
 	out.ErrRx = w.errRx.Load()
 	out.ErrTx = w.errTx.Load()
-	out.LastRx = w.latestRx.Load()
-	out.LastTx = w.latestTx.Load()
+	out.LastRx = w.latestGoodRx.Load()
+	out.LastTx = w.latestGoodTx.Load()
 	out.LastRefresh = w.latestRefresh.Load()
 	out.Since = w.since
 	out.Status = pxstatus(w.status.Load()).String()
@@ -1546,18 +1548,28 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			why = "TNT: could not open conn"
 		} else if op == wg.Rcv && timedout(err) {
 			s = TZZ // wirtes and reads have succeeded in the recent past
-			why = "TZZ: timeout"
+			why = "TZZ: read timeout"
 		} else {
 			s = TKO
 			why = "TKO: " + err.Error()
+		}
+
+		if op == wg.Rcv && !timedout(err) { // read error
+			h.errRx.Add(1)
+			h.latestRx.Store(now)
+		} else if op == wg.Snd { // write error
+			h.errTx.Add(1)
+			h.latestTx.Store(now)
 		}
 	} else { // ok
 		s = TOK
 		why = "TOK: ok"
 		if op == wg.Rcv { // read ok
+			h.latestGoodRx.Store(now)
 			h.latestRx.Store(now)
 			why = "TOK: read ok"
 		} else if op == wg.Snd { // write ok
+			h.latestGoodTx.Store(now)
 			h.latestTx.Store(now)
 			why = "TOK: write ok"
 		} // else: not a transport message
@@ -1566,30 +1578,36 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	const tenSecMillis = 10 * 1000
 	// s may also be TOK (for successful handshakes but not for transport data)
 	if age > tenSecMillis && (s == TOK || s == TKO) {
-		lastSuccessfulRead := h.latestRx.Load()
-		lastSuccessfulWrite := h.latestTx.Load()
-		writeElapsedMs := lastSuccessfulWrite - lastSuccessfulRead // may be negative
+		lastSuccessfulRead := h.latestGoodRx.Load()
+		lastSuccessfulWrite := h.latestGoodTx.Load()
+		lastRead := h.latestRx.Load()
+		lastWrite := h.latestTx.Load()
 
-		// if no reads since last write, mark as unresponsive
-		// if status is "up" but writes (Snd) have not yet happened
+		deviationMs := (max(lastSuccessfulWrite, lastSuccessfulRead) -
+			min(lastSuccessfulWrite, lastSuccessfulRead))
+		readElapsedMs := lastRead - lastSuccessfulRead    // never negative
+		writeElapsedMs := lastWrite - lastSuccessfulWrite // never negative
+
+		hasNewWrites := lastWrite > age
+		hasNewReads := lastRead > age
+
+		// too much time since last good write and good reads
+		readWriteDeviation := (hasNewReads || hasNewWrites) && deviationMs > markTNTAfterMillis
+		// too much time since last attempted read was good
+		readThres := hasNewReads && readElapsedMs > markTNTAfterMillis
+		// too much time since last attempted write was good
+		writeThres := hasNewWrites && writeElapsedMs > markTNTAfterMillis
+
+		// if status is !ok (TKO), no reads since last write, mark as unresponsive
+		// if status is ok (TOK) but writes have not yet happened
 		// then reads (Rcv) are expected to timeout; so ignore them
-		if lastSuccessfulRead <= age && lastSuccessfulWrite <= age {
+		if !hasNewReads && !hasNewWrites {
 			why = "TZZ: idling after start/refresh"
 			s = TZZ // possibly idling
-		} else if (s == TKO && lastSuccessfulRead <= age && lastSuccessfulWrite > age) ||
-			(s == TOK && writeElapsedMs > markTNTAfterMillis) {
-			why = fmt.Sprintf("TNT: [w ok, r !ok] (if %d == -1) OR [w !ok, no r] (if %d == -2); %s",
-				s, s, pxstatus(s))
-			s = TNT // writes succeeded; but reads have never or not in the past 20s
-		}
-	}
-
-	if s != TOK {
-		switch op {
-		case wg.Rcv:
-			h.errRx.Add(1)
-		case wg.Snd:
-			h.errTx.Add(1)
+		} else if readThres || writeThres || readWriteDeviation {
+			why = fmt.Sprintf("TNT: r !ok? %t, w !ok? %t, rw apart? %t; cur: %s",
+				readThres, writeThres, readWriteDeviation, pxstatus(s))
+			s = TNT
 		}
 	}
 
