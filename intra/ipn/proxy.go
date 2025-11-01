@@ -181,11 +181,11 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {
-					log.W("proxy: cannot update wg(%s); readd it!", id)
+					log.W("proxy: add: cannot update wg(%s); readd it!", id)
 					return nil, errProxyReadd
 				}
 
-				log.I("proxy: updated wg %s/%s/%s", id, lp, p.GetAddr())
+				log.I("proxy: add: updated wg %s/%s/%s", id, lp, p.GetAddr())
 				return
 			} // else: recreate
 		} // else: new
@@ -219,18 +219,18 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 	}
 
 	if err != nil {
-		log.P("proxy: add %s failed; cfg: %v", id, txt)
-		log.W("proxy: add %s failed; err: %v", id, err)
+		log.P("proxy: add: %s failed; cfg: %v", id, txt)
+		log.W("proxy: add: %s failed; err: %v", id, err)
 		return nil, err
 	} else if p == nil {
-		log.P("proxy: add %s nil; cfg: %v", id, txt)
-		log.W("proxy: add %s nil; txt: %d", id, len(txt))
+		log.P("proxy: add: %s nil; cfg: %v", id, txt)
+		log.W("proxy: add: %s nil; txt: %d", id, len(txt))
 		return nil, errAddProxy
 	} else if ok := pxr.add(p); !ok {
 		return nil, errAddProxy
 	}
 
-	log.I("proxy: added %s/%s/%s", p.ID(), p.Type(), p.GetAddr())
+	log.I("proxy: add: done %s/%s/%s", p.ID(), p.Type(), p.GetAddr())
 	return
 }
 
