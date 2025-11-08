@@ -413,7 +413,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.Recording = core.Recording()
 	out.RDNSIn.Looping = settings.Loopingback.Load()
 	out.RDNSIn.Slowdown = settings.SingleThreaded.Load()
-	out.RDNSIn.NewWireGuard = settings.ExperimentalWireGuard.Load()
+	out.RDNSIn.NewWireGuard = boolstr(settings.ExperimentalWireGuard.Load(), settings.FloodWireGuard.Load())
 	out.RDNSIn.HappyEyeballs = settings.HappyEyeballs.Load()
 	out.RDNSIn.EIMEIF = boolstr(settings.EndpointIndependentMapping.Load(), settings.EndpointIndependentFiltering.Load())
 	out.RDNSIn.OwnTunFd = settings.OwnTunFd.Load()

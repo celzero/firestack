@@ -462,7 +462,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	s.mu.Unlock()
 
-	var experimentalWg = settings.ExperimentalWireGuard.Load()
+	var floodWg = settings.FloodWireGuard.Load()
 	var flooded, overwritten bool
 	var nn int
 	var errs error
@@ -470,8 +470,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		bufok := len(data) > 0
 
 		if settings.Debug {
-			log.VV("wg: bind: send: %s addr(%v) exp? %t, blackhole? %t; noconn? %t; hasbuf? %t",
-				s.id, dstIpp, experimentalWg, blackhole, noconn, bufok)
+			log.VV("wg: bind: send: %s addr(%v) floodwg? %t, blackhole? %t; noconn? %t; hasbuf? %t",
+				s.id, dstIpp, floodWg, blackhole, noconn, bufok)
 		}
 
 		if blackhole || !bufok {
@@ -488,7 +488,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		overwritten = s.amnezia.Load().send(&data)
 
-		if !flooded && (experimentalWg || s.amnezia.Load().Set()) {
+		if !flooded && (floodWg || s.amnezia.Load().Set()) {
 			if datalen == device.MessageInitiationSize {
 				s.flood(uc, ep, fkHandshake) // was probably a handshake
 				flooded = true
@@ -507,8 +507,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(dstIpp)
 
-	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (exp? %t / flood? %t / overw? %t / trans? %t); err? %v",
-		s.id, dstIpp, len(buf), nn, experimentalWg, flooded, overwritten, anyTransportTyp, errs)
+	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",
+		s.id, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, errs)
 
 	return errs
 }

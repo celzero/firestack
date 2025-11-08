@@ -142,19 +142,26 @@ func Slowdown(y bool) {
 	log.I("tun: slowdown? %t / ok? %t", y, ok)
 }
 
+// HappyEyeballs enables/disables Happy Eyeballs algorithm for dual-stack (IPv4+IPv6) connections.
 func HappyEyeballs(y bool) {
 	ok := settings.HappyEyeballs.CompareAndSwap(!y, y)
 	log.I("tun: happy eyeballs %t / ok? %t", y, ok)
 }
 
-// Experimental enables/disables experimental features. For testing only.
-func Experimental(y bool) {
+// ExperimentalWireGuard enables/disables experimental features for WireGuard like allowing incoming packets.
+func ExperimentalWireGuard(y bool) {
 	// todo: move to its own method
 	wgok := settings.ExperimentalWireGuard.CompareAndSwap(!y, y)
 	// PortForwarding does not work on Android as-is.
 	// fwdok := settings.PortForward.CompareAndSwap(!y, y)
 	fwdok := false
 	log.I("tun: experimental settings? %t / wg? %t, portfwd? %t", y, wgok, fwdok)
+}
+
+// FloodWireGuard enables/disables flooding WireGuard tunnels with randomly sized non-null packets.
+func FloodWireGuard(y bool) {
+	ok := settings.FloodWireGuard.CompareAndSwap(!y, y)
+	log.I("tun: flood wireguard? %t / ok? %t", y, ok)
 }
 
 // Loopback informs the network stack that it must deal with packets

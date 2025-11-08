@@ -152,7 +152,7 @@ type RDNSInfo struct {
 
 	Looping                 bool
 	Slowdown                bool
-	NewWireGuard            bool
+	NewWireGuard            string
 	Transparency            bool
 	HappyEyeballs           bool
 	PanicTest               bool

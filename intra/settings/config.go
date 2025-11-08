@@ -30,11 +30,17 @@ var SingleThreaded = atomic.Bool{}
 // for the outgoing conn as the incoming sockisfied conn.
 var PortForward = atomic.Bool{}
 
+// HappyEyeballs is a global flag to enable Happy Eyeballs algorithm
+// for dual-stack (IPv4+IPv6) connections.
 var HappyEyeballs = atomic.Bool{}
 
 // ExperimentalWireGuard is a global flag to enable experimental
 // settings for WireGuard.
 var ExperimentalWireGuard = core.NewForeverFlow(false)
+
+// FloodWireGuard is a global flag to enable flooding WireGuard
+// tunnel with randomly sized non-null packets.
+var FloodWireGuard = atomic.Bool{}
 
 // EndpointIndependentMapping is a global flag to enable endpoint-independent
 // mapping for UDP as per RFC 4787.
