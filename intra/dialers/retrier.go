@@ -51,6 +51,9 @@ const (
 	maxRetryCount = 3
 	maxEmptyReads = 3
 
+	minExpectedTLSRead = 16 // minimum bytes expected in a TLS read
+	tlsPort            = 443
+
 	// maximum timeout in seconds for reads to complete before retrying
 	cielRetryReadTimeoutSec = 9
 	// minimum timeout in milliseconds for reads to complete before retrying
@@ -71,8 +74,10 @@ type retrier struct {
 	dialers       []protect.RDialer
 	dialerOpts    settings.DialerOpts
 	nextDialerIdx int
+	currentStrat  int32
 	multidial     bool
 
+	rport uint16 //  raddr port
 	raddr net.Addr
 	laddr net.Addr // laddr may be nil; TCPAddr.IP may be nil.
 
@@ -120,7 +125,7 @@ func (r *retrier) canRetry() bool {
 	return r.dialerOpts.Retry != settings.RetryNever
 }
 
-// TODO: make sure "Auto" works as intended for netdev.vger.kernel.narkive.com
+// TODO: make sure "Auto" works as intended for netdev.vger.kernel.narkive.com and norskkalender.no
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
@@ -128,7 +133,7 @@ func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
 	ciel := time.Duration(max(1, (cielRetryReadTimeoutSec/spread))) * time.Second             // ciel at least 1secs
 	floor := time.Duration(min(300, (floorRetryReadTimeoutMillis/spread))) * time.Millisecond // floor is at most 1secs
 
-	// Lower values trigger an unnecessary retry that make connections slower.
+	// Lower values trigger an unnecessary retry that make connections slower or fail (like nytimes.com)
 	// However, overly long timeouts make retry slower.
 	return max(rtt*2, ciel) + min(2*rtt, floor)
 }
@@ -190,12 +195,14 @@ func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
 		return nil, errNoDialer
 	}
 
+	remote := asAddrPort(raddr)
 	r := &retrier{
-		dialers:    reprioritize(ds, asAddrPort(raddr)),
+		dialers:    reprioritize(ds, remote),
 		dialerOpts: dialerOptsForMultiDialers(),
 		multidial:  true,
 		laddr:      laddr, // may be nil
 		raddr:      raddr, // must not be nil
+		rport:      remote.Port(),
 		retryDone:  core.NewSigCond(),
 	}
 
@@ -310,6 +317,7 @@ func (r *retrier) dialLocked() error {
 	if err != nil {
 		return err
 	}
+	r.currentStrat = strat
 
 	spreadTimeoutOver := maxRetryCount - int(r.retryCount)
 	if nosplit := strat == settings.SplitNever; nosplit {
@@ -339,6 +347,10 @@ func (r *retrier) dialLocked() error {
 		r.dialerID(), laddr(c), r.raddr, strat, r.dialerOpts.Retry, len(r.dialers), c, core.FmtPeriod(rtt), core.FmtPeriod(r.timeout), err)
 
 	return err
+}
+
+func (r *retrier) isSplitStrat() bool {
+	return r.currentStrat == settings.SplitTCP || r.currentStrat == settings.SplitTCPOrTLS
 }
 
 // dialStrat returns a core.DuplexConn to r.raddr using a specified strategy, strat,
@@ -446,6 +458,7 @@ func (r *retrier) CloseRead() error {
 // Read data from r.conn into buf ("download" from remote to local).
 func (r *retrier) Read(buf []byte) (n int, err error) {
 	note := log.VV
+	redoForTls := false
 
 	r.mu.Lock()
 	c := r.conn // r.conn may be provisional or final connection
@@ -464,8 +477,12 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 		if n == 0 && err == nil {
 			err = io.ErrNoProgress
 		}
-		logeor(err, note)("retrier: read: %s: [%s<=%s]; (rtt: %s / read: %s); b: %d/%d (tee: %d); err: %v",
-			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), core.FmtTimeAsPeriod(r.readDeadline), n, len(buf), len(r.tee), err)
+		redoForTls = r.isSplitStrat() && r.rport == tlsPort && n < minExpectedTLSRead
+		if err == nil && redoForTls {
+			err = errTLSHandshake
+		}
+		logeor(err, note)("retrier: read: %s: [%s<=%s]; (rtt: %s / read: %s / redo? %t); b: %d/%d (tee: %d); err: %v",
+			r.dialerID(), laddr(c), r.raddr, core.FmtPeriod(r.timeout), core.FmtTimeAsPeriod(r.readDeadline), redoForTls, n, len(buf), len(r.tee), err)
 	} // else: needs retry as c == nil
 
 	note = log.D
@@ -482,10 +499,16 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 			retryReadErr := err
 			// retry on errs like timeouts or connection resets
-			for (c == nil || retryReadErr != nil) && (r.canRetry() && r.retryCount < maxRetryCount) {
+			for (c == nil || redoForTls || retryReadErr != nil) && (r.canRetry() && r.retryCount < maxRetryCount) {
 				r.retryCount++
 
 				n, retryReadErr = r.retryWriteReadLocked(buf)
+
+				redoForTls = r.isSplitStrat() && r.rport == tlsPort && n < minExpectedTLSRead
+				if retryReadErr == nil && redoForTls {
+					err = errTLSHandshake
+				}
+
 				c = r.conn // re-assign c to newConn, if any; may be nil
 				if c == nil || retryReadErr != nil {
 					retryReadErr = core.OneErr(retryReadErr, errNoConn)
@@ -493,9 +516,10 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 				} else {
 					retryReadErr = nil // break
 					err = nil          // return no error
+					redoForTls = false
 				}
-				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s]; t: %s; b:%d/%d; err? %v",
-					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), n, len(buf), retryReadErr)
+				logeor(retryReadErr, note)("retrier: read: %s: #%d + (mult? %d %T / c: %d): [%s<=%s]; t: %s; redo? %t; b:%d/%d; err? %v",
+					r.dialerID(), r.retryCount, len(r.dialers), c, r.nextDialerIdx, laddr(c), r.raddr, core.FmtPeriod(r.timeout), redoForTls, n, len(buf), retryReadErr)
 			}
 			if c != nil {
 				// caller might have set read or write deadlines before the retry;

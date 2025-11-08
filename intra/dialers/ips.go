@@ -20,6 +20,7 @@ const (
 	errNoConn       = net.UnknownNetworkError("no connection")
 	errNoSysConn    = net.UnknownNetworkError("no sys connection")
 	errNoDesyncConn = net.UnknownNetworkError("no desync connection")
+	errTLSHandshake = net.UnknownNetworkError("tls handshake may be failed")
 	errNoIps        = net.UnknownNetworkError("no ips")
 	errNoEch        = net.UnknownNetworkError("no ech")
 	errNoDialer     = net.UnknownNetworkError("no dialer")
