@@ -428,10 +428,10 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.AutoMode = settings.AutoModeStr()
 	out.RDNSIn.AutoDialsParallel = settings.AutoDialsParallel.Load()
 
-	firewall := settings.BlockMode.Load()
-	dns := settings.DNSMode.Load()
-	pt := settings.PtMode.Load()
-	out.RDNSIn.TunMode = fmt.Sprintf("%d;%d;%d", firewall, dns, pt)
+	firewall := settings.Mode2String("block", settings.BlockMode.Load())
+	dns := settings.Mode2String("dns", settings.DNSMode.Load())
+	pt := settings.Mode2String("pt", settings.PtMode.Load())
+	out.RDNSIn.TunMode = fmt.Sprintf("%s;%s;%s", firewall, dns, pt)
 
 	var mm runtime.MemStats
 	runtime.ReadMemStats(&mm) // stw & expensive

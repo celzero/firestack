@@ -7,6 +7,8 @@
 package settings
 
 import (
+	"strconv"
+	"strings"
 	"sync/atomic"
 )
 
@@ -41,6 +43,46 @@ const (
 	// Android implements 464Xlat out-of-the-box, so this zero userspace impl
 	PtModeNo46 int32 = 2
 )
+
+// Converts a given DNS/Block/Pt mode to its string representation.
+// typ is one of "dns", "block", "pt"; mode is the value to convert.
+func Mode2String(typ string, mode int32) string {
+	str := func() string {
+		switch strings.ToLower(typ) {
+		case "dns":
+			switch mode {
+			case DNSModeNone:
+				return "none"
+			case DNSModeIP:
+				return "ip"
+			case DNSModePort:
+				return "port"
+			}
+		case "block":
+			switch mode {
+			case BlockModeNone:
+				return "none"
+			case BlockModeFilter:
+				return "filter"
+			case BlockModeSink:
+				return "sink"
+			case BlockModeFilterProc:
+				return "filterproc"
+			}
+		case "pt":
+			switch mode {
+			case PtModeAuto:
+				return "auto"
+			case PtModeForce64:
+				return "force64"
+			case PtModeNo46:
+				return "no46"
+			}
+		}
+		return "unknown"
+	}()
+	return strings.Join([]string{typ, str, strconv.Itoa(int(mode))}, " ")
+}
 
 // DNSMode specifies the kind of DNS traffic to be trapped and routed to DoH servers
 var DNSMode atomic.Int32
