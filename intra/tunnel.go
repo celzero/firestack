@@ -165,7 +165,7 @@ func NewTunnel(fd, mtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge)
 	const dualstack = settings.IP46
 
 	log.SetConsole(ctx, &clogAdapter{bdg})
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
 	proxies := ipn.NewProxifier(ctx, dualstack, mtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 

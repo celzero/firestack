@@ -7,6 +7,7 @@
 package x64
 
 import (
+	"context"
 	"maps"
 	"net"
 	"net/netip"
@@ -47,12 +48,16 @@ var (
 	zerovalueaddr = netip.Addr{}
 )
 
-// NewNatPt returns a new NatPt.
 func NewNatPt() *natPt {
+	return NewNatPt2(context.Background())
+}
+
+// NewNatPt returns a new NatPt.
+func NewNatPt2(ctx context.Context) *natPt {
 	log.I("natpt: new; mode(%v)", settings.PtMode.Load())
 	return &natPt{
-		nat64: newNat64(),
-		dns64: newDns64(),
+		nat64: newNat64(ctx),
+		dns64: newDns64(ctx),
 		ip4s:  nil,
 		ip6s:  nil,
 	}

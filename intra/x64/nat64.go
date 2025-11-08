@@ -7,6 +7,7 @@
 package x64
 
 import (
+	"context"
 	"net"
 
 	"github.com/celzero/firestack/intra/log"
@@ -15,7 +16,7 @@ import (
 type nat64 struct {
 }
 
-func newNat64() *nat64 {
+func newNat64(_ context.Context) *nat64 {
 	return &nat64{}
 }
 

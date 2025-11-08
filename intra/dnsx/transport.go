@@ -325,9 +325,9 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		}
 		r.Unlock()
 
-		if tid == System {
+		if tid == System || tid == Goos {
 			// always add64 after having added the system transport
-			core.Gx("r.Add64", func() { r.Add64(System) })
+			core.Gx("r.Add64", func() { r.Add64(tid) })
 		}
 
 		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(x.StrOf(tid)) })
@@ -403,8 +403,8 @@ func (r *resolver) Remove(tid *x.Gostr) (ok bool) {
 	r.RUnlock()
 
 	if hasTransport {
-		if id == System {
-			core.Gx("r.Remove64", func() { r.Remove64(System) })
+		if id == System || id == Goos {
+			core.Gx("r.Remove64", func() { r.Remove64(id) })
 		}
 		r.Lock()
 		r.stopIfExistsLocked(id)

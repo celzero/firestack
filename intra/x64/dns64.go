@@ -57,14 +57,17 @@ var (
 
 type dns64 struct {
 	sync.RWMutex
+
+	ctx context.Context
 	// dns-resolver -> nat64-ips
 	ip64 map[string][]*net.IPNet
 	// dns-resolver -> unique nat64-ips
 	uniqIP64 map[string]map[string]struct{}
 }
 
-func newDns64() *dns64 {
+func newDns64(ctx context.Context) *dns64 {
 	d := &dns64{
+		ctx:      ctx,
 		ip64:     make(map[string][]*net.IPNet),
 		uniqIP64: make(map[string]map[string]struct{}),
 	}
@@ -73,10 +76,8 @@ func newDns64() *dns64 {
 }
 
 func (d *dns64) init() {
-	err1 := d.ofOverlay()  // system resolver
-	err2 := d.ofLocal464() // emulated
-	if err1 != nil || err2 != nil {
-		log.W("dns64: err reg underlay(%v) / local(%v)", err1, err2)
+	if err := d.ofLocal464(); err != nil { // unlikely
+		log.W("dns64: err reg local(%v)", err)
 	}
 }
 
@@ -97,7 +98,14 @@ func (d *dns64) register(id string) {
 	d.uniqIP64[id] = make(map[string]struct{})
 }
 
-func (d *dns64) AddResolver(id string, r string) (ok bool) {
+func (d *dns64) AddResolver(id, r string) (ok bool) {
+	switch id {
+	case dnsx.OverlayResolver:
+		return d.ofOverlay() == nil
+	case dnsx.Local464Resolver:
+		return d.ofLocal464() == nil
+	}
+
 	d.register(id)
 
 	defer func() {
@@ -261,7 +269,7 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r, uid string) (*dns.Msg,
 }
 
 func (d *dns64) ofOverlay() error {
-	ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip6", dnsx.Rfc7050WKN)
+	ips, err := net.DefaultResolver.LookupIP(d.ctx, "ip6", dnsx.Rfc7050WKN)
 	log.I("dns64: ipv4only.arpa w underlying network resolver")
 
 	if err != nil {
