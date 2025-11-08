@@ -51,6 +51,10 @@ const (
 	maxRetryCount = 3
 	maxEmptyReads = 3
 
+	// maximum timeout in seconds for reads to complete before retrying
+	cielRetryReadTimeoutSec = 9
+	// minimum timeout in milliseconds for reads to complete before retrying
+	floorRetryReadTimeoutMillis = 1000
 	// max timeout (for ReadFrom, before WriteTo) for desync to complete
 	uploadTimeoutForDownload = 3 * time.Second
 )
@@ -120,14 +124,13 @@ func (r *retrier) canRetry() bool {
 // Given rtt of a successful socket connection (SYN sent - SYNACK received),
 // returns a timeout for replies to the first segment sent on this socket.
 func calcTimeout(rtt time.Duration, spread uint16) time.Duration {
-	spread = max(1, spread)                                            // avoid div by zero
-	ciel := time.Duration(max(1, (3/spread))) * time.Second            // ciel at least 1secs
-	floor := time.Duration(min(300, (1000/spread))) * time.Millisecond // floor is at most 1secs
+	spread = max(1, spread)                                                                   // avoid div by zero
+	ciel := time.Duration(max(1, (cielRetryReadTimeoutSec/spread))) * time.Second             // ciel at least 1secs
+	floor := time.Duration(min(300, (floorRetryReadTimeoutMillis/spread))) * time.Millisecond // floor is at most 1secs
 
-	// Values must be chosen to have a <1% false positive rates,
-	// which trigger an unnecessary retry that make connections slower.
-	// However, overly long timeouts make retry slower and less useful.
-	return max(rtt, ciel) + min(2*rtt, floor)
+	// Lower values trigger an unnecessary retry that make connections slower.
+	// However, overly long timeouts make retry slower.
+	return max(rtt*2, ciel) + min(2*rtt, floor)
 }
 
 // DialWithSplitRetry returns a TCP connection that transparently retries by
@@ -308,7 +311,7 @@ func (r *retrier) dialLocked() error {
 		return err
 	}
 
-	spreadTimeoutOver := uint16(maxRetryCount - r.retryCount)
+	spreadTimeoutOver := maxRetryCount - int(r.retryCount)
 	if nosplit := strat == settings.SplitNever; nosplit {
 		spreadTimeoutOver = 0 // no spread if no split
 	}
@@ -440,7 +443,7 @@ func (r *retrier) CloseRead() error {
 	return nil
 }
 
-// Read data from r.conn into buf
+// Read data from r.conn into buf ("download" from remote to local).
 func (r *retrier) Read(buf []byte) (n int, err error) {
 	note := log.VV
 
@@ -559,7 +562,7 @@ func (r *retrier) readTimeoutLocked() time.Duration {
 	return time.Until(r.readDeadline)
 }
 
-// Write data in b to retrier's underlying conn, r.conn
+// Write data in b to retrier's underlying conn, r.conn ("upload" from local to remote).
 func (r *retrier) Write(b []byte) (int, error) {
 	start := time.Now()
 	// Double-checked locking pattern.  This avoids lock acquisition on
