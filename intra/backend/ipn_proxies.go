@@ -276,5 +276,9 @@ type RpnServer struct {
 	Addrs string
 	// Country code of the location.
 	CC string
+	// City name of the location.
+	City string
+	// Key for RpnProxy.Fork() to get an RpnProxy instance for this RpnServer.
+	Key string
 	// TODO: number of servers, health, link speed, etc?
 }

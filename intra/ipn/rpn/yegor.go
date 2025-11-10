@@ -86,8 +86,8 @@ const (
 	wgttl = "3600" // an hour in seconds
 
 	wssessionpath = "Session/"
-	wsportpath    = "PortMap/"
-	wslocpath     = "serverlist/mob-v2/1/" // + $loc_hash
+	// wsportpath    = "PortMap/"
+	wslocpath = "serverlist/mob-v2/1/" // + $loc_hash
 
 	// for ovpn (unused):
 	// wspxpath = "ServerCredentials/"
@@ -102,6 +102,10 @@ const (
 const (
 	ekeylimit   = 1313
 	ekeyinvalid = 1311
+)
+
+const (
+	confKeySep = ","
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/res/raw/port_map.txt#L76
@@ -813,8 +817,11 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 		}
 		if !visited[rc.Name] {
 			s = append(s, x.RpnServer{
-				CC:    rc.CC,
-				Name:  rc.Name,
+				CC:   rc.CC,
+				City: rc.City,
+				Name: rc.Name,
+				// cc is always suffixed; see proxy.go:proxifier.postAddRpnProxy
+				Key:   strings.Join([]string{rc.City, rc.CC}, confKeySep),
 				Addrs: strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
 			})
 		}
@@ -866,11 +873,17 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	if cfg == nil {
 		return "", errWsNoConfig
 	}
+	city := ""
+	if cccsv := strings.Split(cc, confKeySep); len(cccsv) > 0 {
+		city = cccsv[0]
+		cc = cccsv[1]
+	}
+	hasCity := len(city) > 0
 	tot := 0
 	c := 0
 	out := make([]string, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
-		if rc.CC == cc && c < maxPerRegionWgConfs {
+		if rc.CC == cc && (hasCity && rc.City == city) || (!hasCity && c < maxPerRegionWgConfs) {
 			if rc.genUapiConfig() {
 				out = append(out, rc.UapiWgConf)
 				c++
@@ -1095,7 +1108,8 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 			// IPv6s are firewalled.
 			allowed := []string{gw4}
 			out = append(out, &RegionalWgConf{
-				CC:               server.CountryCode,
+				CC:               strings.ToUpper(server.CountryCode),
+				City:             strings.ToUpper(group.City),
 				Name:             servername,
 				ClientAddr4:      reservation.Config.Address,
 				ClientPrivKey:    id.PrivateKey,

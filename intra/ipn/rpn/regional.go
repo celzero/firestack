@@ -15,6 +15,7 @@ import (
 
 type RegionalWgConf struct {
 	CC   string `json:"CC"`
+	City string `json:"City"`
 	Name string `json:"Name"`
 
 	ClientAddr4   string `json:"ClientAddr4"`
@@ -40,7 +41,7 @@ func (rwg *RegionalWgConf) String() string {
 	if rwg == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("%s: %s", rwg.CC, rwg.Name)
+	return fmt.Sprintf("%s, %s: %s", rwg.City, rwg.CC, rwg.Name)
 }
 
 func toHex(b64 string) string {
