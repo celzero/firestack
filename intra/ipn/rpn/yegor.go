@@ -913,12 +913,14 @@ func baseurl(test bool, cid string) *url.URL {
 		Scheme: "https",
 		Host:   svchosttest,
 	}
-	u.Query().Set("cid", cid)
+	q := u.Query()
+	q.Set("cid", cid)
 	if test {
-		u.Query().Set("rpn", "wstest")
+		q.Set("rpn", "wstest")
 	} else {
-		u.Query().Set("rpn", "ws")
+		q.Set("rpn", "ws")
 	}
+	u.RawQuery = q.Encode()
 
 	return &u
 }
@@ -928,12 +930,13 @@ func assetsurl(test bool) *url.URL {
 		Scheme: "https",
 		Host:   svchosttest,
 	}
-
+	q := u.Query()
 	if test {
-		u.Query().Set("rpn", "wstestassets")
+		q.Set("rpn", "wstestassets")
 	} else {
-		u.Query().Set("rpn", "wsassets")
+		q.Set("rpn", "wsassets")
 	}
+	u.RawQuery = q.Encode()
 
 	return &u
 }
@@ -962,7 +965,7 @@ func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 	var wsErr WsErrorResponse
 	err = json.Unmarshal(body, &wsErr)
 	if err != nil {
-		return nil, log.EE("ws: unmarshal err: %v; body: %s", err, body)
+		return nil, log.EE("ws: unmarshal err: %v; body: %s", err, truncate2k(body))
 	}
 
 	return &wsErr, log.EE("ws: status: %d, error %d: %s; why: %s", res.StatusCode, wsErr.Code, wsErr.Msg, wsErr.Desc)
@@ -982,7 +985,7 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 
 	err = json.Unmarshal(body, out)
 	if err != nil {
-		return nil, log.EE("ws: %s: unmarshal err: %v; res: %s", op, err, body)
+		return nil, log.EE("ws: %s: unmarshal err: %v; res: %s", op, err, truncate2k(body))
 	}
 
 	return out, nil
@@ -1010,11 +1013,11 @@ func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) 
 	}
 	defer core.Close(res.Body)
 	if res.StatusCode != http.StatusOK {
-		return nil, wsErr(res, "getsess")
+		return nil, wsErr(res, "getsess/"+tokst)
 	}
 
 	var wsSess WsSessionResponse
-	_, err = wsRes(res, &wsSess, "getsess")
+	_, err = wsRes(res, &wsSess, "getsess/"+tokst)
 	if err != nil {
 		return nil, err
 	}
@@ -1585,4 +1588,11 @@ func shab(b []byte) []byte {
 
 func byte2hex(b []byte) string {
 	return hex.EncodeToString(b)
+}
+
+func truncate2k(b []byte) []byte {
+	if len(b) <= 2048 {
+		return b
+	}
+	return b[:2048]
 }
