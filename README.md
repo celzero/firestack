@@ -2,28 +2,30 @@
 
 A userspace TCP/UDP connection monitor, firewall, DNS resolver, and [WireGuard](https://github.com/wireguard/wireguard-go) client for Android.
 
-Firestack is built specifically for [Rethink DNS + Firewall + VPN](https://github.com/celzero/rethink-app). [gVisor/netstack](https://github.com/google/gvisor/tree/go/pkg/tcpip) provides a SOCKS-like interface (similar to [badvpn's tun2socks](https://github.com/ambrop72/badvpn)) for TCP and UDP connections over a tun-device.
+Firestack is built specifically for [Rethink DNS + Firewall + VPN](https://github.com/celzero/rethink-app). [gVisor/netstack](https://github.com/google/gvisor/tree/go/pkg/tcpip) provides a SOCKS-like interface (similar to [badvpn's tun2socks](https://github.com/ambrop72/badvpn)) for TCP and UDP connections over a TUN device.
 
 Firestack is a hard-fork of Google's [outline-go-tun2socks](https://github.com/Jigsaw-Code/outline-go-tun2socks) project.
 
 ## DNS
 
-Firestack supports DNS over HTTPS, DNS over TLS, Oblivious DNS over HTTPS, DNSCrypt v3, and plain old DNS upstreams.
+Firestack supports DNS over HTTPS, DNS over TLS, Oblivious DNS over HTTPS, DNS over WireGuard / SOCKS5 / Tor, DNSCrypt v3, and plain old DNS upstreams.
 
 ## WireGuard
 
 Firestack runs WireGuard in userspace. When running *multiple* WireGuard tunnels at once, only TCP and UDP are forwarded to the tunnels; but otherwise
 ICMP and DNS are as well. ARP / IGMP / SCTP / RTP and other IP protocols are *not* forwarded to WireGuard tunnels.
 
+Firestack supports multi-hop / multi-relay WireGuard, where multiple tunnels can be chained together, provided that the outer tunnel (hop/relay) can route to the inner tunnel's (exit) endpoint.
+
 [<img src="https://fossunited.org/files/fossunited-white.svg"
      alt="FOSS United"
-     height="40">](https://fossunited.org/grants)&emsp;
+     height="40">](https://fossunited.org/grants)&emsp;<a href="https://floss.fund"><img src="/static/badge.svg" alt="FLOSS/fund badge" /></a>
 
-WireGuard integration was sponsored by [FOSS United](https://fossunited.org/grants).
+WireGuard integration was sponsored by [FOSS United](https://fossunited.org/grants); and Multi-hop / Multi-relay WireGuard by [FLOSS/fund](https://floss.fund/).
 
 ## Releases
 
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/celzero/firestack/badge)](https://securityscorecards.dev/viewer/?uri=github.com/celzero/firestack)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/celzero/firestack/badge)](https://securityscorecards.dev/viewer/?uri=github.com/celzero/firestack) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/celzero/rethink-app)
 
 Firestack is released as an Android Library (`aar`) and can be integrated into
 your Android builds via [Jitpack](https://jitpack.io/#celzero/firestack) ([ref](https://github.com/celzero/rethink-app/commit/a6e2abca7)) or [Maven Central (OSSRH)](https://central.sonatype.com/artifact/com.celzero/firestack/overview).
@@ -61,8 +63,7 @@ your Android builds via [Jitpack](https://jitpack.io/#celzero/firestack) ([ref](
 ## API
 
 The APIs aren't stable and hence left undocumented, but you can look at
-Rethink DNS + Firewall + VPN codebase: ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/net/go/GoVpnAdapter.java#L164-L232),
- [BraveVpnService](https://github.com/celzero/rethink-app/blob/982849564/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L130-L137)) to see how to integrate with Firestack on Android.
+Rethink DNS + Firewall + VPN codebase: ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/0c931d23d7/app/src/main/java/com/celzero/bravedns/net/go/GoVpnAdapter.kt#L113-L137), [BraveVpnService](https://github.com/celzero/rethink-app/blob/0c931d23d7/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L5306-L5324)) to see how to integrate with Firestack on Android.
 
 ## Build
 
@@ -72,7 +73,7 @@ Firestack only supports Android. Instructions for other platforms are left as-is
 
 - macOS host (iOS, macOS)
 - make
-- Go >= 1.22
+- Go >= 1.25
 - A C compiler (e.g.: clang, gcc)
 
 Firestack APIs are available only on Android builds for now. iOS and Linux support planned but nothing concrete yet.
