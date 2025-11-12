@@ -19,7 +19,7 @@ Firestack supports multi-hop / multi-relay WireGuard, where multiple tunnels can
 
 [<img src="https://fossunited.org/files/fossunited-white.svg"
      alt="FOSS United"
-     height="40">](https://fossunited.org/grants)&emsp;<a href="https://floss.fund"><img src="/static/badge.svg" alt="FLOSS/fund badge" /></a>
+     height="40">](https://fossunited.org/grants)&emsp;<a href="https://floss.fund"><img src="https://floss.fund/static/badge.svg" alt="FLOSS/fund badge" /></a>
 
 WireGuard integration was sponsored by [FOSS United](https://fossunited.org/grants); and Multi-hop / Multi-relay WireGuard by [FLOSS/fund](https://floss.fund/).
 
