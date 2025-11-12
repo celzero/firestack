@@ -25,7 +25,7 @@ WireGuard integration was sponsored by [FOSS United](https://fossunited.org/gran
 
 ## Releases
 
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/celzero/firestack/badge)](https://securityscorecards.dev/viewer/?uri=github.com/celzero/firestack) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/celzero/rethink-app)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/celzero/firestack/badge)](https://securityscorecards.dev/viewer/?uri=github.com/celzero/firestack) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/celzero/firestack)
 
 Firestack is released as an Android Library (`aar`) and can be integrated into
 your Android builds via [Jitpack](https://jitpack.io/#celzero/firestack) ([ref](https://github.com/celzero/rethink-app/commit/a6e2abca7)) or [Maven Central (OSSRH)](https://central.sonatype.com/artifact/com.celzero/firestack/overview).
