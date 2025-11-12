@@ -1506,7 +1506,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 
 	cid := existingEnt.Cid
 	tokst := existingConf.tokenState()
-	existingToken := existingEnt.SessionToken
+	existingToken := existingSess.SessionToken
 	existingLocHash := existingSess.LocHash
 	if existingEnt.SessionToken != existingToken {
 		log.W("ws: make: entitlement does not match session; tok? %s", tokst)
