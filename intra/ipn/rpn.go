@@ -53,7 +53,6 @@ var (
 	errRpnBadArgs          = errors.New("proxy: rpn: bad args")
 	errRpnBadEmplace       = errors.New("proxy: rpn: emplace: bad args")
 	errRpnBadCC            = errors.New("proxy: rpn: bad country code")
-	errRpnNotMultiCC       = errors.New("proxy: rpn: not multi-country")
 	errRpnIDsMismatch      = errors.New("proxy: rpn: provider x proxy mismatch")
 	errRpnMainProxyStopped = errors.New("proxy: rpn: cannot fork; main proxy stopped")
 	errRpnNotForked        = errors.New("proxy: rpn: not forked")
@@ -123,26 +122,26 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	acc := r.RpnAcc
 	r.mu.RUnlock()
 
-	if len(cc) < 2 {
-		return nil, errRpnBadCC
-	}
-	cc = strings.ToUpper(cc)
-	provider := acc.ProviderID()
-
 	mainpid := idstr(main)
-	if strings.HasSuffix(mainpid, cc) { // re-forking main proxy
+	if len(mainpid) <= 0 || main.Status() == END {
+		// TODO: PurgeAll?
+		return nil, errRpnMainProxyStopped
+	}
+
+	provider := acc.ProviderID()
+	if strings.HasSuffix(mainpid, cc) {
+		// re-forking main proxy (which may not be multi-country acc) via Update() => forkAll()
 		log.I("proxy: rpn: fork: %s main cc %s<>%s; re-adding...", provider, maincc(acc), cc)
 		// expect Emplace to be called
 		return r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
 	}
 
-	if !acc.MultiCountry() {
-		return nil, errRpnNotMultiCC
+	if len(cc) < 2 {
+		return nil, errRpnBadCC
 	}
-
-	if len(mainpid) <= 0 || main.Status() == END {
-		// TODO: PurgeAll?
-		return nil, errRpnMainProxyStopped
+	cc = strings.ToUpper(cc)
+	if !acc.MultiCountry() {
+		return nil, log.EE("proxy: rpn: fork: %s not multi-country %s", cc, provider)
 	}
 
 	// re-adds + updates if the proxy already exists
@@ -244,7 +243,7 @@ func (r *rpnp) get(cc string) (x.Proxy, error) {
 		// TODO: r.Proxy needs to be got after r.mu.RLock()
 		return r, nil
 	} else if !acc.MultiCountry() {
-		return nil, errRpnNotMultiCC
+		return nil, log.EE("proxy: rpn: get: %s not multi-country %s", cc, acc.ProviderID())
 	}
 
 	r.mu.RLock()

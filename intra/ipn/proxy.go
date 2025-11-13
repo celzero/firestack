@@ -150,7 +150,7 @@ func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) 
 			pxr.rp[acc.ProviderID()] = rp // removed on unregister
 			pxr.rpnmu.Unlock()
 		} else {
-			go rp.Emplace(p)
+			go rp.Emplace(p) // may fail
 		}
 	}
 
