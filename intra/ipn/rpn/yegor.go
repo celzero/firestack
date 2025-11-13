@@ -1316,17 +1316,18 @@ initagain:
 		}
 		if len(d.Config.PrivateKey) <= 0 { // private key is generated locally (by the client)
 			d.Config.PrivateKey = priv.Base64().V()
-			if d.Config.PublicKey != pubkeybase64 { // registered public key must match the local one
+			if len(d.Config.PublicKey) > 0 && d.Config.PublicKey != pubkeybase64 { // registered public key must match the local one
 				return nil, nil, log.EE("ws: wgconfs: pubkey mismatch; expected %s, got %s",
 					pubkeybase64, d.Config.PublicKey)
 			}
+			d.Config.PublicKey = pubkeybase64
 		} // TODO: else panic?
 	} else {
 		creds = existingCreds
 	}
 
 	if creds == nil || len(creds.PublicKey) <= 0 || len(creds.PrivateKey) <= 0 {
-		return nil, nil, log.EE("ws: wgconfs: invalid creds for %s, useExisting? %t", trunc8(pubkeybase64), useExistingCreds)
+		return nil, nil, log.EE("ws: wgconfs: missing pub/priv creds for %s, useExisting? %t", trunc8(pubkeybase64), useExistingCreds)
 	}
 
 	log.I("ws: wgconfs: got creds for %s, usingExisting? %t", trunc8(pubkeybase64), useExistingCreds)
