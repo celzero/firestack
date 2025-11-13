@@ -23,6 +23,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 // github.com/Windscribe/browser-extension/blob/ed83749ad/modules/ext/src/utils/constants.js#L31
@@ -874,7 +875,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		return "", errWsNoConfig
 	}
 	city := ""
-	if cccsv := strings.Split(cc, confKeySep); len(cccsv) > 0 {
+	if cccsv := strings.Split(cc, confKeySep); len(cccsv) >= 2 {
 		city = cccsv[0]
 		cc = cccsv[1]
 	}
@@ -932,7 +933,7 @@ func assetsurl(test bool) *url.URL {
 	}
 	q := u.Query()
 	if test {
-		q.Set("rpn", "wstestassets")
+		q.Set("rpn", "wsassetstest")
 	} else {
 		q.Set("rpn", "wsassets")
 	}
