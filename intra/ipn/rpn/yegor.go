@@ -990,6 +990,10 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 		return nil, log.EE("ws: %s: unmarshal err: %v; res: %s", op, err, truncate2k(body))
 	}
 
+	if settings.Debug {
+		log.V("ws: wgconfs: %s: res json: %+v", op, out)
+	}
+
 	return out, nil
 }
 
@@ -1008,6 +1012,10 @@ func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) 
 		return nil, log.EE("ws: getsess: make req err: %v", err)
 	}
 	authHeader(req, tok)
+
+	if settings.Debug {
+		log.V("ws: getsess: req: %s tok %s", u.String(), tokst)
+	}
 
 	res, err := h.Do(req)
 	if err != nil || res == nil {
@@ -1183,6 +1191,10 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 		return nil, log.EE("ws: wgconfs: req err: %v", err)
 	}
 
+	if settings.Debug {
+		log.V("ws: wgconfs: req: %s tok %s", u.String(), tokenState(bearer))
+	}
+
 	locres, err := h.Do(locreq)
 	if err != nil || locres == nil {
 		return nil, log.EE("ws: wgconfs: res err (nil? %t): %v", locres == nil, err)
@@ -1265,6 +1277,10 @@ initagain:
 		initreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		authHeader(initreq, bearer)
 
+		if settings.Debug {
+			log.V("ws: wgconfs: init req: %s; tok %s; force %s", u.String(), tokst, force)
+		}
+
 		initres, err := h.Do(initreq)
 
 		if err != nil || initres == nil {
@@ -1338,6 +1354,10 @@ initagain:
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(creq, sess.SessionToken)
+
+	if settings.Debug {
+		log.V("ws: wgconfs: connect req: %s tok %s", u.String(), tokst)
+	}
 
 	cres, err := h.Do(creq)
 	if err != nil || cres == nil {
