@@ -116,7 +116,7 @@ type fakeBdg struct {
 var (
 	// baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
 	baseTab    = &x.Tab{CID: "testcid", Block: false}
-	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnSE, IPCSV: "", TIDCSV: x.CT + "test0"}
+	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnWin, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
 func (*fakeBdg) OnQuery(_, _ *x.Gostr, _ int) *x.DNSOpts                 { return autoNsOpts }
@@ -269,6 +269,7 @@ func TestSEProxy(t *testing.T) {
 		ilog.D("se: %v", ips)
 	}*/
 
+	autoNsOpts.PIDCSV = ipn.RpnSE
 	se, _ := pxr.ProxyFor(ipn.RpnSE)
 	if se == nil {
 		t.Fatal("proxy: se proxy nil")
@@ -471,6 +472,8 @@ func TestWinReaches(t *testing.T) {
 
 	_, err = win.Fork(x.StrOf("US"))
 	ko(t, err)
+	_, err = win.Fork(x.StrOf("GT"))
+	ko(t, err)
 
 	settings.SetAutoDialsParallel(false)
 	settings.SetAutoMode(settings.AutoModeRemote)
@@ -479,9 +482,10 @@ func TestWinReaches(t *testing.T) {
 	propx2, _ := pxr.ProxyFor(ipn.RpnWin + "GT")
 	auto, _ := pxr.ProxyFor(ipn.Auto)
 	if propx == nil || propx2 == nil || auto == nil {
-		t.Fatal("nil proxies")
+		t.Fatal("nil US/GT/Auto proxies")
 	}
 
+	autoNsOpts.PIDCSV = ipn.RpnWin
 	/*ilog.VV("-----------------------MAIN--------------------------")
 	ilog.I("proxies 1: %t; 2: %t, 3: %t", propx != nil, propx2 != nil, auto != nil)
 	if ok := ipn.Reaches(propx, "google.com:443", "tcp"); !ok {
