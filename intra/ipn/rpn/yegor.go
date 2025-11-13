@@ -958,18 +958,19 @@ func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 	if res == nil {
 		return nil, log.EE("ws: %s: %v", op, errWsNoResponse)
 	}
+	code := res.StatusCode
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, log.EE("ws: %s: read body err: %v", op, err)
+		return nil, log.EE("ws: %s: (%d) read body err: %v", op, code, err)
 	}
 
 	var wsErr WsErrorResponse
 	err = json.Unmarshal(body, &wsErr)
 	if err != nil {
-		return nil, log.EE("ws: unmarshal err: %v; body: %s", err, truncate2k(body))
+		return nil, log.EE("ws: %s: (%d) unmarshal err: %v; body: %s", op, code, err, truncate2k(body))
 	}
 
-	return &wsErr, log.EE("ws: status: %d, error %d: %s; why: %s", res.StatusCode, wsErr.Code, wsErr.Msg, wsErr.Desc)
+	return &wsErr, log.EE("ws: %s: (%d) error %d: %s; why: %s", op, code, wsErr.Code, wsErr.Msg, wsErr.Desc)
 }
 
 func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
