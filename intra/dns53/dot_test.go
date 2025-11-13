@@ -428,17 +428,20 @@ func TestWinReaches(t *testing.T) {
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
-	entjson, err := os.ReadFile("ent.json")
+	readWinJson := true
+	entjson, err := os.ReadFile("win.json")
 	if err != nil {
-		t.Fatal(err)
+		readWinJson = false
+		entjson, err = os.ReadFile("ent.json")
 	}
+	ko(t, err)
 
-	ilog.D("ws: read ent: %d", len(entjson))
+	ilog.D("ws: read ent (sess? %t): %d", readWinJson, len(entjson))
 	if wreg, err := pxr.RegisterWin(x.BytesOf(entjson)); err != nil {
 		t.Fatal(err)
 	} else {
 		entjson = wreg.V()
-		_ = os.WriteFile("win.json", entjson, 0644)
+		_ = os.WriteFile("win.json", entjson, 0644) // same as sess.json
 		ilog.D("ws: setup %d", len(entjson))
 	}
 
@@ -484,6 +487,11 @@ func TestWinReaches(t *testing.T) {
 	if propx == nil || propx2 == nil || auto == nil {
 		t.Fatal("nil US/GT/Auto proxies")
 	}
+
+	sess, err := win.State()
+	ko(t, err)
+	err = os.WriteFile("sess.json", sess.V(), 0644) // same as win.json
+	ko(t, err)
 
 	autoNsOpts.PIDCSV = ipn.RpnWin
 	/*ilog.VV("-----------------------MAIN--------------------------")
