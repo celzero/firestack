@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand/v2"
 	"net"
@@ -894,10 +895,10 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	}
 	if len(out) > 0 {
 		r := rand.IntN(len(out))
-		log.I("ws: conf: cc %s: %d/%d => chosen: %d", cc, c, len(out), r)
+		log.I("ws: conf: cc %s: %d/%d => chosen (any? %t): %d[%s]", cc, c, len(out), chooseAny, r, ids[r])
 		return out[r], nil
 	}
-	log.D("ws: conf: cc %s not found (tot: %d)", cc, tot)
+	log.E("ws: conf: cc %s not found (tot: %d)", cc, tot)
 	return "", errWsNoCcConfig
 }
 
@@ -1072,8 +1073,8 @@ func hasIP3(nodes []WsServerNode) bool {
 
 func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list []WsServerList) ([]*RegionalWgConf, error) {
 	if id == nil || reservation == nil || len(list) <= 0 {
-		return nil, log.EE("ws: conf: convert: invalid input; id nil? %t; reservation nil? %t; list len %d",
-			id == nil, reservation == nil, len(list))
+		return nil, fmt.Errorf("regional configs err: creds? %t; res? %t; servers? %d",
+			id != nil, reservation != nil, len(list))
 	}
 
 	tot := make(map[string]int)
@@ -1136,6 +1137,10 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 				ServerIPPort4:    net.JoinHostPort(wsRandomIP3(group.Nodes), port),
 				AllowedIPs:       allowed,
 			})
+			if settings.Debug {
+				log.VV("ws: wgconfs: gen for %s (%s); total for %s: %d",
+					group.City, group.Nick, cc, tot[cc])
+			}
 		}
 	}
 
