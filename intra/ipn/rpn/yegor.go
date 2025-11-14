@@ -1570,10 +1570,10 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		if downloadServerList {
 			newServersRes, err := getServerList(h, newSess, existingEnt)
 
-			loge(err)("ws: make: lochash changed %s != %s / len(%d/%d); fetch err? %v",
-				existingLocHash, newSess.LocHash, len(existingServers), len(newServersRes.Data), err)
+			loge(err)("ws: make: lochash changed %s != %s / exlen(%d); fetch err? %v",
+				existingLocHash, newSess.LocHash, len(existingServers), err)
 
-			if err == nil && len(newServersRes.Data) > 0 {
+			if err == nil && newServersRes != nil && len(newServersRes.Data) > 0 {
 				maybeNewServers = newServersRes.Data
 				hasnew = true
 			}
@@ -1586,7 +1586,8 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		// create wg confs from new or existing server list
 		// always reconfigure (as /WgConfigs/connect must be done once every wg_ttl, which is 60m)
 		maybeNewCreds, maybeNewWgConfs, err := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement)
-		loge(err)("ws: make: gen wg confs; tok? %s; new loc? %t; err? %v", tokst, hasnew, err)
+		loge(err)("ws: make: gen wg confs; tok? %s; new loc? %t len (%d/%d); err? %v",
+			tokst, hasnew, len(existingServers), len(maybeNewServers), err)
 
 		if err == nil {
 			existingConf.Servers = maybeNewServers
