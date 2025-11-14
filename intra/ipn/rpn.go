@@ -115,6 +115,7 @@ func (r *rpnp) Fork(cc *x.Gostr) (x.Proxy, error) {
 	return r.fork(cc.V())
 }
 
+// cc may be a fully qualified ID (in case of re-forking the main proxy), too.
 func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	// do not hold lock while calling into pxr as it can callback via Emplace.
 	r.mu.RLock()
@@ -129,9 +130,9 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	}
 
 	provider := acc.ProviderID()
-	if strings.HasSuffix(mainpid, cc) {
+	if mainpid == provider+cc || mainpid == cc {
 		// re-forking main proxy (which may not be multi-country acc) via Update() => forkAll()
-		log.I("proxy: rpn: fork: %s main cc %s<>%s; re-adding...", provider, maincc(acc), cc)
+		log.I("proxy: rpn: fork: %s main cc %s; re-adding...", provider, cc)
 		// expect Emplace to be called
 		return r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
 	}
@@ -143,6 +144,8 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	if !acc.MultiCountry() {
 		return nil, log.EE("proxy: rpn: fork: %s not multi-country %s", cc, provider)
 	}
+
+	log.I("proxy: rpn: fork: %s[%s]", provider, cc)
 
 	// re-adds + updates if the proxy already exists
 	kid, err := r.pxr.addRpnProxy(acc, cc)
@@ -157,12 +160,15 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 }
 
 func (r *rpnp) forkMain() {
-	provider := r.RpnAcc.ProviderID()
-	cc := maincc(r.RpnAcc)
+	r.mu.RLock()
+	main := r.Proxy
+	r.mu.RUnlock()
 
-	_, err := r.fork(cc) // re-adds main proxy (via Emplace)
+	mainpid := idstr(main)
 
-	logei(err)("proxy: rpn: forkMain: %s[%s]; err? %v", provider, cc, err)
+	_, err := r.fork(mainpid) // re-adds main proxy (via Emplace)
+
+	logei(err)("proxy: rpn: forkMain: %s; err? %v", mainpid, err)
 }
 
 func (r *rpnp) forkAll() {
@@ -175,7 +181,6 @@ func (r *rpnp) forkAll() {
 		_, err := r.fork(cc)
 		loged(err)("proxy: rpn: forkAll: forked %s[%s]; err? %v", provider, cc, err)
 	}
-
 }
 
 func (r *rpnp) PurgeAll() (n uint32) {
@@ -192,7 +197,12 @@ func (r *rpnp) PurgeAll() (n uint32) {
 }
 
 func (r *rpnp) purgeMain() bool {
-	return r.pxr.removeRpnProxy(r.RpnAcc, maincc(r.RpnAcc))
+	r.mu.RLock()
+	main := r.Proxy
+	r.mu.RUnlock()
+	mainpid := idstr(main)
+	log.I("proxy: rpn: purgeMain: %s", mainpid)
+	return r.pxr.removeRpnProxy(r.RpnAcc, mainpid)
 }
 
 // Purge implements x.RpnProxy.
@@ -201,14 +211,19 @@ func (r *rpnp) Purge(cc *x.Gostr) bool {
 }
 
 func (r *rpnp) purge(cc string) bool {
+	r.mu.RLock()
+	main := r.Proxy
 	acc := r.RpnAcc
+	r.mu.RUnlock()
+
 	provider := acc.ProviderID()
+	mainpid := idstr(main)
 	cc = strings.ToUpper(cc)
 
 	if !acc.MultiCountry() {
 		log.D("proxy: rpn: purge: %s not multi-country %s", cc, provider)
 		return false
-	} else if cc == maincc(acc) {
+	} else if cc == mainpid || provider+cc == mainpid {
 		log.W("proxy: rpn: purge: %s is main; call PurgeAll instead", cc, provider)
 		return false
 	} else if len(cc) < 2 {
@@ -232,28 +247,34 @@ func (r *rpnp) Get(cc *x.Gostr) (x.Proxy, error) {
 }
 
 func (r *rpnp) get(cc string) (x.Proxy, error) {
+	acc := r.RpnAcc
+	rpnid := acc.ProviderID()
+
+	if cc == noCountryForOldMen && !acc.MultiCountry() {
+		return r, nil
+	}
+	if !acc.MultiCountry() {
+		return nil, log.EE("proxy: rpn: get: %s not multi-country %s", cc, rpnid)
+	}
 	if len(cc) < 2 {
 		log.W("proxy: rpn: get: %s bad country code", cc)
 		return nil, errRpnBadCC
 	}
 	cc = strings.ToUpper(cc)
 
-	acc := r.RpnAcc
-	if cc == maincc(acc) {
-		// TODO: r.Proxy needs to be got after r.mu.RLock()
-		return r, nil
-	} else if !acc.MultiCountry() {
-		return nil, log.EE("proxy: rpn: get: %s not multi-country %s", cc, acc.ProviderID())
-	}
-
 	r.mu.RLock()
+	main := r.Proxy
 	_, gotCC := r.kids[cc]
 	r.mu.RUnlock()
 
+	if rpnid+cc == idstr(main) {
+		// FIXME: r.Proxy needs to be got after r.mu.RLock()
+		return r, nil
+	}
 	if !gotCC {
 		return nil, errRpnNotForked
 	}
-	return r.pxr.rpnProxyFor(acc.ProviderID(), cc)
+	return r.pxr.rpnProxyFor(rpnid, cc)
 }
 
 // Kids implements x.RpnProxy.
@@ -287,7 +308,7 @@ func (r *rpnp) Expires() int64 {
 func (r *rpnp) Update() (newState *x.Gobyte, err error) {
 	newState, err = r.RpnAcc.Update()
 	if err == nil {
-		go r.forkAll()
+		go r.forkAll() // may error
 	}
 	return
 }

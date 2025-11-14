@@ -880,14 +880,18 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		city = cccsv[0]
 		cc = cccsv[1]
 	}
+	chooseAny := cc == "**" || len(cc) <= 0
 	hasCity := len(city) > 0
 	tot := 0
 	c := 0
 	out := make([]string, 0, maxPerRegionWgConfs)
+	ids := make([]string, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
-		if rc.CC == cc && (hasCity && rc.City == city) || (!hasCity && c < maxPerRegionWgConfs) {
+		if (chooseAny || strings.HasSuffix(rc.CC, cc)) &&
+			((hasCity && rc.City == city) || (!hasCity && c < maxPerRegionWgConfs)) {
 			if rc.genUapiConfig() {
 				out = append(out, rc.UapiWgConf)
+				ids = append(ids, strings.Join([]string{rc.CC, rc.City, rc.Name}, "/"))
 				c++
 			}
 		}

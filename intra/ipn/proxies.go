@@ -1203,7 +1203,7 @@ func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gob
 
 	// TODO: create a new proxy type for win, so Refresh() could be sent to /connect
 	// TODO: best location: github.com/Windscribe/browser-extension/blob/ed83749ad1/modules/ext/src/utils/getBestLocation.js
-	rp, err := px.addRpnProxy(win, maincc(win))
+	rp, err := px.addRpnProxy(win, anycc(win))
 	if err != nil || rp == nil {
 		log.E("proxy: ws: add wg for %s failed: %v", win.Who(), err)
 		return nil, core.JoinErr(err, errNotRpnProxy)

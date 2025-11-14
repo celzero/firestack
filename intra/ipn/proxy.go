@@ -29,11 +29,11 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-const mainCountryCode = "US"  // always uppercase
+const anyCountryCode = "**"   // random country
 const noCountryForOldMen = "" // zz
 
-func maincc(acc RpnAcc) string {
-	cc := mainCountryCode
+func anycc(acc RpnAcc) string {
+	cc := anyCountryCode
 	if !acc.MultiCountry() {
 		cc = noCountryForOldMen
 	}
@@ -61,6 +61,7 @@ func (pxr *proxifier) AddProxy(id, txt *x.Gostr) (x.Proxy, error) {
 	return pxr.addProxy(pid, txt.V())
 }
 
+// cc may be a fully qualified ID in case of removing the main proxy.
 func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
 	if acc == nil || core.IsNil(acc) {
 		return false
@@ -76,9 +77,15 @@ func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
 
 	log.V("proxy: rpn: remove: %s[%s]", typ, cc)
 
-	return pxr.removeProxy(typ+cc, true /*force*/)
+	rpnid := cc // cc itself may be a fully qualified id if removing main proxy
+	if !strings.HasPrefix(cc, typ) {
+		rpnid = typ + cc
+	}
+
+	return pxr.removeProxy(rpnid, true /*force*/)
 }
 
+// cc may be a fully qualified ID in case when re-adding the main proxy.
 func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 	if acc == nil || core.IsNil(acc) {
 		return nil, errNotRpnAcc
@@ -93,12 +100,17 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 		log.W("proxy: rpn: add: %s not multi-country; [%s] ignored", typ, cc)
 		cc = noCountryForOldMen
 	}
+
+	cc, _ = strings.CutPrefix(cc, typ)
+
 	txt, err := acc.Conf(cc)
 	if err != nil {
 		return nil, err
 	}
 
-	p, err := pxr.addProxy(typ+cc, txt)
+	rpnid := typ + cc
+
+	p, err := pxr.addProxy(rpnid, txt)
 	if p == nil {
 		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, core.JoinErr(err, errAddProxy)
@@ -129,29 +141,31 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 
 func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) {
 	proxyid := idstr(p)
+	provider := acc.ProviderID()
+
+	pxr.rpnmu.Lock()
+	rp := pxr.rp[provider]
+	pxr.rpnmu.Unlock()
 
 	// add rpn proxy iff rpn proxy isn't multicountry (in which case only one
 	// instance of it can exist and hence it is being re-added if already present)
-	// or, if it is multicountry, add it only if the country code is the main country,
-	// as forked children countries only need be added as plain-old proxies (done above).
-	if !acc.MultiCountry() || strings.HasSuffix(proxyid, mainCountryCode) {
-		pxr.rpnmu.Lock()
-		rp := pxr.rp[acc.ProviderID()]
-		pxr.rpnmu.Unlock()
-
-		if rp == nil {
-			rp, err = asRpnProxy(p, acc, pxr)
-			if rp == nil { // should not happen; unexpected!
-				defer pxr.removeProxy(proxyid, true /*force*/)
-				return nil, core.JoinErr(err, errAddProxyAsRpn)
-			}
-			// TODO: setup hop from mainCountryCode to forked rpn proxies
-			pxr.rpnmu.Lock()
-			pxr.rp[acc.ProviderID()] = rp // removed on unregister
-			pxr.rpnmu.Unlock()
-		} else {
-			go rp.Emplace(p) // may fail
+	// or, if it is multicountry, add it only if the proxy is the main proxy,
+	// as forked children countries only need be added as plain-old proxies
+	// which is done before calling this function (ie, a no-op)
+	if rp == nil {
+		rp, err = asRpnProxy(p, acc, pxr)
+		if rp == nil { // should not happen; unexpected!
+			defer pxr.removeProxy(proxyid, true /*force*/)
+			return nil, core.JoinErr(err, errAddProxyAsRpn)
 		}
+		// TODO: setup hop from mainCountryCode to forked rpn proxies
+		pxr.rpnmu.Lock()
+		pxr.rp[provider] = rp // removed on unregister
+		pxr.rpnmu.Unlock()
+		log.I("proxy: rpn: add: post: registered %s as rpn proxy for %s", proxyid, provider)
+	} else if idstr(p) == idstr(rp) {
+		log.I("proxy: rpn: add: post: %s already registered for %s; emplacing...", proxyid, provider)
+		go rp.Emplace(p) // may fail
 	}
 
 	return p, nil
