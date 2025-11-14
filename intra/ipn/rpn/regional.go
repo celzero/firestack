@@ -14,9 +14,12 @@ import (
 )
 
 type RegionalWgConf struct {
-	CC   string `json:"CC"`
-	City string `json:"City"`
-	Name string `json:"Name"`
+	CC    string `json:"CC"`
+	City  string `json:"City"`
+	Name  string `json:"Name"`
+	Load  int32  `json:"Load"`
+	Link  int32  `json:"Link"`
+	Count int32  `json:"Count"`
 
 	ClientAddr4   string `json:"ClientAddr4"`
 	ClientAddr6   string `json:"ClientAddr6"`

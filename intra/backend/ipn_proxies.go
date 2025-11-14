@@ -280,5 +280,10 @@ type RpnServer struct {
 	City string
 	// Key for RpnProxy.Fork() to get an RpnProxy instance for this RpnServer.
 	Key string
-	// TODO: number of servers, health, link speed, etc?
+	// Load score of this server (lower is better)
+	Load int32
+	// Link speed in Mbps (higher is better).
+	Link int32
+	// Number of active servers in this CC+City.
+	Count int32
 }

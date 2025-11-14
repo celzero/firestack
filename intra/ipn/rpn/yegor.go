@@ -107,7 +107,7 @@ const (
 )
 
 const (
-	confKeySep = ","
+	confKeySep = ";"
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/res/raw/port_map.txt#L76
@@ -448,7 +448,7 @@ type WsServerGroup struct {
 	// GET <ping-host>
 	// {"rtt": "5775"}  = 5.7ms
 	PingHost string `json:"ping_host"`
-	// 100mbps, 1000mbps, 10,000mbps etc;
+	// 100, 1000, 10000 (in mbps) etc;
 	LinkSpeed string `json:"link_speed"`
 	// Nodes are online servers that can be connected to in a datacneter.
 	// If empty, the datacenter is offline.
@@ -819,9 +819,12 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 		}
 		if !visited[rc.Name] {
 			s = append(s, x.RpnServer{
-				CC:   rc.CC,
-				City: rc.City,
-				Name: rc.Name,
+				CC:    rc.CC,
+				City:  rc.City,
+				Name:  rc.Name,
+				Load:  rc.Load,
+				Link:  rc.Link,
+				Count: rc.Count,
 				// cc is always suffixed; see proxy.go:proxifier.postAddRpnProxy
 				Key:   strings.Join([]string{rc.City, rc.CC}, confKeySep),
 				Addrs: strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
@@ -1084,7 +1087,7 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 	tot := make(map[string]int)
 	out := make([]*RegionalWgConf, 0, len(list))
 	for _, server := range list {
-		if skip, why := skipWsServer(server); false && skip {
+		if skip, why := skipWsServer(server); skip {
 			log.VV("ws: conf: convert skip; %s: %s", server.CountryCode, why)
 			continue
 		}
@@ -1127,10 +1130,14 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 			// Use any IPv4 permutation of AllowedIPs. The API only sends a hint.
 			// IPv6s are firewalled.
 			allowed := []string{gw4}
+			linkspeed, lerr := strconv.Atoi(group.LinkSpeed)
 			out = append(out, &RegionalWgConf{
 				CC:               strings.ToUpper(server.CountryCode),
 				City:             strings.ToUpper(group.City),
 				Name:             servername,
+				Load:             int32(group.Health),
+				Link:             int32(linkspeed),
+				Count:            int32(len(group.Nodes)),
 				ClientAddr4:      reservation.Config.Address,
 				ClientPrivKey:    id.PrivateKey,
 				ClientPubKey:     id.PublicKey,
@@ -1142,8 +1149,8 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 				AllowedIPs:       allowed,
 			})
 			if settings.Debug {
-				log.VV("ws: wgconfs: gen for %s (%s); total for %s: %d",
-					group.City, group.Nick, cc, tot[cc])
+				log.VV("ws: wgconfs: gen for %s (%s) [load: %d; link: %s; count: %d]; total for %s: %d; errs? %v",
+					group.City, group.Nick, group.Health, group.LinkSpeed, len(group.Nodes), cc, tot[cc], lerr)
 			}
 		}
 	}
