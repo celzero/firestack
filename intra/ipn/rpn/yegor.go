@@ -1035,15 +1035,15 @@ func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) 
 	return &wsSess.Data, nil
 }
 
-func skipWsServer(server WsServerList) bool {
+func skipWsServer(server WsServerList) (bool, string) {
 	if server.PremiumOnly != 1 { // skip non-premium servers
-		return true
+		return true, "not premium"
 	} else if server.Status != 1 { // skip servers that are not okay
-		return true
+		return true, "status not okay"
 	} else if len(server.Groups) <= 0 {
-		return true // skip servers without groups
+		return true, "no groups" // skip servers without groups
 	} // else if: skip server.P2P == 0?
-	return false // this server is okay to use
+	return false, "" // this server is okay to use
 }
 
 func wsRandomPort() string {
@@ -1072,13 +1072,15 @@ func hasIP3(nodes []WsServerNode) bool {
 
 func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list []WsServerList) ([]*RegionalWgConf, error) {
 	if id == nil || reservation == nil || len(list) <= 0 {
-		return nil, errWsNoServerList
+		return nil, log.EE("ws: conf: convert: invalid input; id nil? %t; reservation nil? %t; list len %d",
+			id == nil, reservation == nil, len(list))
 	}
 
 	tot := make(map[string]int)
 	out := make([]*RegionalWgConf, 0, len(list))
 	for _, server := range list {
-		if skipWsServer(server) {
+		if skip, why := skipWsServer(server); false && skip {
+			log.VV("ws: conf: convert skip; %s: %s", server.CountryCode, why)
 			continue
 		}
 
@@ -1549,30 +1551,25 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		err = log.EE("ws: make: parsing expiry %s; err: %v", newSess.ExpiryDate, err)
 		return
 	}
-	active := exp.After(time.Now())
-	if !active {
-		log.W("ws: make: session expired at %s; tok? %s", fmtTime(exp), tokst)
-	}
 
+	active := exp.After(time.Now())
 	existingServers := existingConf.Servers
 	downloadServerList := existingLocHash != newSess.LocHash
-
 	if active {
-		var maybeNewServers []WsServerList
-
+		maybeNewServers := existingServers
 		hasnew := false
 		if downloadServerList {
 			newServersRes, err := getServerList(h, newSess, existingEnt)
 
-			loge(err)("ws: make: lochash changed %s != %s; fetch err? %v",
-				existingLocHash, newSess.LocHash, err)
+			loge(err)("ws: make: lochash changed %s != %s / len(%d/%d); fetch err? %v",
+				existingLocHash, newSess.LocHash, len(existingServers), len(newServersRes.Data), err)
 
-			if err != nil && len(existingServers) > 0 {
-				maybeNewServers = existingServers
-			} else if err == nil {
+			if err == nil && len(newServersRes.Data) > 0 {
 				maybeNewServers = newServersRes.Data
 				hasnew = true
-			} else { // no new servers, no existing servers; bail
+			}
+
+			if len(maybeNewServers) <= 0 { // no new servers, no existing servers; bail
 				return nil, refreshedSess, core.OneErr(err, errWsNoServerList)
 			}
 		}
@@ -1587,6 +1584,8 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 			existingConf.Configs = maybeNewWgConfs
 			existingConf.Creds = maybeNewCreds
 		}
+	} else {
+		log.W("ws: make: session expired at %s; tok? %s", fmtTime(exp), tokst)
 	}
 
 	ws, err = newWsGw(existingConf, h)
