@@ -752,7 +752,7 @@ func (t *wgtun) setupReverserIfNeeded(set bool) (didSet bool) {
 		return true
 	} // do not use reverser
 
-	logeif(set)("proxy: wg: %s remove rev; must set?", id, set)
+	logeif(set)("proxy: wg: %s remove rev; must set? %t", id, set)
 
 	netstack.OutboundTCP(id, s, nil) // unset
 	netstack.OutboundUDP(id, s, nil) // unset
