@@ -108,6 +108,8 @@ const (
 
 const (
 	confKeySep = ";"
+
+	onlyPremiumServers = true
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/res/raw/port_map.txt#L76
@@ -1044,7 +1046,7 @@ func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) 
 }
 
 func skipWsServer(server WsServerList) (bool, string) {
-	if server.PremiumOnly != 1 { // skip non-premium servers
+	if onlyPremiumServers && server.PremiumOnly != 1 { // skip non-premium servers
 		return true, "not premium"
 	} else if server.Status != 1 { // skip servers that are not okay
 		return true, "status not okay"
