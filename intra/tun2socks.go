@@ -142,12 +142,6 @@ func Slowdown(y bool) {
 	log.I("tun: slowdown? %t / ok? %t", y, ok)
 }
 
-// HappyEyeballs enables/disables Happy Eyeballs algorithm for dual-stack (IPv4+IPv6) connections.
-func HappyEyeballs(y bool) {
-	ok := settings.HappyEyeballs.CompareAndSwap(!y, y)
-	log.I("tun: happy eyeballs %t / ok? %t", y, ok)
-}
-
 // ExperimentalWireGuard enables/disables experimental features for WireGuard like allowing incoming packets.
 func ExperimentalWireGuard(y bool) {
 	// todo: move to its own method
