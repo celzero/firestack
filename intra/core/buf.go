@@ -9,13 +9,15 @@ package core
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/buffer_pool.go
 
 import (
+	"math/bits"
 	"sync"
 )
 
 var slabs [totalSlabs]*sync.Pool // read-only after init
 
 const (
-	totalSlabs = 7 // total slab types
+	totalSlabs      = 7  // total slab types
+	minSlabExponent = 11 // 2^11 = 2048 bytes
 
 	// B524288 is slab of size 512k
 	B524288 = 512 * 1024
@@ -133,5 +135,13 @@ func newpool(size int) *sync.Pool {
 }
 
 func k(i uint32) int {
-	return int(min(i>>1, totalSlabs-1))
+	slot := log2(i) - minSlabExponent
+	if slot < 0 {
+		return 0
+	}
+	return min(slot, totalSlabs-1)
+}
+
+func log2(powerof2 uint32) int {
+	return bits.TrailingZeros32(powerof2)
 }
