@@ -3,8 +3,12 @@ name: AAARRR
 on:
   push:
     branches: [ n2 ]
+    paths:
+      - '**/*.go'
   pull_request:
     branches: [ n2 ]
+    paths:
+      - '**/*.go'
   workflow_dispatch:
 
 jobs:
