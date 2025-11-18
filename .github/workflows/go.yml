@@ -16,8 +16,13 @@ jobs:
   build:
     name: 🧬 Build
     runs-on: ubuntu-latest
-    steps:
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+      packages: write
 
+    steps:
     - name: 🥏 Checkout code
       uses: actions/checkout@v4
 
@@ -304,6 +309,42 @@ jobs:
         retention-days: 52 # 0-90; 90 is max
         if-no-files-found: error # error, warn (default), ignore
         compression-level: 9 # 0-9; 9 is max
+
+    # github.com/microsoft/sbom-tool
+    # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
+    - name: 🧾 SBOM
+      run: |
+        # docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository#generating-a-software-bill-of-materials-from-github-actions
+        # github.com/marketplace/actions/spdx-dependency-submission-action
+        curl -Lo $RUNNER_TEMP/sbom-tool https://github.com/microsoft/sbom-tool/releases/latest/download/sbom-tool-linux-x64
+        chmod +x $RUNNER_TEMP/sbom-tool
+        $RUNNER_TEMP/sbom-tool generate -b . -bc . -pn ${{ github.repository }} -pv 1.0.0 -ps Celzero -nsb https://sbom.rethinkdns.com/app -V Verbose
+    - name: 📤 SBOM upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: _manifest/spdx_2.2
+    - name: 📝 SBOM submission
+      uses: advanced-security/spdx-dependency-submission-action@v0.1.1
+      with:
+        filePath: "_manifest/spdx_2.2/"
+    # github.com/actions/attest-build-provenance
+    # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-build-provenance-for-binaries
+    - name: 🔏 Build attestation
+      uses: actions/attest-build-provenance@v3
+      with:
+        subject-path: |
+          "${{ github.workspace }}/${{ env.FOUT }}"
+          "${{ github.workspace }}/${{ env.FOUTDBG }}"
+    # github.com/actions/attest-sbom
+    # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-an-sbom-attestation-for-binaries
+    - name: 🫆 SBOM attestation
+      uses: actions/attest-sbom@v3
+      with:
+        subject-path: |
+          "${{ github.workspace }}/${{ env.FOUT }}"
+          "${{ github.workspace }}/${{ env.FOUTDBG }}"
+        sbom-path: "${{ github.workspace }}/_manifest/spdx_2.2/manifest.spdx.json"
 
   checker:
     name: 🔐 Security checker
