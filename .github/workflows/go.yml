@@ -199,7 +199,7 @@ jobs:
       shell: bash
 
     - name: 🏷️ Setup for GitHub Packages
-      if: success() && github.event_name == 'push'
+      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -208,7 +208,7 @@ jobs:
     # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
     # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
     - name: 😺 GitHub Packages
-      if: success() && github.event_name == 'push'
+      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       shell: bash
       run: |
         # uploaded at:
@@ -237,7 +237,7 @@ jobs:
     # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
     # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
     - name: 🏛️ Setup for Maven Central
-      if: success() && github.event_name == 'push'
+      if: success() && github.event_name == 'workflow_dispatch'
       uses: actions/setup-java@v4
       with:
         java-version: '17'
@@ -249,7 +249,7 @@ jobs:
         gpg-passphrase: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
 
     - name: 📦 Publish to Maven Central
-      if: success() && github.event_name == 'push'
+      if: success() && github.event_name == 'workflow_dispatch'
       shell: bash
       run: |
         mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
@@ -296,7 +296,7 @@ jobs:
 
     # github.com/actions/upload-artifact
     - name: 🚀 Upload as artifact
-      if: failure() && github.event_name == 'push'
+      if: (failure() && github.event_name == 'push') || (success() && github.event_name == 'workflow_dispatch')
       uses: actions/upload-artifact@v4
       with:
         name: firestack-aar-${{ github.sha }} # must be unique
