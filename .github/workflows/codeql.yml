@@ -50,7 +50,7 @@ jobs:
 
     # Initializes the CodeQL tools for scanning.
     - name: 🛠️ Initialize
-      uses: github/codeql-action/init@v3
+      uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
         # If you wish to specify custom queries, you can do so here or in a config file.
@@ -58,7 +58,7 @@ jobs:
         # Prefix the list here with "+" to use these queries and those in the config file.
 
         # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
-        # queries: security-extended,security-and-quality
+        queries: security-extended,security-and-quality
 
 
     # Autobuild attempts to build any compiled languages (C/C++, C#, Go, Java, or Swift).
@@ -78,6 +78,13 @@ jobs:
       shell: bash
 
     - name: 🧩 Perform CodeQL
-      uses: github/codeql-action/analyze@v3
+      uses: github/codeql-action/analyze@v4
       with:
         category: "/language:${{matrix.language}}"
+
+    # docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/uploading-a-sarif-file-to-github
+    - name: 📡 Upload to code-scanning
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        # Path to SARIF file relative to the root of the repository
+        sarif_file: results.sarif
