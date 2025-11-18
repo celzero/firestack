@@ -1,4 +1,5 @@
 name: Scorecard
+
 on:
   # For Branch-Protection check. Only the default branch is supported. See
   # github.com/ossf/scorecard/blob/main/docs/checks.md#branch-protection
@@ -9,6 +10,8 @@ on:
     - cron: '53 21 * * 0'
   push:
     branches: [ "n2" ]
+    paths:
+      - '**/*.go'
 
 # Declare default permissions as read only.
 permissions: read-all
