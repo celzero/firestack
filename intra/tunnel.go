@@ -91,6 +91,10 @@ type Tunnel interface {
 	// SetLinkAndRoutes sets the tun fd as link with mtu & engine as routes for the tunnel.
 	// where engine is one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetLinkAndRoutes(fd, mtu, engine int) error
+	// SetLinkAndRoutes2 runs the tunnel with tunmtu & proxies with linkmtu.
+	// tunmtu may be a fake MTU and can be quite large, while linkmtu must
+	// be the actual MTU of the underlying network / link.
+	SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error
 	// Restart restarts the tunnel with the given fd, mtu, and engine.
 	Restart(fd, mtu, engine int) error
 
@@ -114,6 +118,7 @@ type rtunnel struct {
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
+	linkmtu  *core.Volatile[int]
 	closed   atomic.Bool
 	once     sync.Once
 }
@@ -132,7 +137,11 @@ func (l *clogAdapter) Log(lvl log.LogLevel, msg log.Logmsg) {
 	}
 }
 
-func NewTunnel(fd, mtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
+func NewTunnel(fd, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
+	return NewTunnel2(fd, tunmtu, tunmtu, ifaddrs, fakedns, dtr, bdg)
+}
+
+func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	defer core.Recover(core.Exit11, "i.newTunnel")
 
 	if dtr == nil || core.IsNil(dtr) {
@@ -166,7 +175,7 @@ func NewTunnel(fd, mtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge)
 
 	log.SetConsole(ctx, &clogAdapter{bdg})
 	natpt := x64.NewNatPt2(ctx)
-	proxies := ipn.NewProxifier(ctx, dualstack, mtu, bdg, bdg)
+	proxies := ipn.NewProxifier(ctx, dualstack, linkmtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
 
 	if proxies == nil || services == nil {
@@ -216,7 +225,7 @@ func NewTunnel(fd, mtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge)
 
 	log.D("tun: <<< new >>>; protocol handlers: ok")
 
-	gt, revhdl, err := tunnel.NewGTunnel(ctx, fd, mtu, dualstack, hdl)
+	gt, revhdl, err := tunnel.NewGTunnel(ctx, fd, tunmtu, dualstack, hdl)
 
 	if gt == nil || err != nil {
 		log.W("tun: <<< new >>>; err(%v)", err)
@@ -236,6 +245,7 @@ func NewTunnel(fd, mtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge)
 		proxies:  proxies,
 		resolver: resolver,
 		services: services,
+		linkmtu:  core.NewVolatile(linkmtu),
 	}
 
 	log.I("tun: <<< new >>>; tunnel ok; reverser? %v", rerr)
@@ -256,7 +266,11 @@ func (t *rtunnel) Disconnect() {
 	})
 }
 
-func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
+func (t *rtunnel) SetLinkAndRoutes(fd, tunmtu, engine int) error {
+	return t.SetLinkAndRoutes2(fd, tunmtu, tunmtu, engine)
+}
+
+func (t *rtunnel) SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error {
 	if t.closed.Load() {
 		log.W("tun: <<< set link and route >>>; already closed")
 		return errClosed
@@ -264,18 +278,18 @@ func (t *rtunnel) SetLinkAndRoutes(fd, mtu, engine int) error {
 
 	tunnel := t.t.Load()
 
-	mtudiff := tunnel.Mtu() != int32(mtu)
+	mtudiff := t.linkmtu.Swap(linkmtu) != linkmtu
 	l3 := settings.L3(engine)
 	l3diff := dialers.IPProtos(l3)
 
-	err := tunnel.SetLinkAndRoutes(fd, mtu, engine) // route is always dual-stack
+	err := tunnel.SetLinkAndRoutes(fd, tunmtu, engine) // route is always dual-stack
 
 	// TODO: skip refresh on err?
 	core.Gx("i.setLinkAndRoutesRefresh", func() {
 		if l3diff || mtudiff {
 			// dialers.IPProtos must always preced calls to other refreshes
 			// as it carries the global state for dialers and ipn/multihost
-			go t.proxies.RefreshProto(l3, mtu, false /*force*/)
+			go t.proxies.RefreshProto(l3, linkmtu, false /*force*/)
 		}
 		if l3diff {
 			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
