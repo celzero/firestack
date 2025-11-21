@@ -1080,7 +1080,7 @@ func hasIP3(nodes []WsServerNode) bool {
 	return false
 }
 
-func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list []WsServerList) ([]*RegionalWgConf, error) {
+func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list []WsServerList, test bool) ([]*RegionalWgConf, error) {
 	if id == nil || reservation == nil || len(list) <= 0 {
 		return nil, fmt.Errorf("regional configs err: creds? %t; res? %t; servers? %d",
 			id != nil, reservation != nil, len(list))
@@ -1089,9 +1089,11 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 	tot := make(map[string]int)
 	out := make([]*RegionalWgConf, 0, len(list))
 	for _, server := range list {
-		if skip, why := skipWsServer(server); skip {
-			log.VV("ws: conf: convert skip; %s: %s", server.CountryCode, why)
-			continue
+		if !test {
+			if skip, why := skipWsServer(server); skip {
+				log.VV("ws: conf: convert skip; %s: %s", server.CountryCode, why)
+				continue
+			}
 		}
 
 		cc := server.CountryCode
@@ -1413,7 +1415,7 @@ initagain:
 
 	// TODO: if wgconnect.Data.Config.Address has not changed and useExistingCreds is true,
 	// then we do not have to generate regional configs again (unless location hash has changed).
-	regconfs, err := convertToRegionalWgConfs(creds, &wgConnect.Data, servers)
+	regconfs, err := convertToRegionalWgConfs(creds, &wgConnect.Data, servers, test)
 
 	if err != nil || len(regconfs) <= 0 {
 		return nil, nil, log.EE("ws: wgconfs: (test? %t) no regions found for %s; %v", test, trunc8(pubkeybase64), err)
