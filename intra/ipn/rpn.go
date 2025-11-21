@@ -15,6 +15,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn/rpn"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 )
 
 type RpnProxy interface {
@@ -26,14 +27,12 @@ type RpnProxy interface {
 
 type RpnAcc = rpn.RpnAcc
 
-// TODO: override Probe, Ping, Announce, Accept, Dial, DialBind
 // and kick-off an update if the acc is expired?
 type rpnp struct {
 	mu sync.RWMutex // protects Proxy & kids
 
-	// parent Proxy
-	// TODO: unembed to type assert Proxy impl and to use mu
-	Proxy
+	// parent proxy
+	p Proxy
 	// Rpn-specific accounting
 	// TODO: unembed to type assert RpnAcc impl
 	RpnAcc
@@ -50,6 +49,7 @@ var _ RpnAcc = (*rpnp)(nil) // (useless) assertion always succeeds, see above
 var _ Proxy = (*rpnp)(nil)  // (useless) assertion always succeeds, see above
 
 var (
+	errRpnMissing          = errors.New("proxy: rpn: missing")
 	errRpnBadArgs          = errors.New("proxy: rpn: bad args")
 	errRpnBadEmplace       = errors.New("proxy: rpn: emplace: bad args")
 	errRpnBadCC            = errors.New("proxy: rpn: bad country code")
@@ -74,12 +74,209 @@ func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	return &rpnp{sync.RWMutex{}, e, acc, pxr, make(map[string]struct{}, 0)}, nil
 }
 
+func (r *rpnp) currentProxy() Proxy {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.p
+}
+
+func (r *rpnp) requireProxy() (Proxy, error) {
+	if p := r.currentProxy(); p != nil {
+		return p, nil
+	}
+	return nil, errRpnMissing
+}
+
+// ID implements x.Proxy.
+func (r *rpnp) ID() *x.Gostr {
+	if p := r.currentProxy(); p != nil {
+		return p.ID()
+	}
+	return x.StrOf("")
+}
+
+// Type implements x.Proxy.
+func (r *rpnp) Type() *x.Gostr {
+	if p := r.currentProxy(); p != nil {
+		return p.Type()
+	}
+	return x.StrOf("")
+}
+
+// Router implements x.Proxy.
+func (r *rpnp) Router() x.Router {
+	if p := r.currentProxy(); p != nil {
+		return p.Router()
+	}
+	return nil
+}
+
+// GetAddr implements x.Proxy.
+func (r *rpnp) GetAddr() *x.Gostr {
+	if p := r.currentProxy(); p != nil {
+		return p.GetAddr()
+	}
+	return x.StrOf("")
+}
+
+// DNS implements x.Proxy.
+func (r *rpnp) DNS() *x.Gostr {
+	if p := r.currentProxy(); p != nil {
+		return p.DNS()
+	}
+	return x.StrOf("")
+}
+
+// Status implements x.Proxy.
+func (r *rpnp) Status() int {
+	if p := r.currentProxy(); p != nil {
+		return p.Status()
+	}
+	return END
+}
+
+// Ping implements x.Proxy.
+func (r *rpnp) Ping() bool {
+	if p := r.currentProxy(); p != nil {
+		return p.Ping()
+	}
+	return false
+}
+
+// Pause implements x.Proxy.
+func (r *rpnp) Pause() bool {
+	if p := r.currentProxy(); p != nil {
+		return p.Pause()
+	}
+	return false
+}
+
+// Resume implements x.Proxy.
+func (r *rpnp) Resume() bool {
+	if p := r.currentProxy(); p != nil {
+		return p.Resume()
+	}
+	return false
+}
+
+// Stop implements x.Proxy.
+func (r *rpnp) Stop() error {
+	p, err := r.requireProxy()
+	if err != nil {
+		return err
+	}
+	return p.Stop()
+}
+
+// Refresh implements x.Proxy.
+func (r *rpnp) Refresh() error {
+	p, err := r.requireProxy()
+	if err != nil {
+		return err
+	}
+	return p.Refresh()
+}
+
+// DialerHandle implements Proxy.
+func (r *rpnp) DialerHandle() uintptr {
+	if p := r.currentProxy(); p != nil {
+		return p.DialerHandle()
+	}
+	return 0
+}
+
+// Handle implements Proxy.
+func (r *rpnp) Handle() uintptr {
+	if p := r.currentProxy(); p != nil {
+		return p.Handle()
+	}
+	return 0
+}
+
+// Dialer implements Proxy.
+func (r *rpnp) Dialer() protect.RDialer {
+	if p := r.currentProxy(); p != nil {
+		return p.Dialer()
+	}
+	return nil
+}
+
+// onNotOK implements Proxy.
+func (r *rpnp) onNotOK() (bool, bool) {
+	if p := r.currentProxy(); p != nil {
+		return p.onNotOK()
+	}
+	return false, false
+}
+
+// OnProtoChange implements Proxy.
+func (r *rpnp) OnProtoChange(lp LinkProps) (string, bool) {
+	if p := r.currentProxy(); p != nil {
+		return p.OnProtoChange(lp)
+	}
+	return "", false
+}
+
+// Hop implements Proxy.
+func (r *rpnp) Hop(p Proxy, dryrun bool) error {
+	main, err := r.requireProxy()
+	if err != nil {
+		return err
+	}
+	return main.Hop(p, dryrun)
+}
+
+// Dial implements Proxy.
+func (r *rpnp) Dial(network, addr string) (protect.Conn, error) {
+	if p, err := r.requireProxy(); err == nil {
+		return p.Dial(network, addr)
+	} else {
+		return nil, err
+	}
+}
+
+// DialBind implements Proxy.
+func (r *rpnp) DialBind(network, local, remote string) (protect.Conn, error) {
+	if p, err := r.requireProxy(); err == nil {
+		return p.DialBind(network, local, remote)
+	} else {
+		return nil, err
+	}
+}
+
+// Probe implements Proxy.
+func (r *rpnp) Announce(network, local string) (protect.PacketConn, error) {
+	if p, err := r.requireProxy(); err == nil {
+		return p.Announce(network, local)
+	} else {
+		return nil, err
+	}
+}
+
+// Accept implements Proxy.
+func (r *rpnp) Accept(network, local string) (protect.Listener, error) {
+	if p, err := r.requireProxy(); err == nil {
+		return p.Accept(network, local)
+	} else {
+		return nil, err
+	}
+}
+
+// Probe implements Proxy.
+func (r *rpnp) Probe(network, local string) (protect.PacketConn, error) {
+	if p, err := r.requireProxy(); err == nil {
+		return p.Probe(network, local)
+	} else {
+		return nil, err
+	}
+}
+
 // Emplace implements RpnProxy.
 func (r *rpnp) Emplace(new Proxy) (err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	old := r.Proxy
+	old := r.p
 	oldid := idstr(old)
 	newid := idstr(new)
 
@@ -104,7 +301,7 @@ func (r *rpnp) Emplace(new Proxy) (err error) {
 		log.W("proxy: rpn: emplace: %s <> %s mismatch", oldid, newid)
 	}
 
-	r.Proxy = new
+	r.p = new
 
 	log.D("proxy: rpn: emplace: %s[%s]", r.RpnAcc.ProviderID(), newid)
 	return nil
@@ -118,10 +315,11 @@ func (r *rpnp) Fork(cc *x.Gostr) (x.Proxy, error) {
 // cc may be a fully qualified ID (in case of re-forking the main proxy), too.
 func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	// do not hold lock while calling into pxr as it can callback via Emplace.
-	r.mu.RLock()
-	main := r.Proxy
+	main, err := r.requireProxy()
+	if err != nil {
+		return nil, err
+	}
 	acc := r.RpnAcc
-	r.mu.RUnlock()
 
 	mainpid := idstr(main)
 	if len(mainpid) <= 0 || main.Status() == END {
@@ -160,13 +358,14 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 }
 
 func (r *rpnp) forkMain() {
-	r.mu.RLock()
-	main := r.Proxy
-	r.mu.RUnlock()
+	main, err := r.requireProxy()
+	if err != nil {
+		return
+	}
 
 	mainpid := idstr(main)
 
-	_, err := r.fork(mainpid) // re-adds main proxy (via Emplace)
+	_, err = r.fork(mainpid) // re-adds main proxy (via Emplace)
 
 	logei(err)("proxy: rpn: forkMain: %s; err? %v", mainpid, err)
 }
@@ -197,11 +396,12 @@ func (r *rpnp) PurgeAll() (n uint32) {
 }
 
 func (r *rpnp) purgeMain() bool {
-	r.mu.RLock()
-	main := r.Proxy
-	r.mu.RUnlock()
+	main, err := r.requireProxy()
 	mainpid := idstr(main)
-	log.I("proxy: rpn: purgeMain: %s", mainpid)
+	logei(err)("proxy: rpn: purgeMain: %s; err? %v", mainpid, err)
+	if err != nil {
+		return false
+	}
 	return r.pxr.removeRpnProxy(r.RpnAcc, mainpid)
 }
 
@@ -211,10 +411,12 @@ func (r *rpnp) Purge(cc *x.Gostr) bool {
 }
 
 func (r *rpnp) purge(cc string) bool {
-	r.mu.RLock()
-	main := r.Proxy
+	main, err := r.requireProxy()
+	if err != nil {
+		log.W("proxy: rpn: purge: no main proxy %s", err)
+		return false
+	}
 	acc := r.RpnAcc
-	r.mu.RUnlock()
 
 	provider := acc.ProviderID()
 	mainpid := idstr(main)
@@ -263,7 +465,7 @@ func (r *rpnp) get(cc string) (x.Proxy, error) {
 	cc = strings.ToUpper(cc)
 
 	r.mu.RLock()
-	main := r.Proxy
+	main := r.p
 	_, gotCC := r.kids[cc]
 	r.mu.RUnlock()
 
@@ -297,22 +499,11 @@ func (r *rpnp) flattenKids() (ccs []string) {
 	return
 }
 
-func (r *rpnp) Created() int64 {
-	return r.RpnAcc.Created()
-}
-
-func (r *rpnp) Expires() int64 {
-	return r.RpnAcc.Expires()
-}
-
+// Update implements RpnAcc.
 func (r *rpnp) Update() (newState *x.Gobyte, err error) {
 	newState, err = r.RpnAcc.Update()
 	if err == nil {
 		go r.forkAll() // may error
 	}
 	return
-}
-
-func (r *rpnp) Locations() (x.RpnServers, error) {
-	return r.RpnAcc.Locations()
 }
