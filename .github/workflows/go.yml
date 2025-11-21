@@ -350,7 +350,7 @@ jobs:
     - name: 📤 SBOM upload
       uses: actions/upload-artifact@v4
       with:
-        name: sbom
+        name: "firestack-sbom-${{ github.sha }}"
         path: _manifest/spdx_2.2
 
     - name: 📝 SBOM submission
@@ -362,7 +362,7 @@ jobs:
 
     # github.com/actions/attest-sbom
     # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-an-sbom-attestation-for-binaries
-    - name: 🫆 SBOM attestation
+    - name: 🧶 SBOM attestation
       if: success()
       continue-on-error: true
       uses: actions/attest-sbom@v3
