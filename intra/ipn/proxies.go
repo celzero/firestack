@@ -216,6 +216,7 @@ type Proxies interface {
 	ProxyProvider
 	Rpn
 	// RefreshProto broadcasts proto change to all active proxies.
+	// l3 if left empty, will use last recorded value; same for mtu <= 0.
 	RefreshProto(l3 string, mtu int, force bool)
 	// LiveProxies returns a csv of active proxies.
 	LiveProxies() string
@@ -1006,6 +1007,13 @@ func (px *proxifier) RefreshProto(l3 string, mtu int, force bool) {
 	// must unlock from deferred since panics are recovered above
 	px.Lock()
 	defer px.Unlock()
+
+	if len(l3) <= 0 {
+		l3 = px.lp.l3 // keep existing
+	}
+	if mtu <= 0 {
+		mtu = px.lp.mtu // keep existing
+	}
 
 	if !force && px.lp.l3 == l3 && px.lp.mtu == mtu {
 		log.D("proxy: refreshProto (forced? %t): (%s == %s & %d == %d) unchanged",

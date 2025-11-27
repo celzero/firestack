@@ -182,6 +182,8 @@ type RDNSInfo struct {
 	AutoMode          string
 	AutoDialsParallel bool
 
+	LinkMTU string
+
 	OpenConnsTCP  string
 	OpenConnsUDP  string
 	OpenConnsICMP string

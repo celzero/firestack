@@ -91,10 +91,16 @@ type Tunnel interface {
 	// SetLinkAndRoutes sets the tun fd as link with mtu & engine as routes for the tunnel.
 	// where engine is one of the constants (Ns4, Ns6, Ns46) defined in package settings.
 	SetLinkAndRoutes(fd, mtu, engine int) error
-	// SetLinkAndRoutes2 runs the tunnel with tunmtu & proxies with linkmtu.
-	// tunmtu may be a fake MTU and can be quite large, while linkmtu must
-	// be the actual MTU of the underlying network / link.
+	// SetLinkAndRoutes2 is like SetLinkAndRoutes except it runs the tunnel with tunmtu
+	// & proxies with linkmtu. tunmtu may be a "fake" MTU (assigned to the TUN device) and
+	// can be quite large, while linkmtu must be the actual MTU of the underlying network
+	// or min of MTUs of all available underlying networks.
 	SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error
+	// SetLinkMtu sets the link MTU (which must the MTU matching the underlying network or
+	// min of MTUs of all available underlying networks). Link MTU is different from
+	// tun MTU which must match the TUN device's MTU. Link MTU is used as a hint by
+	// some Proxy implementations (eg. WireGuard).
+	SetLinkMtu(linkmtu int) error
 	// Restart restarts the tunnel with the given fd, mtu, and engine.
 	Restart(fd, mtu, engine int) error
 
@@ -266,6 +272,16 @@ func (t *rtunnel) Disconnect() {
 	})
 }
 
+func (t *rtunnel) SetLinkMtu(linkmtu int) error {
+	prev := t.linkmtu.Swap(linkmtu)
+	mtudiff := prev != linkmtu
+	log.I("tun: set link mtu; set(%d) <= prev(%d); refresh protos? %t", linkmtu, prev, mtudiff)
+	if mtudiff {
+		go t.proxies.RefreshProto("" /*use existing*/, linkmtu, false /*force*/)
+	}
+	return nil
+}
+
 func (t *rtunnel) SetLinkAndRoutes(fd, tunmtu, engine int) error {
 	return t.SetLinkAndRoutes2(fd, tunmtu, tunmtu, engine)
 }
@@ -416,6 +432,7 @@ func (t *rtunnel) Stat() (*x.NetStat, error) {
 func (t *rtunnel) stat() (*x.NetStat, error) {
 	tunnel := t.t.Load()
 
+	// NICInfo, NICStat, IPStat, IPFwdStat, TCPStat, UDPStat, ICMPStat, TUNStat
 	out, err := tunnel.Stat()
 
 	if err != nil {
@@ -441,6 +458,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.DialerOpts = csv2ssv(settings.GetDialerOpts().String())
 	out.RDNSIn.AutoMode = settings.AutoModeStr()
 	out.RDNSIn.AutoDialsParallel = settings.AutoDialsParallel.Load()
+	out.RDNSIn.LinkMTU = core.FmtBytes(uint64(t.linkmtu.Load()))
 
 	firewall := settings.Mode2String("block", settings.BlockMode.Load())
 	dns := settings.Mode2String("dns", settings.DNSMode.Load())
