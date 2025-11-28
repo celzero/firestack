@@ -7,6 +7,7 @@
 package multihost
 
 import (
+	"fmt"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -202,9 +203,12 @@ func (m *MHMap) String() string {
 
 	var sb strings.Builder
 	sb.WriteString(m.k + ": ")
+	i := 0
 	for h := range m.uniq {
+		sb.WriteString(fmt.Sprintf("#%d ", i))
 		sb.WriteString(h.String())
 		sb.WriteString("  /  ")
+		i++
 	}
 	return sb.String()
 }

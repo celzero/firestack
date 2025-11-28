@@ -77,7 +77,18 @@ func (h *MH) String() string {
 	if h == nil {
 		return "<nil>"
 	}
-	return h.o + ":" + strings.Join(h.straddrs(), ",")
+	return h.o + "[" + strings.Join(h.Names(), ",") +
+		" | " + strings.Join(h.straddrs(), ",") + "]" +
+		" @ " + core.FmtTimeAsPeriod(h.Mtime())
+}
+
+func (h *MH) Mtime() time.Time {
+	if h == nil {
+		return time.Time{}
+	}
+	h.RLock()
+	defer h.RUnlock()
+	return h.mtime
 }
 
 func (h *MH) straddrs() []string {

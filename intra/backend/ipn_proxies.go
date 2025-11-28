@@ -258,6 +258,8 @@ type RouterStats struct {
 	Since int64
 	// Current proxy status
 	Status string
+	// Extra is extra info about this router
+	Extra string
 }
 
 type RpnServers interface {

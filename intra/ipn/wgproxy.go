@@ -1125,20 +1125,10 @@ func (tun *wgtun) Close() error {
 func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out = new(x.RouterStats)
 
-	if w.status.Load() == END {
-		log.W("proxy: wg: %s stats: stopped", w.tag())
-		return // zz
-	}
-
-	stat := wg.ReadStats(w.id, w.Handle(), w.Device.IpcGet)
-	if stat == nil { // unlikely
-		log.V("proxy: wg: %s stats: readstats: nil", w.tag())
-		return // zz
-	}
-	out.Rx = stat.TotalRx()
-	out.Tx = stat.TotalTx()
-	out.LastOK = stat.LatestRecentHandshake()
 	out.Addr = w.IfAddr() // may be empty
+	out.Rx = -1
+	out.Tx = -2
+	out.LastOK = -3
 	out.ErrRx = w.errRx.Load()
 	out.ErrTx = w.errTx.Load()
 	out.LastRx = w.latestRx.Load()
@@ -1149,7 +1139,21 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.Since = w.since
 	out.Status = pxstatus(w.status.Load()).String()
 
+	if w.status.Load() == END {
+		log.W("proxy: wg: %s stats: stopped", w.tag())
+		return // zz
+	}
+
+	stat := wg.ReadStats(w.id, w.Handle(), w.Device.IpcGet)
+	if stat != nil { // unlikely
+		out.Rx = stat.TotalRx()
+		out.Tx = stat.TotalTx()
+		out.LastOK = stat.LatestRecentHandshake()
+	}
+
 	if settings.Debug {
+		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String()
+
 		log.VV("proxy: wg: %s stats: rx: %d, tx: %d, r: %s (rlastok: %s), w: %s (wlastok: %s), lastok: %s",
 			w.tag(), out.Rx, out.Tx,
 			core.FmtUnixMillisAsPeriod(out.LastRx), core.FmtUnixMillisAsPeriod(out.LastGoodRx),
