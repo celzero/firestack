@@ -1620,9 +1620,10 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	}
 
 	if s == TNT {
+		m := h.dns.Load().SoftRefresh()
 		if n := h.remote.Load().MaybeRefresh(); n > 0 {
-			log.I("wg: %s listener: %s, state: %s; refreshed n domains: %d; why: %s",
-				h.tag(), op, pxstatus(s), n, why)
+			log.I("wg: %s listener: %s, state: %s; refreshed %d dns / %d peers; why: %s",
+				h.tag(), op, pxstatus(s), m, n, why)
 		}
 	}
 }
