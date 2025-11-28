@@ -488,7 +488,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, ogtyp IPSetType) *IPSe
 	} else if ip, err = netip.ParseAddr(hostname); err == nil && !ip.IsUnspecified() && ip.IsValid() {
 		mm = m.ip
 		ogtyp = IPAddr // reset (avoid err log below)
-		typ = IPAddr
+		typ = IPAddr   // may be set to AutoType above
 	} else {
 		typ = Regular // discard AutoType & IPAddr type
 	}
