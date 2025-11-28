@@ -1316,6 +1316,18 @@ func isAnyDefault(ids ...string) bool {
 	return isTransportID(Default, ids...)
 }
 
+func CanUseProxy(id string) bool {
+	switch id {
+	case Goos, CT + Goos, Local, CT + Local, System, CT + System:
+		return false
+	case Bootstrap, CT + Bootstrap, Default, CT + Default:
+		return false
+	case Preset, CT + Preset:
+		return false
+	}
+	return true
+}
+
 func overrideProxyIfNeeded(pid string, ids ...string) string {
 	for _, id := range ids {
 		switch id {

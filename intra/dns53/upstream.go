@@ -94,7 +94,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	}
 	ctx, done := context.WithCancel(pctx)
 	var relay string
-	if id != dnsx.Bootstrap && id != dnsx.System {
+	if dnsx.CanUseProxy(id) {
 		if p, _ := px.ProxyFor(id); p != nil {
 			relay = p.ID().V()
 		}
