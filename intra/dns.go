@@ -159,7 +159,7 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	ipport, err := xdns.DnsIPPort(first)
 	hostOrHostport := first // could be multiple hostnames or host:ports, but choose the first
 	if err != nil {         // use hostname
-		if dns, err := dns53.NewTransportFromHostname(ctx, pid, hostOrHostport, "", pxr); err != nil {
+		if dns, err := dns53.NewTransportFromHostname(ctx, pid, hostOrHostport, "" /*ip or ip:port csv*/, pxr); err != nil {
 			return err
 		} else {
 			return addDNSTransport(r, dns)

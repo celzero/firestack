@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/log"
@@ -27,7 +28,7 @@ type DNSOptions struct {
 }
 
 func (d *DNSOptions) String() string {
-	if (d == nil) || (len(d.ipp) <= 0) {
+	if d == nil {
 		return "<nil>"
 	}
 	return d.AddrPort()
@@ -80,7 +81,7 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 	}, nil
 }
 
-func NewDNSOptionsFromHostname(hostOrHostPort, ipcsv string) (*DNSOptions, error) {
+func NewDNSOptionsFromHostname(hostOrHostPort, ipOrIPPortCsv string) (*DNSOptions, error) {
 	if len(hostOrHostPort) <= 0 {
 		return nil, errDnsOptArg
 	}
@@ -90,18 +91,51 @@ func NewDNSOptionsFromHostname(hostOrHostPort, ipcsv string) (*DNSOptions, error
 	if len(domain) <= 0 {
 		domain = hostOrHostPort
 	}
+
+	portFromHostPort := len(port) > 0
 	portu16 := uint16(53)
-	if len(port) == 0 {
-		port = "53"
-	} else {
+	if portFromHostPort {
 		if u64, _ := strconv.ParseUint(port, 10, 16); u64 > 0 {
 			portu16 = uint16(u64)
+		} else {
+			port = "53"
+			portFromHostPort = false // as if len(port) == 0
 		}
 	}
 
+	ips := make([]netip.Addr, 0)
+	ports := make([]uint16, 0)
+	for ipp := range strings.SplitSeq(ipOrIPPortCsv, ",") {
+		if addr, err := netip.ParseAddrPort(ipp); err == nil {
+			ips = append(ips, addr.Addr())
+			if port := addr.Port(); port > 0 {
+				ports = append(ports, port)
+			}
+		} else if addr, err := netip.ParseAddr(ipp); err == nil {
+			ips = append(ips, addr)
+		} else {
+			log.W("dnsopt: invalid ip/ipport for %s; ipp(%s); err(%v)", hostOrHostPort, ipp, err)
+		}
+	}
+
+	portFromIPPort := len(ports) > 0
+	if portFromHostPort {
+		// skip other checks
+	} else if portFromIPPort {
+		// TODO: support multiple ports?
+		port = strconv.Itoa(int(ports[0]))
+		portu16 = ports[0]
+	} else {
+		// default port
+		port = "53"
+		portu16 = 53
+	}
+
+	log.I("dnsopt: for %s; len(ips) = %d; port = %s; portFromHostPort? %t; portFromIPPort? %t",
+		hostOrHostPort, len(ips), port, portFromHostPort, portFromIPPort)
 	return &DNSOptions{
 		hostport: net.JoinHostPort(domain, port),
-		hostips:  ipcsv, // may be empty, and may be ip:port
+		hostips:  ipOrIPPortCsv, // may be empty, and may be ip:port
 		port:     portu16,
 	}, nil
 }
