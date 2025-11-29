@@ -21,10 +21,9 @@ var errDnsOptArg = errors.New("dnsopt: invalid arg")
 
 // DNSOptions define https or socks5 proxy options
 type DNSOptions struct {
-	ipp      string
-	hostport string
-	hostips  string
-	port     uint16
+	idOrHostportOrIpport string // host:port or ip:port; may be empty
+	hostips              string // ips only, comma separated; may be empty
+	port                 uint16 // port only; 53 if not set
 }
 
 func (d *DNSOptions) String() string {
@@ -34,13 +33,10 @@ func (d *DNSOptions) String() string {
 	return d.AddrPort()
 }
 
-// AddrPort returns the ip:port or host:port.
+// AddrPort returns the ip:port or host:port; may return empty string.
 func (d *DNSOptions) AddrPort() string {
-	if len(d.ipp) > 0 {
-		return d.ipp
-	}
-	if len(d.hostport) > 0 {
-		return d.hostport
+	if len(d.idOrHostportOrIpport) > 0 {
+		return d.idOrHostportOrIpport
 	}
 	return ""
 }
@@ -63,8 +59,8 @@ func NewDNSOptions(ipport string) (*DNSOptions, error) {
 	}
 	if ipp, err = addrport(ip, port); err == nil {
 		return &DNSOptions{
-			ipp:  ipp.String(),
-			port: ipp.Port(),
+			idOrHostportOrIpport: ipp.String(),
+			port:                 ipp.Port(),
 		}, nil
 	}
 	log.D("dnsopt(%s:%s); err(%v)", ip, port, err)
@@ -76,20 +72,20 @@ func NewDNSOptionsFromNetIp(ipp netip.AddrPort) (*DNSOptions, error) {
 		return nil, errors.New("dnsopt: empty ipport")
 	}
 	return &DNSOptions{
-		ipp:  ipp.String(),
-		port: ipp.Port(),
+		idOrHostportOrIpport: ipp.String(),
+		port:                 ipp.Port(),
 	}, nil
 }
 
-func NewDNSOptionsFromHostname(hostOrHostPort, ipOrIPPortCsv string) (*DNSOptions, error) {
-	if len(hostOrHostPort) <= 0 {
+func NewDNSOptionsFromHostname(idOrHostOrHostPort, ipOrIPPortCsv string) (*DNSOptions, error) {
+	if len(idOrHostOrHostPort) <= 0 {
 		return nil, errDnsOptArg
 	}
 
-	domain, port, _ := net.SplitHostPort(hostOrHostPort)
+	idOrDomain, port, _ := net.SplitHostPort(idOrHostOrHostPort)
 
-	if len(domain) <= 0 {
-		domain = hostOrHostPort
+	if len(idOrDomain) <= 0 {
+		idOrDomain = idOrHostOrHostPort
 	}
 
 	portFromHostPort := len(port) > 0
@@ -103,18 +99,18 @@ func NewDNSOptionsFromHostname(hostOrHostPort, ipOrIPPortCsv string) (*DNSOption
 		}
 	}
 
-	ips := make([]netip.Addr, 0)
+	ips := make([]string, 0)
 	ports := make([]uint16, 0)
 	for ipp := range strings.SplitSeq(ipOrIPPortCsv, ",") {
 		if addr, err := netip.ParseAddrPort(ipp); err == nil {
-			ips = append(ips, addr.Addr())
+			ips = append(ips, addr.Addr().String())
 			if port := addr.Port(); port > 0 {
 				ports = append(ports, port)
 			}
 		} else if addr, err := netip.ParseAddr(ipp); err == nil {
-			ips = append(ips, addr)
+			ips = append(ips, addr.String())
 		} else {
-			log.W("dnsopt: invalid ip/ipport for %s; ipp(%s); err(%v)", hostOrHostPort, ipp, err)
+			log.W("dnsopt: invalid ip/ipport for %s; ipp(%s); err(%v)", idOrHostOrHostPort, ipp, err)
 		}
 	}
 
@@ -132,11 +128,11 @@ func NewDNSOptionsFromHostname(hostOrHostPort, ipOrIPPortCsv string) (*DNSOption
 	}
 
 	log.I("dnsopt: for %s; len(ips) = %d; port = %s; portFromHostPort? %t; portFromIPPort? %t",
-		hostOrHostPort, len(ips), port, portFromHostPort, portFromIPPort)
+		idOrHostOrHostPort, len(ips), port, portFromHostPort, portFromIPPort)
 	return &DNSOptions{
-		hostport: net.JoinHostPort(domain, port),
-		hostips:  ipOrIPPortCsv, // may be empty, and may be ip:port
-		port:     portu16,
+		idOrHostportOrIpport: net.JoinHostPort(idOrDomain, port),
+		hostips:              strings.Join(ips, ","), // may be empty
+		port:                 portu16,
 	}, nil
 }
 
