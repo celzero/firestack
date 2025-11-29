@@ -323,15 +323,29 @@ jobs:
           "${{ github.workspace }}/${{ env.FOUT }}"
           "${{ github.workspace }}/${{ env.FOUTDBG }}"
 
+    # github.com/marketplace/actions/anchore-container-scan
+    - name: 🎞 Grype report
+      uses: anchore/scan-action@v7
+      id: gr
+      with:
+        sbom: "${{ github.workspace }}/_manifest/spdx_2.2/manifest.spdx.json"
+        fail-build: false
+        # severity-cutoff: critical
+        output-format: "sarif" # or "table", "json" etc
+
     # github.com/microsoft/sbom-tool
     # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
     - name: 🧾 SBOM
       run: |
+        ls -ltr ${GRYPE_SARIF}
         # docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository#generating-a-software-bill-of-materials-from-github-actions
         # github.com/marketplace/actions/spdx-dependency-submission-action
         curl -Lo $RUNNER_TEMP/sbom-tool https://github.com/microsoft/sbom-tool/releases/latest/download/sbom-tool-linux-x64
         chmod +x $RUNNER_TEMP/sbom-tool
         $RUNNER_TEMP/sbom-tool generate -b . -bc . -pn ${{ github.repository }} -pv 1.0.0 -ps Celzero -nsb https://sbom.rethinkdns.com/app -V Verbose
+      shell: bash
+      env:
+        GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
 
     - name: 🛠️ CodeQL Init
       uses: github/codeql-action/init@v4
@@ -348,28 +362,21 @@ jobs:
 
     # also uploads to code-scanning
     # github.com/github/codeql-action/blob/ecec1f88769/analyze/action.yml#L92
-    # sarif_file is put at steps.cqla.outputs.sarif-output
+    # sarif_file is at steps.cqla.outputs.sarif-output
     - name: 🧩 CodeQL Analysis
       id: cqla
       uses: github/codeql-action/analyze@v4
       with:
         category: "/language:go"
 
-    # github.com/marketplace/actions/anchore-container-scan
-    - name: 🎞 Grype report
-      uses: anchore/scan-action@v7
-      id: scan
-      with:
-        sbom: "${{ github.workspace }}/_manifest/spdx_2.2/manifest.spdx.json"
-        fail-build: false
-        # severity-cutoff: critical
-
     - name: 📻 Grype to code-scanning
+      continue-on-error: true
       uses: github/codeql-action/upload-sarif@v4
       with:
-        sarif_file: ${{ steps.scan.outputs.sarif }}
+        sarif_file: ${{ steps.gr.outputs.sarif }}
 
     - name: 📤 SBOM upload
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
         name: "firestack-sbom-${{ github.sha }}"
