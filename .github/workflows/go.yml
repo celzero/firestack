@@ -333,6 +333,28 @@ jobs:
         chmod +x $RUNNER_TEMP/sbom-tool
         $RUNNER_TEMP/sbom-tool generate -b . -bc . -pn ${{ github.repository }} -pv 1.0.0 -ps Celzero -nsb https://sbom.rethinkdns.com/app -V Verbose
 
+    - name: 🛠️ CodeQL Init
+      uses: github/codeql-action/init@v4
+      with:
+        # github.com/github/codeql-action/blob/ecec1f88769/init/action.yml#L137
+        debug: true
+        languages: "go"
+        # If you wish to specify custom queries, you can do so here or in a config file.
+        # By default, queries listed here will override any specified in a config file.
+        # Prefix the list here with "+" to use these queries and those in the config file.
+
+        # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
+        queries: security-extended,security-and-quality
+
+    # also uploads to code-scanning
+    # github.com/github/codeql-action/blob/ecec1f88769/analyze/action.yml#L92
+    # sarif_file is put at steps.cqla.outputs.sarif-output
+    - name: 🧩 CodeQL Analysis
+      id: cqla
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: "/language:go"
+
     # github.com/marketplace/actions/anchore-container-scan
     - name: 🎞 Grype report
       uses: anchore/scan-action@v7
