@@ -248,14 +248,14 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// it is routed to the tunnel's fake DNS addr, which is trapped by
 	// by h.dnsOverride that forwards it to one of the dnsx Transports.
 	// These dnsx Transports route the query back into the tunnel when
-	// Rethink-within-Rethink routing is enabled. If this dnsx Transport
-	// is forwarding queries to ANY DNS upstream on port 53 (dns53)
-	// (see h.resolver.isDns), then the request again is trapped and
-	// routed back to the dnsx Transport. To avoid this loop, when
-	// Rethink-within-Rethink routing is enabled, kotlin-land
-	// is expected to mark ipn.Base for queries to be trapped and sent
-	// to user-preferred dnsx Transport, and ipn.Exit for queries to be
-	// dialed as an outgoing protected connection. In practice, when
+	// Rethink-within-Rethink (settings.LoopingBack) routing is enabled.
+	// If this dnsx Transport is inturn forwarding queries to ANY DNS upstream
+	// on port 53 (dns53) (see h.resolver.isDns), then the request is trapped
+	// again & routed back to the dnsx Transport. To avoid this loop, when
+	// Rethink-within-Rethink routing is enabled (settings.LoopingBack),
+	// kotlin-land is expected to mark ipn.Base for queries to be trapped
+	// and sent to user-preferred dnsx Transport, and ipn.Exit for queries
+	// to be dialed as an outgoing protected connection. In practice, when
 	// Rethink-within-Rethink routing is enabled and a DNS connection
 	// as seen (with Flow) is owned by Rethink, then expect the conn
 	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr

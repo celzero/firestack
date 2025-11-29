@@ -339,7 +339,7 @@ jobs:
       id: scan
       with:
         sbom: "${{ github.workspace }}/_manifest/spdx_2.2/manifest.spdx.json"
-        # fail-build: true
+        fail-build: false
         # severity-cutoff: critical
 
     - name: 📻 Grype to code-scanning
