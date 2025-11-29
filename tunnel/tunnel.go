@@ -47,15 +47,16 @@ import (
 
 // Tunnel represents a session on a TUN device.
 type Tunnel interface {
-	Mtu() int32
 	// IsConnected indicates whether the tunnel is in a connected state.
 	IsConnected() bool
 	// Disconnect disconnects the tunnel.
 	Disconnect()
 	// Enabled checks if the tunnel is up and running.
 	Enabled() bool
+	// Mtu returns the current MTU of the tunnel (tun MTU).
+	Mtu() int32
 	// Creates a new link using fd (tun device).
-	SetLinkAndRoutes(fd, mtu, engine int) error
+	SetLinkAndRoutes(fd, tunmtu, engine int) error
 	// Unsets existing link and closes the fd (tun device).
 	Unlink() error
 	// Set or unset the pcap sink
