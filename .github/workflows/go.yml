@@ -22,6 +22,9 @@ jobs:
       attestations: write
       packages: write # sbom
       security-events: write # grype
+    outputs:
+      artifact-subjects: ${{ steps.artifact-digests.outputs.subjects }}
+      sbom-info: ${{ steps.sbom-metadata.outputs.metadata }}
     env:
       FOUT: firestack.aar
       FOUTDBG: firestack-debug.aar
@@ -131,6 +134,35 @@ jobs:
         fi
         echo "====================="
       shell: bash
+
+    - name: 📏 Capture artifact digests
+      id: artifact-digests
+      if: success()
+      shell: bash
+      run: |
+        python - <<'PY'
+        import hashlib
+        import json
+        import os
+
+        def _sha256(path: str) -> str:
+          h = hashlib.sha256()
+          with open(path, 'rb') as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+              h.update(chunk)
+          return h.hexdigest()
+
+        subjects = []
+        for key in ("FOUT", "FOUTDBG"):
+          artifact = os.environ[key]
+          subjects.append({
+            "name": artifact,
+            "digest": f"sha256:{_sha256(artifact)}",
+          })
+
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+          fh.write(f"subjects={json.dumps(subjects, separators=(',', ':'))}\n")
+        PY
 
     - name: 🔮 Vet
       run: |
@@ -305,7 +337,6 @@ jobs:
 
     # github.com/actions/upload-artifact
     - name: 🚀 Upload
-      if: (failure() && github.event_name == 'push') || (success() && github.event_name == 'workflow_dispatch')
       uses: actions/upload-artifact@v4
       with:
         name: firestack-aar-${{ github.sha }} # must be unique
@@ -313,16 +344,6 @@ jobs:
         retention-days: 52 # 0-90; 90 is max
         if-no-files-found: error # error, warn (default), ignore
         compression-level: 9 # 0-9; 9 is max
-
-    # github.com/actions/attest-build-provenance
-    # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-build-provenance-for-binaries
-    - name: 🔏 Build attestation
-      if: (success() && github.event_name == 'workflow_dispatch')
-      uses: actions/attest-build-provenance@v3
-      with:
-        subject-path: |
-          "${{ github.workspace }}/${{ env.FOUT }}"
-          "${{ github.workspace }}/${{ env.FOUTDBG }}"
 
     # github.com/microsoft/sbom-tool
     # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
@@ -377,11 +398,54 @@ jobs:
         sarif_file: ${{ steps.gr.outputs.sarif }}
 
     - name: 📤 SBOM upload
+      id: sbom-upload
       continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
         name: "firestack-sbom-${{ github.sha }}"
         path: _manifest/spdx_2.2
+
+    - name: 📦 SBOM metadata
+      id: sbom-metadata
+      if: ${{ steps.sbom-upload.outcome == 'success' }}
+      shell: bash
+      env:
+        SUBJECTS: ${{ steps.artifact-digests.outputs.subjects || '[]' }}
+        SBOM_PATH: _manifest/spdx_2.2/manifest.spdx.json
+        SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
+        SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
+      run: |
+        python - <<'PY'
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+
+        sbom_path = Path(os.environ["SBOM_PATH"])
+        if not sbom_path.is_file():
+          raise SystemExit(f"missing SBOM at {sbom_path}")
+
+        h = hashlib.sha256()
+        with sbom_path.open('rb') as handle:
+          for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            h.update(chunk)
+
+        subjects = json.loads(os.environ["SUBJECTS"] or "[]")
+        artifact_id = os.environ["SBOM_ARTIFACT_ID"]
+        if not artifact_id:
+          raise SystemExit("missing SBOM artifact id")
+
+        metadata = {
+          "subjects": subjects,
+          "artifactId": artifact_id,
+          "artifactName": os.environ["SBOM_ARTIFACT_NAME"],
+          "path": os.environ["SBOM_PATH"],
+          "digest": f"sha256:{h.hexdigest()}",
+        }
+
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+          fh.write(f"metadata={json.dumps(metadata, separators=(',', ':'))}\n")
+        PY
 
     - name: 📝 SBOM submission
       continue-on-error: true
@@ -389,17 +453,14 @@ jobs:
       with:
         filePath: "_manifest/spdx_2.2/"
 
-    # github.com/actions/attest-sbom
-    # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-an-sbom-attestation-for-binaries
-    - name: 🧶 SBOM attestation
-      if: success() && github.event_name == 'workflow_dispatch'
-      continue-on-error: true
-      uses: actions/attest-sbom@v3
-      with:
-        subject-path: |
-          "${{ github.workspace }}/${{ env.FOUT }}"
-          "${{ github.workspace }}/${{ env.FOUTDBG }}"
-        sbom-path: "${{ github.workspace }}/_manifest/spdx_2.2/manifest.spdx.json"
+  attestation:
+    name: 🪪 Artifact attestations
+    needs: build
+    if: ${{ needs.build.result == 'success' && needs.build.outputs.artifact-subjects != '' && github.event_name == 'workflow_dispatch' }}
+    uses: ./.github/workflows/provenance.yml
+    with:
+      subjects: ${{ needs.build.outputs.artifact-subjects }}
+      sbom-info: ${{ needs.build.outputs.sbom-info }}
 
   checker:
     name: 🔐 Security checker

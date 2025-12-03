@@ -1,0 +1,83 @@
+name: attest-artifacts
+
+on:
+  workflow_call:
+    inputs:
+      subjects:
+        description: |
+          JSON array of {"name": string, "digest": "sha256:<hex>"} pairs that
+          represent artifacts requiring provenance attestations. See
+          https://github.blog/enterprise-software/devsecops/enhance-build-security-and-reach-slsa-level-3-with-github-artifact-attestations/
+          for background on why reusable workflows are required at SLSA Level 3.
+        required: true
+        type: string
+      sbom-info:
+        description: |
+          Optional JSON blob containing SBOM attestation metadata in the form
+          {"subjects": [...], "artifact": string, "path": string, "digest": string}.
+        required: false
+        type: string
+
+jobs:
+
+  provenance:
+    name: 🔏 Build attestation
+    if: ${{ inputs.subjects != '' && inputs.subjects != '[]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    strategy:
+      matrix:
+        subject: ${{ fromJson(inputs.subjects) }}
+
+    steps:
+      # github.com/actions/attest-build-provenance
+      # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-build-provenance-for-binaries
+      - name: ✅ Attest provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ matrix.subject.name }}
+          subject-digest: ${{ matrix.subject.digest }}
+
+  sbom:
+    name: 📦 SBOM attestation
+    if: ${{ inputs.sbom-info != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    strategy:
+      matrix:
+        subject: ${{ fromJson(inputs.sbom-info).subjects }}
+    steps:
+      - name: ⬇️ Download SBOM artifact
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ fromJson(inputs.sbom-info).artifactId }}
+          path: sbom
+
+      - name: 🔐 Verify SBOM digest
+        shell: bash
+        env:
+          SBOM_PATH: ${{ format('sbom/{0}', fromJson(inputs.sbom-info).path) }}
+          SBOM_DIGEST: ${{ fromJson(inputs.sbom-info).digest }}
+        run: |
+          file="${SBOM_PATH}"
+          if [ ! -f "$file" ]; then
+            echo "missing SBOM file: $file" >&2
+            exit 1
+          fi
+          digest="${SBOM_DIGEST#sha256:}"
+          echo "${digest}  ${file}" | sha256sum -c -
+
+        # github.com/actions/attest-sbom
+        # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-an-sbom-attestation-for-binaries
+      - name: 🧶 Attest SBOM
+        uses: actions/attest-sbom@v3
+        with:
+          subject-name: ${{ matrix.subject.name }}
+          subject-digest: ${{ matrix.subject.digest }}
+          sbom-path: ${{ format('sbom/{0}', fromJson(inputs.sbom-info).path) }}
