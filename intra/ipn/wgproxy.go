@@ -1125,7 +1125,7 @@ func (tun *wgtun) Close() error {
 func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out = new(x.RouterStats)
 
-	out.Addr = w.IfAddr() // may be empty
+	out.Addrs = w.ifaddrs() // may be empty
 	out.Rx = -1
 	out.Tx = -2
 	out.LastOK = -3
@@ -1163,10 +1163,11 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	return out
 }
 
-func (w *wgtun) IfAddr() string {
+func (w *wgtun) ifaddrs() string {
 	ifs := w.addrs
 	if len(ifs) > 0 {
-		return ifs[0].String()
+		s := core.Map(ifs, func(a netip.Prefix) string { return a.String() })
+		return strings.Join(s, ",")
 	}
 	return noaddr
 }

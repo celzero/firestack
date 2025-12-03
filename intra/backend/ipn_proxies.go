@@ -232,8 +232,8 @@ type ProxyListener interface {
 
 // RouterStats lists interesting stats of a Router.
 type RouterStats struct {
-	// address of the router
-	Addr string
+	// addresses (csv) of the router
+	Addrs string
 	// bytes received
 	Rx int64
 	// bytes transmitted
