@@ -317,6 +317,7 @@ jobs:
     # github.com/actions/attest-build-provenance
     # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-build-provenance-for-binaries
     - name: 🔏 Build attestation
+      if: (success() && github.event_name == 'workflow_dispatch')
       uses: actions/attest-build-provenance@v3
       with:
         subject-path: |
@@ -326,6 +327,7 @@ jobs:
     # github.com/microsoft/sbom-tool
     # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
     - name: 🧾 SBOM
+      if: always()
       run: |
         # docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository#generating-a-software-bill-of-materials-from-github-actions
         # github.com/marketplace/actions/spdx-dependency-submission-action
@@ -334,6 +336,7 @@ jobs:
         $RUNNER_TEMP/sbom-tool generate -b . -bc . -pn ${{ github.repository }} -pv 1.0.0 -ps Celzero -nsb https://sbom.rethinkdns.com/app -V Verbose
 
     - name: 🛠️ CodeQL Init
+      if: always()
       uses: github/codeql-action/init@v4
       with:
         # github.com/github/codeql-action/blob/ecec1f88769/init/action.yml#L137
@@ -350,6 +353,7 @@ jobs:
     # github.com/github/codeql-action/blob/ecec1f88769/analyze/action.yml#L92
     # sarif_file is at steps.cqla.outputs.sarif-output
     - name: 🧩 CodeQL Analysis
+      if: always()
       id: cqla
       uses: github/codeql-action/analyze@v4
       with:
@@ -380,7 +384,6 @@ jobs:
         path: _manifest/spdx_2.2
 
     - name: 📝 SBOM submission
-      if: success()
       continue-on-error: true
       uses: advanced-security/spdx-dependency-submission-action@v0.1.1
       with:
@@ -389,7 +392,7 @@ jobs:
     # github.com/actions/attest-sbom
     # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-an-sbom-attestation-for-binaries
     - name: 🧶 SBOM attestation
-      if: success()
+      if: success() && github.event_name == 'workflow_dispatch'
       continue-on-error: true
       uses: actions/attest-sbom@v3
       with:
