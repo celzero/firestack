@@ -101,8 +101,12 @@ type Tunnel interface {
 	// tun MTU which must match the TUN device's MTU. Link MTU is used as a hint by
 	// some Proxy implementations (eg. WireGuard).
 	SetLinkMtu(linkmtu int) error
-	// Restart restarts the tunnel with the given fd, mtu, and engine.
-	Restart(fd, mtu, engine int) error
+	// Restart restarts the tunnel with the given fd, linkmtu & tunmtu, and engine.
+	// fd is the TUN device file descriptor.
+	// linkmtu is the MTU of the underlying network, tunmtu is the MTU of the TUN device.
+	// linkmtu can be different from tunmtu. If linkmtu <= 0, it is assumed to be same as tunmtu.
+	// engine is one of the constants (Ns4, Ns6, Ns46) defined in package settings.
+	Restart(fd, linkmtu, tunmtu, engine int) error
 
 	// Close connections by pid, cid, uid.
 	CloseConns(activecsv string) (closedcsv string)
@@ -315,10 +319,14 @@ func (t *rtunnel) SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error {
 	return err
 }
 
-func (t *rtunnel) Restart(fd, mtu, engine int) error {
+func (t *rtunnel) Restart(fd, linkmtu, tunmtu, engine int) error {
 	if t.closed.Load() {
 		log.W("tun: <<< restart >>>; for: %d, intra closed", fd)
 		return errClosed
+	}
+
+	if linkmtu <= 0 {
+		linkmtu = tunmtu
 	}
 
 	countdown := make(chan struct{})
@@ -338,27 +346,27 @@ func (t *rtunnel) Restart(fd, mtu, engine int) error {
 	old := t.t.Load()
 	old.Disconnect() // could have been disconnected by the client already
 
-	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, mtu, dualstack, t.handlers)
+	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, tunmtu, dualstack, t.handlers)
 
 	if err != nil || gt == nil || core.IsNil(gt) {
-		log.W("tun: <<< restart >>>; for: %d, new? %t; err(%v)", fd, gt != nil, err)
+		log.W("tun: <<< restart >>>; for: %d, new? %t / mtu? %d; err(%v)", fd, tunmtu, gt != nil, err)
 		return core.OneErr(err, errMakeTunnel)
 	}
 
 	// TODO: CompareAndSwap
 	if !t.t.Cas(old, gt) { // gt never nil
 		gt.Disconnect() // close the new tunnel
-		log.W("tun: <<< restart >>>; for: %d, cas failed; old %X, new %X", fd, old, gt)
+		log.W("tun: <<< restart >>>; for: %d (mtu: %d), cas failed; old %X, new %X", fd, tunmtu, old, gt)
 	}
 
 	// TODO: err on reverser errors too?
 	rerr := t.proxies.Reverser(revhdl)
 
-	log.D("tun: <<< restart >>>; for: %d, netstack ok; rev err? %v", fd, rerr)
+	log.I("tun: <<< restart >>>; for: %d (linkmtu: %d / tunmtu: %d), netstack ok; rev err? %v", fd, linkmtu, tunmtu, rerr)
 
 	core.Gx("i.RestartRefresh", func() {
 		// Refresh proxies to update to the new reverser
-		go t.proxies.RefreshProto(l3, mtu, true /*force; reverser changed*/) // also updates reverser
+		go t.proxies.RefreshProto(l3, linkmtu, true /*force; reverser changed*/) // also updates reverser
 		if l3diff {
 			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
 		}
