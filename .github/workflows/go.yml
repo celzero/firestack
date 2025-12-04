@@ -31,12 +31,13 @@ jobs:
 
     steps:
     - name: 🥏 Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: 🐼 Setup go1.25+
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
-        go-version: '>=1.25'
+        go-version: '>=1.25.5'
+        check-latest: true
 
     - name: 🏗️ Make
       run: |

@@ -32,12 +32,12 @@ jobs:
     # ref: github.com/ossf/scorecard/blob/main/.github/workflows/scorecard-analysis.yml
     steps:
       - name: 🥏 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
 
       - name: 🐎 Run analysis
-        uses: ossf/scorecard-action@v2.4.1
+        uses: ossf/scorecard-action@v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
