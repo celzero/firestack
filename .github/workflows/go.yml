@@ -38,11 +38,6 @@ jobs:
       with:
         go-version: '>=1.25'
 
-    - name: 🐍 Python3
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
     - name: 🏗️ Make
       run: |
         # outputs firestack.aar and firestack-debug.aar; also see: "Obj" below
@@ -140,29 +135,17 @@ jobs:
       if: success()
       shell: bash
       run: |
-        python - <<'PY'
-        import hashlib
-        import json
-        import os
-
-        def _sha256(path: str) -> str:
-          h = hashlib.sha256()
-          with open(path, 'rb') as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b''):
-              h.update(chunk)
-          return h.hexdigest()
-
-        subjects = []
-        for key in ("FOUT", "FOUTDBG"):
-          artifact = os.environ[key]
-          subjects.append({
-            "name": artifact,
-            "digest": f"sha256:{_sha256(artifact)}",
-          })
-
-        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-          fh.write(f"subjects={json.dumps(subjects, separators=(',', ':'))}\n")
-        PY
+        subjects='[]'
+        for key in FOUT FOUTDBG; do
+          artifact="${!key}"
+          if [ ! -f "$artifact" ]; then
+            echo "::error::missing artifact ${artifact}"
+            exit 12
+          fi
+          digest="sha256:$(sha256sum "$artifact" | awk '{print $1}')"
+          subjects=$(jq --arg name "$artifact" --arg digest "$digest" '. + [{ "name": $name, "digest": $digest }]' <<<"$subjects")
+        done
+        printf 'subjects=%s\n' "$subjects" >> "$GITHUB_OUTPUT"
 
     - name: 🔮 Vet
       run: |
@@ -415,37 +398,31 @@ jobs:
         SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
         SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
       run: |
-        python - <<'PY'
-        import hashlib
-        import json
-        import os
-        from pathlib import Path
-
-        sbom_path = Path(os.environ["SBOM_PATH"])
-        if not sbom_path.is_file():
-          raise SystemExit(f"missing SBOM at {sbom_path}")
-
-        h = hashlib.sha256()
-        with sbom_path.open('rb') as handle:
-          for chunk in iter(lambda: handle.read(1024 * 1024), b''):
-            h.update(chunk)
-
-        subjects = json.loads(os.environ["SUBJECTS"] or "[]")
-        artifact_id = os.environ["SBOM_ARTIFACT_ID"]
-        if not artifact_id:
-          raise SystemExit("missing SBOM artifact id")
-
-        metadata = {
-          "subjects": subjects,
-          "artifactId": artifact_id,
-          "artifactName": os.environ["SBOM_ARTIFACT_NAME"],
-          "path": os.environ["SBOM_PATH"],
-          "digest": f"sha256:{h.hexdigest()}",
-        }
-
-        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-          fh.write(f"metadata={json.dumps(metadata, separators=(',', ':'))}\n")
-        PY
+        sbom_path="${SBOM_PATH}"
+        if [ ! -f "$sbom_path" ]; then
+          echo "::error::missing SBOM at ${sbom_path}"
+          exit 13
+        fi
+        sbom_digest="sha256:$(sha256sum "$sbom_path" | awk '{print $1}')"
+        subjects_json="${SUBJECTS:-[]}"
+        if ! jq -e . >/dev/null 2>&1 <<<"$subjects_json"; then
+          echo "::error::SUBJECTS is not valid JSON"
+          exit 14
+        fi
+        if [ -z "${SBOM_ARTIFACT_ID}" ]; then
+          echo "::error::missing SBOM artifact id"
+          exit 15
+        fi
+        metadata=$(
+          jq -c \
+            --argjson subjects "$subjects_json" \
+            --arg artifactId "$SBOM_ARTIFACT_ID" \
+            --arg artifactName "$SBOM_ARTIFACT_NAME" \
+            --arg path "$SBOM_PATH" \
+            --arg digest "$sbom_digest" \
+            '{subjects:$subjects,artifactId:$artifactId,artifactName:$artifactName,path:$path,digest:$digest}'
+        )
+        printf 'metadata=%s\n' "$metadata" >> "$GITHUB_OUTPUT"
 
     - name: 📝 SBOM submission
       continue-on-error: true
