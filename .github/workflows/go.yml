@@ -397,7 +397,11 @@ jobs:
         SBOM_PATH: _manifest/spdx_2.2/manifest.spdx.json
         SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
         SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
+        GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
       run: |
+        # grype output
+        ls -ltr ${GRYPE_SARIF}
+
         sbom_path="${SBOM_PATH}"
         if [ ! -f "$sbom_path" ]; then
           echo "::error::missing SBOM at ${sbom_path}"
