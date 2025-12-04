@@ -23,8 +23,8 @@ jobs:
       packages: write # sbom
       security-events: write # grype
     outputs:
-      artifact-subjects: ${{ steps.artifact-digests.outputs.subjects }}
-      sbom-info: ${{ steps.sbom-metadata.outputs.metadata }}
+      artifact-subjects: ${{ steps.post-build.outputs.subjects }}
+      sbom-info: ${{ steps.post-build.outputs.sbom-info }}
     env:
       FOUT: firestack.aar
       FOUTDBG: firestack-debug.aar
@@ -40,6 +40,7 @@ jobs:
         check-latest: true
 
     - name: 🏗️ Make
+      id: make
       run: |
         # outputs firestack.aar and firestack-debug.aar; also see: "Obj" below
         ./make-aar nogo debug
@@ -52,7 +53,38 @@ jobs:
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
 
+    # github.com/microsoft/sbom-tool
+    # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
+    - name: 🧾 SBOM
+      id: sbom-gen
+      if: always()
+      run: |
+        # docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository#generating-a-software-bill-of-materials-from-github-actions
+        # github.com/marketplace/actions/spdx-dependency-submission-action
+        curl -Lo $RUNNER_TEMP/sbom-tool https://github.com/microsoft/sbom-tool/releases/latest/download/sbom-tool-linux-x64
+        chmod +x $RUNNER_TEMP/sbom-tool
+        $RUNNER_TEMP/sbom-tool generate -b . -bc . -pn ${{ github.repository }} -pv 1.0.0 -ps Celzero -nsb https://sbom.rethinkdns.com/app -V Verbose
+
+    - name: 📤 SBOM upload
+      if: ${{ steps.sbom-gen.outcome == 'success' }}
+      id: sbom-upload
+      continue-on-error: true
+      uses: actions/upload-artifact@v4
+      with:
+        name: "firestack-sbom-${{ github.sha }}"
+        path: _manifest/spdx_2.2
+        compression-level: 9
+        retention-days: 3
+
+    - name: 📝 SBOM submission
+      if: success()
+      continue-on-error: true
+      uses: advanced-security/spdx-dependency-submission-action@v0.1.1
+      with:
+        filePath: "_manifest/spdx_2.2/"
+
     - name: 💿 Obj
+      if: ${{ steps.make.outcome == 'success' }}
       run: |
         wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.8/go-size-analyzer_1.0.8_linux_amd64.deb -O gsa.deb
         sudo dpkg -i gsa.deb
@@ -131,24 +163,8 @@ jobs:
         echo "====================="
       shell: bash
 
-    - name: 📏 Capture artifact digests
-      id: artifact-digests
-      if: success()
-      shell: bash
-      run: |
-        subjects='[]'
-        for key in FOUT FOUTDBG; do
-          artifact="${!key}"
-          if [ ! -f "$artifact" ]; then
-            echo "::error::missing artifact ${artifact}"
-            exit 12
-          fi
-          digest="sha256:$(sha256sum "$artifact" | awk '{print $1}')"
-          subjects=$(jq --arg name "$artifact" --arg digest "$digest" '. + [{ "name": $name, "digest": $digest }]' <<<"$subjects")
-        done
-        printf 'subjects=%s\n' "$subjects" >> "$GITHUB_OUTPUT"
-
     - name: 🔮 Vet
+      if: ${{ steps.make.outcome == 'success' }}
       run: |
         # github.com/actions/setup-go/issues/27
         export PATH=${PATH}:`go env GOPATH`/bin
@@ -173,9 +189,57 @@ jobs:
         # capslock -output=j
       shell: bash
 
-    - name: 🛸 Env
+    # TODO: pin actions deps: github.com/stacklok/frizbee
+    # github.com/marketplace/actions/anchore-container-scan
+    - name: 🎞 Grype report
+      if: ${{ steps.sbom-gen.outcome == 'success' }}
+      uses: anchore/scan-action@v7
+      id: gr
+      with:
+        sbom: "${{ github.workspace }}/_manifest/spdx_2.2/manifest.spdx.json"
+        fail-build: false
+        # severity-cutoff: critical
+        output-format: "sarif" # or "table", "json" etc
+
+    - name: 📻 Grype to code-scanning
       if: success()
+      continue-on-error: true
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ steps.gr.outputs.sarif }}
+
+    - name: 🛠️ CodeQL Init
+      if: always()
+      id: cqli
+      uses: github/codeql-action/init@v4
+      with:
+        # github.com/github/codeql-action/blob/ecec1f88769/init/action.yml#L137
+        debug: true
+        languages: "go"
+        # If you wish to specify custom queries, you can do so here or in a config file.
+        # By default, queries listed here will override any specified in a config file.
+        # Prefix the list here with "+" to use these queries and those in the config file.
+
+        # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
+        queries: security-extended,security-and-quality
+
+    # also uploads to code-scanning
+    # github.com/github/codeql-action/blob/ecec1f88769/analyze/action.yml#L92
+    # sarif_file is at steps.cqla.outputs.sarif-output
+    - name: 🧩 CodeQL Analysis
+      if: ${{ steps.cqli.outcome == 'success' }}
+      id: cqla
+      uses: github/codeql-action/analyze@v4
+      with:
+        category: "/language:go"
+
+    - name: 🛸 After Make
+      if: ${{ steps.make.outcome == 'success' }} && ${{ steps.sbom-upload.outcome == 'success' }}
+      id: post-build
       run: |
+        # grype output
+        ls -ltr ${GRYPE_SARIF}
+
         # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
         GROUP_GITHUB="com.github.${{ github.repository_owner }}"
         GROUP_OSSRH="com.celzero"
@@ -221,7 +285,49 @@ jobs:
         echo "SOURCES=${SOURCES}" >> $GITHUB_ENV
         echo "VCSVER=${VCSVER}" >> $GITHUB_ENV
         echo "POM_OSSRH=${POM_OSSRH}" >> $GITHUB_ENV
+
+        subjects='[]'
+        for key in FOUT FOUTDBG; do
+          artifact="${!key}"
+          if [ ! -f "$artifact" ]; then
+            echo "::error::missing artifact ${artifact}"
+            exit 12
+          fi
+          digest="sha256:$(sha256sum "$artifact" | awk '{print $1}')"
+          subjects=$(jq -c --arg name "$artifact" --arg digest "$digest" '. + [{ "name": $name, "digest": $digest }]' <<<"$subjects")
+        done
+        printf 'subjects=%s\n' "$subjects" >> "$GITHUB_OUTPUT"
+
+        sbom_path="${SBOM_PATH}"
+        if [ ! -f "$sbom_path" ]; then
+          echo "::error::missing SBOM at ${sbom_path}"
+          exit 13
+        fi
+        sbom_digest="sha256:$(sha256sum "$sbom_path" | awk '{print $1}')"
+        if [ -z "${SBOM_ARTIFACT_ID}" ]; then
+          echo "::error::missing SBOM artifact id"
+          exit 14
+        fi
+        sbominfo=$(
+          jq -c \
+            --argjson subjects "$subjects" \
+            --arg artifactId "$SBOM_ARTIFACT_ID" \
+            --arg artifactName "$SBOM_ARTIFACT_NAME" \
+            --arg path "$SBOM_PATH" \
+            --arg digest "$sbom_digest" \
+            '{subjects:$subjects,artifactId:$artifactId,artifactName:$artifactName,path:$path,digest:$digest}'
+        )
+        printf 'sbom-info=%s\n' "$sbominfo" >> "$GITHUB_OUTPUT"
+
+        # print sbominfo and subjects
+        jq . <<<${subjects}
+        jq . <<<${sbominfo}
       shell: bash
+      env:
+        SBOM_PATH: _manifest/spdx_2.2/manifest.spdx.json
+        SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
+        SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
+        GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
 
     - name: 🏷️ Setup for GitHub Packages
       if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -321,6 +427,7 @@ jobs:
 
     # github.com/actions/upload-artifact
     - name: 🚀 Upload
+      if: ${{ steps.make.outcome == 'success' }}
       uses: actions/upload-artifact@v4
       with:
         name: firestack-aar-${{ github.sha }} # must be unique
@@ -328,112 +435,6 @@ jobs:
         retention-days: 52 # 0-90; 90 is max
         if-no-files-found: error # error, warn (default), ignore
         compression-level: 9 # 0-9; 9 is max
-
-    # github.com/microsoft/sbom-tool
-    # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
-    - name: 🧾 SBOM
-      if: always()
-      run: |
-        # docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/exporting-a-software-bill-of-materials-for-your-repository#generating-a-software-bill-of-materials-from-github-actions
-        # github.com/marketplace/actions/spdx-dependency-submission-action
-        curl -Lo $RUNNER_TEMP/sbom-tool https://github.com/microsoft/sbom-tool/releases/latest/download/sbom-tool-linux-x64
-        chmod +x $RUNNER_TEMP/sbom-tool
-        $RUNNER_TEMP/sbom-tool generate -b . -bc . -pn ${{ github.repository }} -pv 1.0.0 -ps Celzero -nsb https://sbom.rethinkdns.com/app -V Verbose
-
-    - name: 🛠️ CodeQL Init
-      if: always()
-      uses: github/codeql-action/init@v4
-      with:
-        # github.com/github/codeql-action/blob/ecec1f88769/init/action.yml#L137
-        debug: true
-        languages: "go"
-        # If you wish to specify custom queries, you can do so here or in a config file.
-        # By default, queries listed here will override any specified in a config file.
-        # Prefix the list here with "+" to use these queries and those in the config file.
-
-        # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
-        queries: security-extended,security-and-quality
-
-    # also uploads to code-scanning
-    # github.com/github/codeql-action/blob/ecec1f88769/analyze/action.yml#L92
-    # sarif_file is at steps.cqla.outputs.sarif-output
-    - name: 🧩 CodeQL Analysis
-      if: always()
-      id: cqla
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: "/language:go"
-
-    # TODO: pin actions deps: github.com/stacklok/frizbee
-    # github.com/marketplace/actions/anchore-container-scan
-    - name: 🎞 Grype report
-      uses: anchore/scan-action@v7
-      id: gr
-      with:
-        sbom: "${{ github.workspace }}/_manifest/spdx_2.2/manifest.spdx.json"
-        fail-build: false
-        # severity-cutoff: critical
-        output-format: "sarif" # or "table", "json" etc
-
-    - name: 📻 Grype to code-scanning
-      continue-on-error: true
-      uses: github/codeql-action/upload-sarif@v4
-      with:
-        sarif_file: ${{ steps.gr.outputs.sarif }}
-
-    - name: 📤 SBOM upload
-      id: sbom-upload
-      continue-on-error: true
-      uses: actions/upload-artifact@v4
-      with:
-        name: "firestack-sbom-${{ github.sha }}"
-        path: _manifest/spdx_2.2
-
-    - name: 📦 SBOM metadata
-      id: sbom-metadata
-      if: ${{ steps.sbom-upload.outcome == 'success' }}
-      shell: bash
-      env:
-        SUBJECTS: ${{ steps.artifact-digests.outputs.subjects || '[]' }}
-        SBOM_PATH: _manifest/spdx_2.2/manifest.spdx.json
-        SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
-        SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
-        GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
-      run: |
-        # grype output
-        ls -ltr ${GRYPE_SARIF}
-
-        sbom_path="${SBOM_PATH}"
-        if [ ! -f "$sbom_path" ]; then
-          echo "::error::missing SBOM at ${sbom_path}"
-          exit 13
-        fi
-        sbom_digest="sha256:$(sha256sum "$sbom_path" | awk '{print $1}')"
-        subjects_json="${SUBJECTS:-[]}"
-        if ! jq -e . >/dev/null 2>&1 <<<"$subjects_json"; then
-          echo "::error::SUBJECTS is not valid JSON"
-          exit 14
-        fi
-        if [ -z "${SBOM_ARTIFACT_ID}" ]; then
-          echo "::error::missing SBOM artifact id"
-          exit 15
-        fi
-        metadata=$(
-          jq -c \
-            --argjson subjects "$subjects_json" \
-            --arg artifactId "$SBOM_ARTIFACT_ID" \
-            --arg artifactName "$SBOM_ARTIFACT_NAME" \
-            --arg path "$SBOM_PATH" \
-            --arg digest "$sbom_digest" \
-            '{subjects:$subjects,artifactId:$artifactId,artifactName:$artifactName,path:$path,digest:$digest}'
-        )
-        printf 'metadata=%s\n' "$metadata" >> "$GITHUB_OUTPUT"
-
-    - name: 📝 SBOM submission
-      continue-on-error: true
-      uses: advanced-security/spdx-dependency-submission-action@v0.1.1
-      with:
-        filePath: "_manifest/spdx_2.2/"
 
   attestation:
     name: 🪪 Artifact attestations
