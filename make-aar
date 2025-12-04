@@ -62,8 +62,8 @@ fi
 
 if [ "$ARG1" = "go" ]; then
   # download from go.dev/dl
-  curl -Lso go.tar.gz https://go.dev/dl/go1.25.1.linux-amd64.tar.gz
-  echo "7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e go.tar.gz" | sha256sum -c -
+  curl -Lso go.tar.gz https://go.dev/dl/go1.25.5.linux-amd64.tar.gz
+  echo "9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b go.tar.gz" | sha256sum -c -
 
   # HOME=/home/jitpack
   # PWD=/home/jitpack/build
