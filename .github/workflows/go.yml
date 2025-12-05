@@ -187,7 +187,8 @@ jobs:
         # TODO: fails to detect the firestack package/module and its deps
         # XXX: Couldn't load package "." in the current module.  Trying again in a temporary module.
         # XXX: go: .: no package to get in current directory
-        # capslock -output=j
+        # github.com/hasansino/go42/blob/3be871dcfe/.github/workflows/130-security.yaml#L199
+        capslock -packages ./... -output=j
       shell: bash
 
     # TODO: pin actions deps: github.com/stacklok/frizbee
