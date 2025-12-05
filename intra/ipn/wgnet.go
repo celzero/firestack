@@ -69,9 +69,9 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 		if err == nil {
 			err = errNoSuchHost
 		}
-		log.D("wg: %s dial: lookup failed %q: no ips; err: %v", tnet.id, host, err)
 		return nil, &net.DNSError{Err: err.Error(), Name: host, IsNotFound: true}
 	} else {
+		log.D("wg: %s dns: dial: lookup succeeded %q: %v", tnet.id, host, ips)
 		return ips, nil
 	}
 }
