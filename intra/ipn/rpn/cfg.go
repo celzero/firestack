@@ -14,7 +14,7 @@
 package rpn
 
 import (
-	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,7 +62,7 @@ type RpnAcc interface {
 var _ RpnAcc = (*WsClient)(nil)
 
 type BaseClient struct {
-	d  *protect.RDial
+	d  protect.RDialer
 	h2 http.Client
 }
 
@@ -161,14 +161,16 @@ func Exit64Endpoints() (v6 []netip.Addr, errs error) {
 	return v6, nil
 }
 
-func NewExtClient(ctx context.Context, c protect.Controller) *BaseClient {
-	d := protect.MakeNsRDial("extclient", ctx, c)
+func NewExtClient(d protect.RDialer) *BaseClient {
 	w := &BaseClient{d: d}
 	w.h2.Transport = &http.Transport{
 		Dial:                  d.Dial,
 		ForceAttemptHTTP2:     true,
 		ResponseHeaderTimeout: 15 * time.Second,
 		IdleConnTimeout:       30 * time.Second,
+		TLSClientConfig: &tls.Config{
+			ClientSessionCache: core.TlsSessionCache(),
+		},
 	}
 	return w
 }
