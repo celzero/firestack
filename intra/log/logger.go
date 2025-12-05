@@ -668,22 +668,19 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 				trace += x[5] + ">"
 			}
 			fallthrough
-		case DEBUG:
+		case DEBUG, ERROR, WARN, INFO:
 			if len(x) >= 5 && tracecaller(x[4]) {
 				trace += x[4] + ">"
 			}
-			fallthrough
-		case ERROR:
+			// err
 			if len(x) >= 4 && tracecaller(x[3]) {
 				trace += x[3] + ">"
 			}
-			fallthrough
-		case WARN:
+			// warn
 			if len(x) >= 3 && tracecaller(x[2]) {
 				trace += x[2] + ">"
 			}
-			fallthrough
-		case INFO:
+			// info
 			if len(x) >= 2 && tracecaller(x[1]) {
 				trace += x[1] + ">"
 			}
