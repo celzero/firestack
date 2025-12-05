@@ -309,8 +309,8 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	pxr.ipPins = core.NewSieve[netip.AddrPort, string](pctx, pintimeout)
 	pxr.uidPins = core.NewSieve2K[string, netip.AddrPort, string](pctx, pintimeout)
 
-	pxr.extc = rpn.NewExtClient(pctx, c)
-	if se, serr := seasy.NewSEasyClient(pxr.exit); serr != nil {
+	pxr.extc = rpn.NewExtClient(pxr.base)
+	if se, serr := seasy.NewSEasyClient(pxr.base); serr != nil {
 		pxr.lastSeErr.Store(serr)
 	} else {
 		pxr.sec = se
