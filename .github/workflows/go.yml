@@ -176,6 +176,7 @@ jobs:
         # staticcheck ./...
         go install go.uber.org/nilaway/cmd/nilaway@latest
         nilaway ./...
+        # or: github.com/imjasonh/govulncheck-action
         go install golang.org/x/vuln/cmd/govulncheck@latest
         govulncheck -show verbose -test ./...
 
@@ -207,31 +208,6 @@ jobs:
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: ${{ steps.gr.outputs.sarif }}
-
-    - name: 🛠️ CodeQL Init
-      if: always()
-      id: cqli
-      uses: github/codeql-action/init@v4
-      with:
-        # github.com/github/codeql-action/blob/ecec1f88769/init/action.yml#L137
-        debug: true
-        languages: "go"
-        # If you wish to specify custom queries, you can do so here or in a config file.
-        # By default, queries listed here will override any specified in a config file.
-        # Prefix the list here with "+" to use these queries and those in the config file.
-
-        # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
-        queries: security-extended,security-and-quality
-
-    # also uploads to code-scanning
-    # github.com/github/codeql-action/blob/ecec1f88769/analyze/action.yml#L92
-    # sarif_file is at steps.cqla.outputs.sarif-output
-    - name: 🧩 CodeQL Analysis
-      if: ${{ steps.cqli.outcome == 'success' }}
-      id: cqla
-      uses: github/codeql-action/analyze@v4
-      with:
-        category: "/language:go"
 
     - name: 🛸 After Make
       if: ${{ steps.make.outcome == 'success' }} && ${{ steps.sbom-upload.outcome == 'success' }}
@@ -501,3 +477,32 @@ jobs:
         with:
           version: "latest"
           install-go: false
+
+  codeql:
+    name: 🧩 CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: 🥏 Checkout
+        uses: actions/checkout@v6
+
+      - name: 🛠️ CodeQL Init
+        uses: github/codeql-action/init@v4
+        with:
+          # github.com/github/codeql-action/blob/ecec1f88769/init/action.yml#L137
+          debug: true
+          languages: "go"
+          # docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
+          queries: security-extended,security-and-quality
+
+      # also uploads to code-scanning
+      # github.com/github/codeql-action/blob/ecec1f88769/analyze/action.yml#L92
+      # sarif_file is at steps.cqla.outputs.sarif-output
+      - name: 🧩 CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:go"
