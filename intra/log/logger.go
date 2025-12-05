@@ -236,7 +236,8 @@ var spammsgThreshold = [NONE + 1]uint32{
 	NONE:       256 >> 9, // 0
 }
 
-const callerunknown = "???"
+const fileunknown = "?f?"
+const callerunknown = "?c?"
 
 const defaultFlags = 0 // no flags
 
@@ -565,7 +566,7 @@ func caller(at int) (pc uintptr, who string) {
 func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	pc, file, line, _ := runtime.Caller(at)
 	if len(file) <= 0 {
-		file = callerunknown
+		file = fileunknown
 	} else {
 		file = shortfile(file) + sep1 + fmt.Sprint(line) + sep2
 	}
@@ -575,7 +576,7 @@ func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 // go.dev/play/p/h9Woqcp0Xz0
 func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped int) {
 	if until <= 0 {
-		return []uintptr{0}, []string{callerunknown}, 0
+		return []uintptr{0}, []string{fileunknown}, 0
 	} else if until == 1 {
 		pc, who := caller2(at+nextframe, sep1, "")
 		return []uintptr{pc}, []string{who}, 0
@@ -584,7 +585,7 @@ func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped
 	rpc := make([]uintptr, until)
 	n := runtime.Callers(at+nextframe, rpc)
 	if n < 1 {
-		return []uintptr{0}, []string{callerunknown}, until
+		return []uintptr{0}, []string{fileunknown}, until
 	}
 
 	pcs = make([]uintptr, 0, until)
@@ -595,14 +596,18 @@ func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped
 		pc := frame.PC // may be 0
 		file := frame.File
 		line := frame.Line
+		fn := frame.Function
+		if len(fn) <= 0 {
+			fn = callerunknown
+		}
 		if len(file) <= 0 { // more is false when file is empty
-			file = callerunknown
+			file = fileunknown
 		} else {
-			file = shortfile(file) + sep1 + fmt.Sprint(line)
+			file = shortfile(file) + sep1 + fn + sep1 + fmt.Sprint(line)
 		}
 		pcs = append(pcs, pc)
 		files = append(files, file)
-		if !more || file == callerunknown {
+		if !more || file == fileunknown || fn == callerunknown {
 			break
 		}
 		skipped = until - i
@@ -611,7 +616,7 @@ func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped
 }
 
 func tracecaller(s string) bool {
-	if len(s) <= 0 || s == callerunknown {
+	if len(s) <= 0 || s == callerunknown || s == fileunknown {
 		return false
 	}
 	// ex: asm_arm64.s:1223>async.go:49>async.go:121>proxy.go:789
