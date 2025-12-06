@@ -54,6 +54,7 @@ jobs:
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
 
+    # for provenance, better to upload as soon as possible
     # github.com/actions/upload-artifact
     - name: 🚀 Upload
       if: ${{ steps.test.outcome == 'success' }}
@@ -206,6 +207,11 @@ jobs:
         # github.com/google/osv-scanner/blob/main/README.md
         go install github.com/google/osv-scanner/cmd/osv-scanner@latest
         osv-scanner --licenses .
+
+        # github.com/google/go-licenses?tab=readme-ov-file#build-tags
+        go install github.com/google/go-licenses/v2@latest
+        # github.com/google/licenseclassifier/blob/e6a9bb99b5/license_type.go#L28
+        GOFLAGS="-tags=tools" go-licenses check ./... --include_tests --allowed_licenses=notice,permissive,reciprocal,unencumbered
       shell: bash
 
     # TODO: pin actions deps: github.com/stacklok/frizbee
