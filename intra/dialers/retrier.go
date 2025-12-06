@@ -108,7 +108,10 @@ type retrier struct {
 	tee []byte
 	// retryWriteErr is set to the error from the last retry, if any.
 	retryWriteErr error
-	retryCount    uint8
+	// tracks the number of retries attempted.
+	retryCount uint8
+	// must be set to 1 or more, never 0.
+	maxRetries uint8
 	// Flag indicating when retry is finished or unnecessary.
 	retryDone *core.SigCond
 }
@@ -150,6 +153,7 @@ func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, 
 		dialerOpts: settings.GetDialerOpts(),
 		laddr:      laddr, // may be nil
 		raddr:      raddr, // must not be nil
+		maxRetries: maxRetryCount,
 		retryDone:  core.NewSigCond(),
 	}
 
@@ -163,6 +167,7 @@ func DialWithSplitRetry(d *protect.RDial, laddr, raddr *net.TCPAddr) (*retrier, 
 }
 
 func dialerOptsForMultiDialers() settings.DialerOpts {
+	// see: dialStratLocked
 	return settings.DialerOpts{
 		Strat: settings.SplitNever,
 		Retry: settings.RetryWithSplit,
@@ -200,6 +205,7 @@ func DialAny(ds []protect.RDialer, laddr, raddr net.Addr) (*retrier, error) {
 		dialers:    reprioritize(ds, remote),
 		dialerOpts: dialerOptsForMultiDialers(),
 		multidial:  true,
+		maxRetries: uint8(len(ds)),
 		laddr:      laddr, // may be nil
 		raddr:      raddr, // must not be nil
 		rport:      remote.Port(),
@@ -240,6 +246,11 @@ func (r *retrier) SetKeepAlive(y bool) error {
 }
 
 func (r *retrier) dialStratLocked() (strat int32, err error) {
+	if r.multidial { // multidialing retrier does not follow strategies
+		// see: dialerOptsForMultiDialers
+		return settings.SplitNever, nil
+	}
+
 	auto := r.dialerOpts.Strat == settings.SplitAuto
 	retryStrat := r.dialerOpts.Retry
 	split := r.dialerOpts.Strat != settings.SplitNever
@@ -258,7 +269,7 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 		if auto {
 			// split at all attempts except the last
 			// (also see "auto" cond block below)
-			split = split && r.retryCount < maxRetryCount
+			split = split && r.retryCount < r.maxRetries
 		}
 	}
 
@@ -267,7 +278,7 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 	} else if auto {
 		// auto always attempts TCP split first as TLS splits
 		// as not all TLS servers play nice with split TLS records.
-		attemptCycle := r.retryCount % maxRetryCount
+		attemptCycle := r.retryCount % r.maxRetries
 		switch retryStrat {
 		case settings.RetryNever:
 			// only one attempt allowed; neither retried nor split
@@ -288,7 +299,7 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 			} else if attemptCycle == 1 {
 				strat = settings.SplitTCPOrTLS
 			} else {
-				// split is false when retryCount >= maxRetryCount,
+				// split is false when retryCount >= r.maxRetries,
 				// and so, the strat here does not matter
 				strat = settings.SplitTCP
 			}
@@ -319,7 +330,7 @@ func (r *retrier) dialLocked() error {
 	}
 	r.currentStrat = strat
 
-	spreadTimeoutOver := maxRetryCount - int(r.retryCount)
+	spreadTimeoutOver := int(r.maxRetries) - int(r.retryCount)
 	if nosplit := strat == settings.SplitNever; nosplit {
 		spreadTimeoutOver = 0 // no spread if no split
 	}
@@ -350,6 +361,9 @@ func (r *retrier) dialLocked() error {
 }
 
 func (r *retrier) isSplitStrat() bool {
+	if r.multidial { // multidial do not follow strats
+		return false
+	}
 	return r.currentStrat == settings.SplitTCP || r.currentStrat == settings.SplitTCPOrTLS
 }
 
@@ -358,10 +372,10 @@ func (r *retrier) isSplitStrat() bool {
 func (r *retrier) doDialLocked(dialStrat int32) (protect.Conn, error) {
 	if r.multidial {
 		var errs error
-		if r.nextDialerIdx >= len(r.dialers) && r.retryCount < maxRetryCount {
+		if r.nextDialerIdx >= len(r.dialers) && r.retryCount < r.maxRetries {
 			r.nextDialerIdx = 0
 			log.D("retrier: mult: %s: reset dialer index; retry # %d / %d",
-				r.dialerID(), r.retryCount, maxRetryCount)
+				r.dialerID(), r.retryCount, r.maxRetries)
 		}
 		for r.nextDialerIdx < len(r.dialers) {
 			d := r.dialers[r.nextDialerIdx]
@@ -499,7 +513,7 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 			retryReadErr := err
 			// retry on errs like timeouts or connection resets
-			for (c == nil || redoForTls || retryReadErr != nil) && (r.canRetry() && r.retryCount < maxRetryCount) {
+			for (c == nil || redoForTls || retryReadErr != nil) && (r.canRetry() && r.retryCount < r.maxRetries) {
 				r.retryCount++
 
 				n, retryReadErr = r.retryWriteReadLocked(buf)
@@ -618,7 +632,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 			// by the retry procedure. Block until we have a final socket (which will
 			// already have replayed r.tee), and retry.
 			// ie, wait until first write is done on the final socket.
-			maxUntil := max(waitForRead, waitForRead*maxRetryCount)
+			maxUntil := max(waitForRead, waitForRead*time.Duration(r.maxRetries))
 			if r.multidial {
 				maxUntil = max(maxUntil, maxUntil*time.Duration(len(r.dialers)))
 			}
