@@ -47,11 +47,23 @@ jobs:
       shell: bash
 
     - name: 🧪 Test
+      id: test
       if: success()
       run: |
         go env
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
+
+    # github.com/actions/upload-artifact
+    - name: 🚀 Upload
+      if: ${{ steps.test.outcome == 'success' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: firestack-aar-${{ github.sha }} # must be unique
+        path: firestack*.aar # see: make-aar
+        retention-days: 52 # 0-90; 90 is max
+        if-no-files-found: error # error, warn (default), ignore
+        compression-level: 9 # 0-9; 9 is max
 
     # github.com/microsoft/sbom-tool
     # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
@@ -407,17 +419,6 @@ jobs:
           MAVEN_NS: ${{ secrets.OSSRH_CELZERO_NAMESPACE }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
 
-    # github.com/actions/upload-artifact
-    - name: 🚀 Upload
-      if: ${{ steps.make.outcome == 'success' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: firestack-aar-${{ github.sha }} # must be unique
-        path: firestack*.aar # see: make-aar
-        retention-days: 52 # 0-90; 90 is max
-        if-no-files-found: error # error, warn (default), ignore
-        compression-level: 9 # 0-9; 9 is max
-
   osv:
     name: 🛡️ OSV scanner
     runs-on: ubuntu-latest
@@ -534,7 +535,7 @@ jobs:
           install-go: false
 
   codeql:
-    name: 🧩 CodeQL
+    name: 🧩 CodeQL & Zizmor
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -544,6 +545,8 @@ jobs:
     steps:
       - name: 🥏 Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: 🛠️ CodeQL Init
         uses: github/codeql-action/init@v4
@@ -561,3 +564,9 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:go"
+
+      - name: 💤 Zizmor
+        if: always()
+        uses: zizmorcore/zizmor-action@e639db99335bc9038abc0e066dfcd72e23d26fb4 # v0.3.0
+        with:
+          advanced-security: true

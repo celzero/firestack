@@ -33,6 +33,7 @@ jobs:
         subject: ${{ fromJson(inputs.subjects) }}
 
     steps:
+      # also: buildsec.github.io/frsca/docs/slsa/frsca-slsa/
       # github.com/actions/attest-build-provenance
       # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-build-provenance-for-binaries
       - name: ✅ Attest provenance
