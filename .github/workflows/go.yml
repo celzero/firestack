@@ -171,24 +171,29 @@ jobs:
 
         # vet: fails: archive.is/XcDl6
         go vet ./...
+
         # staticcheck
         # go install honnef.co/go/tools/cmd/staticcheck@latest
         # staticcheck ./...
+
+        # nil checks
         go install go.uber.org/nilaway/cmd/nilaway@latest
         nilaway ./...
+
         # or: github.com/imjasonh/govulncheck-action
         go install golang.org/x/vuln/cmd/govulncheck@latest
         govulncheck -show verbose -test ./...
 
+        # TODO: store output to compare with subsequent runs
         # security.googleblog.com/2023/09/capslock-what-is-your-code-really.html
         # github.com/google/capslock/tree/4bb7636/docs
         go install github.com/google/capslock/cmd/capslock@latest
-        # TODO: store output to compare with subsequent runs
-        # TODO: fails to detect the firestack package/module and its deps
-        # XXX: Couldn't load package "." in the current module.  Trying again in a temporary module.
-        # XXX: go: .: no package to get in current directory
         # github.com/hasansino/go42/blob/3be871dcfe/.github/workflows/130-security.yaml#L199
         capslock -packages ./... -output v
+
+        # github.com/google/osv-scanner/blob/main/README.md
+        go install github.com/google/osv-scanner/cmd/osv-scanner@latest
+        osv-scanner --licenses .
       shell: bash
 
     # TODO: pin actions deps: github.com/stacklok/frizbee
