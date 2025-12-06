@@ -241,13 +241,16 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		log.E("com: %s: onFlow: missing proxyid for preuid %s (%s => %s) from kt (alg: %v + %v); %s!",
 			h.proto, preuid, src, dst, ips, doms, fm.PIDCSV)
 	}
-	if preuid == SELF_UID && !ipn.IsAnyLocalProxy(strings.Split(fm.PIDCSV, ",")...) {
+	loopback := settings.Loopingback.Load()
+	// in loopback mode, user may have setup SELF_UID to be routed out via remote proxies.
+	// in other cases, routing Rethink via remote proxies is probably a bug.
+	if !loopback && preuid == SELF_UID && !ipn.IsAnyLocalProxy(strings.Split(fm.PIDCSV, ",")...) {
 		egress := ipn.Exit
 		if h.resolver.IsDnsAddr(target) {
 			egress = ipn.Base // see: udp.go:dnsOverride
 		}
-		log.W("com: %s: onFlow: preflow: preuid %s (%s => %s) is rethink! override %s to %s!",
-			h.proto, preuid, src, dst, fm.PIDCSV, egress)
+		log.W("com: %s: onFlow: preflow: preuid %s (%s => %s) is rethink (loopback? %t)! override %s to %s!",
+			h.proto, preuid, src, dst, loopback, fm.PIDCSV, egress)
 		fm.PIDCSV = egress
 	}
 
