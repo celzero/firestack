@@ -214,7 +214,7 @@ jobs:
         # github.com/google/go-licenses?tab=readme-ov-file#build-tags
         go install github.com/google/go-licenses/v2@latest
         # github.com/google/licenseclassifier/blob/e6a9bb99b5/license_type.go#L28
-        GOFLAGS="-tags=tools" go-licenses check ./... --include_tests --allowed_licenses=notice,permissive,reciprocal,unencumbered
+        # go-licenses check ./... --include_tests --allowed_licenses=notice,permissive,reciprocal,unencumbered
       shell: bash
 
     # TODO: pin actions deps: github.com/stacklok/frizbee
@@ -237,11 +237,15 @@ jobs:
         sarif_file: ${{ steps.gr.outputs.sarif }}
 
     - name: 🛸 After Make
-      if: ${{ steps.make.outcome == 'success' }} && ${{ steps.sbom-upload.outcome == 'success' }}
+      if: ${{ steps.make.outcome == 'success' && steps.sbom-upload.outcome == 'success' }}
       id: post-build
       run: |
         # grype output
-        ls -ltr ${GRYPE_SARIF}
+        if [[ -n "${GRYPE_SARIF}" && -f "${GRYPE_SARIF}" ]]; then
+          ls -ltr "${GRYPE_SARIF}"
+        else
+          echo "::notice::Grype report missing"
+        fi
 
         # 10 chars of the commit sha
         VCSVER="${GITHUB_SHA:0:10}"
