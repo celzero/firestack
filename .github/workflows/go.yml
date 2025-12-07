@@ -205,7 +205,7 @@ jobs:
         capslock -packages ./... -output v
 
         # github.com/google/osv-scanner/blob/main/README.md
-        go install github.com/google/osv-scanner/cmd/osv-scanner@latest
+        go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
         osv-scanner --licenses .
 
         # github.com/google/go-licenses?tab=readme-ov-file#build-tags
