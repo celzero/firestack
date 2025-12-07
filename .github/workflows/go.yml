@@ -25,6 +25,7 @@ jobs:
     outputs:
       artifact-subjects: ${{ steps.post-build.outputs.subjects }}
       sbom-info: ${{ steps.post-build.outputs.sbom-info }}
+      vcs-ver: ${{ steps.post-build.outputs.vcs-ver }}
     env:
       FOUT: firestack.aar
       FOUTDBG: firestack-debug.aar
@@ -61,7 +62,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: firestack-aar-${{ github.sha }} # must be unique
-        path: firestack*.aar # see: make-aar
+        path: |
+          firestack*.aar # see: make-aar
+          build/intra/tun2socks-sources.jar
         retention-days: 52 # 0-90; 90 is max
         if-no-files-found: error # error, warn (default), ignore
         compression-level: 9 # 0-9; 9 is max
@@ -240,51 +243,8 @@ jobs:
         # grype output
         ls -ltr ${GRYPE_SARIF}
 
-        # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
-        GROUP_GITHUB="com.github.${{ github.repository_owner }}"
-        GROUP_OSSRH="com.celzero"
-
-        # project artifactId; see: pom.xml
-        ARTIFACT="firestack"
-
-        # Repository
-        REPO_GITHUB="github"
-        # central.sonatype.org/pages/ossrh-eol
-        REPO_OSSRH="ossrh" # or "central"
-
-        # artefact type
-        PACK="${PACK:-aar}"
-
-        # final out from make-aar
-        FOUT="${FOUT:-firestack.aar}"
-        FOUTDBG="${FOUTDBG:-firestack-debug.aar}"
-
-        # artifact classifier
-        CLASSFULL="${CLASSFULL:-full}" # unused
-        CLASSDBG="${CLASSDBG:-debug}"
-
-        # artifact bytecode sources
-        SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
-
-        # 10 chars of the commit SHA
+        # 10 chars of the commit sha
         VCSVER="${GITHUB_SHA:0:10}"
-
-        # POM for Maven Central
-        POM_OSSRH="ossrhpom.xml"
-
-        echo "GROUP_GITHUB=${GROUP_GITHUB}" >> $GITHUB_ENV
-        echo "GROUP_OSSRH=${GROUP_OSSRH}" >> $GITHUB_ENV
-        echo "ARTIFACT=${ARTIFACT}" >> $GITHUB_ENV
-        echo "REPO_GITHUB=${REPO_GITHUB}" >> $GITHUB_ENV
-        echo "REPO_OSSRH=${REPO_OSSRH}" >> $GITHUB_ENV
-        echo "PACK=${PACK}" >> $GITHUB_ENV
-        echo "FOUT=${FOUT}" >> $GITHUB_ENV
-        echo "FOUTDBG=${FOUTDBG}" >> $GITHUB_ENV
-        echo "CLASSFULL=${CLASSFULL}" >> $GITHUB_ENV
-        echo "CLASSDBG=${CLASSDBG}" >> $GITHUB_ENV
-        echo "SOURCES=${SOURCES}" >> $GITHUB_ENV
-        echo "VCSVER=${VCSVER}" >> $GITHUB_ENV
-        echo "POM_OSSRH=${POM_OSSRH}" >> $GITHUB_ENV
 
         subjects='[]'
         for key in FOUT FOUTDBG; do
@@ -318,7 +278,7 @@ jobs:
             '{subjects:$subjects,artifactId:$artifactId,artifactName:$artifactName,path:$path,digest:$digest}'
         )
         printf 'sbom-info=%s\n' "$sbominfo" >> "$GITHUB_OUTPUT"
-
+        printf 'vcs-ver=%s\n' "$VCSVER" >> "$GITHUB_OUTPUT"
         # print sbominfo and subjects
         jq . <<<${subjects}
         jq . <<<${sbominfo}
@@ -329,101 +289,6 @@ jobs:
         SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
         GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
 
-    - name: 🏷️ Setup for GitHub Packages
-      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
-    # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
-    # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
-    - name: 😺 GitHub Packages
-      if: success() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-      shell: bash
-      run: |
-        # uploaded at:
-        # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
-        # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
-        # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
-
-        # publish both stripped and debug
-        mvn deploy:deploy-file \
-          -DgroupId="${GROUP_GITHUB}" \
-          -DartifactId="${ARTIFACT}" \
-          -Dversion="${VCSVER}" \
-          -Dpackaging="${PACK}" \
-          -Dfile="${FOUT}" \
-          -Dfiles="${FOUTDBG}" \
-          -Dtypes="${PACK}" \
-          -Dclassifiers=${CLASSDBG} \
-          -DrepositoryId="${REPO_GITHUB}" \
-          -Dsources="${SOURCES}" \
-          -Durl="https://maven.pkg.github.com/${{ github.repository }}"
-      env:
-        GITHUB_ACTOR: ${{ github.actor }}
-        GITHUB_TOKEN: ${{ github.token }}
-
-    # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
-    # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
-    # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
-    - name: 🏛️ Setup for Maven Central
-      if: success() && github.event_name == 'workflow_dispatch'
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        server-id: ossrh
-        server-username: MAVEN_USERNAME
-        server-password: MAVEN_PASSWORD
-        gpg-private-key: ${{ secrets.OSSRH_CELZERO_GPG_PRIVATE_KEY }}
-        gpg-passphrase: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
-
-    - name: 📦 Publish to Maven Central
-      if: success() && github.event_name == 'workflow_dispatch'
-      shell: bash
-      run: |
-        mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
-        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
-        # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
-
-        # upload both stripped and debug
-        mvn gpg:sign-and-deploy-file \
-          -DgroupId="${GROUP_OSSRH}" \
-          -DartifactId="${ARTIFACT}" \
-          -Dversion="${VCSVER}" \
-          -Dpackaging="${PACK}" \
-          -Dfile="${FOUT}" \
-          -DrepositoryId="${REPO_OSSRH}" \
-          -DpomFile=${POM_OSSRH} \
-          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
-          -Dsources="${SOURCES}" \
-          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
-
-        mvn gpg:sign-and-deploy-file \
-          -DgroupId="${GROUP_OSSRH}" \
-          -DartifactId="${ARTIFACT}" \
-          -Dversion="${VCSVER}" \
-          -Dpackaging="${PACK}" \
-          -Dfile="${FOUTDBG}" \
-          -Dclassifier=${CLASSDBG} \
-          -DrepositoryId="${REPO_OSSRH}" \
-          -DgeneratePom=false \
-          -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
-          -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
-
-        # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
-        tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
-        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
-        # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
-        # auth required for publishing_type=automatic
-        curl -D - -X POST -H "Authorization: Bearer ${tok}" \
-          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
-      env:
-          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
-          MAVEN_NS: ${{ secrets.OSSRH_CELZERO_NAMESPACE }}
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
 
   osv:
     name: 🛡️ OSV scanner
@@ -477,11 +342,204 @@ jobs:
   attestation:
     name: 🪪 Artifact attestations
     needs: build
-    if: ${{ needs.build.result == 'success' && needs.build.outputs.artifact-subjects != '' && github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.build.result == 'success' && needs.build.outputs.artifact-subjects != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     uses: ./.github/workflows/provenance.yml
     with:
       subjects: ${{ needs.build.outputs.artifact-subjects }}
       sbom-info: ${{ needs.build.outputs.sbom-info }}
+
+  publish:
+    name: 🚚 Publish
+    needs:
+      - build
+      - attestation
+    if: ${{ needs.build.result == 'success' && needs.attestation.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      packages: write
+    env:
+      # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
+      GROUP_GITHUB: ${{ format('com.github.{0}', github.repository_owner) }}
+      GROUP_OSSRH: com.celzero
+      # project artifactId; see: pom.xml
+      ARTIFACT: firestack
+      REPO_GITHUB: github
+      # central.sonatype.org/pages/ossrh-eol
+      # or "central"
+      REPO_OSSRH: ossrh
+      # artefact type
+      PACK: aar
+        # final out from make-aar
+      FOUT: firestack.aar
+      FOUTDBG: firestack-debug.aar
+      # artifact classifier; full unused
+      CLASSFULL: full
+      CLASSDBG: debug
+      # artifact bytecode sources
+      SOURCES: build/intra/tun2socks-sources.jar
+      # POM for Maven Central
+      POM_OSSRH: ossrhpom.xml
+      DIST_DIR: dist
+      # git version (short commit sha)
+      VCSVER: ${{ needs.build.outputs.vcs-ver }}
+    steps:
+      - name: 🥏 Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: ⬇️ Get artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: firestack-aar-${{ github.sha }}
+          path: ${{ env.DIST_DIR }}
+
+      - name: ⬇️ Get SBOM
+        if: ${{ needs.build.outputs.sbom-info != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ fromJson(needs.build.outputs.sbom-info).artifactId }}
+          path: sbom
+
+      - name: 🔐 Verify artifacts
+        shell: bash
+        env:
+          SUBJECTS: ${{ needs.build.outputs.artifact-subjects }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SUBJECTS" ] || [ "$SUBJECTS" = "[]" ]; then
+            echo "::error::missing artifact subjects"
+            exit 12
+          fi
+          jq -c '.[]' <<<"$SUBJECTS" | while read -r subject; do
+            name=$(jq -r '.name' <<<"$subject")
+            file="${DIST_DIR}/${name##*/}"
+            if [ ! -f "$file" ]; then
+              echo "::error::missing artifact $file"
+              exit 13
+            fi
+            gh attestation verify "$file" -R "$REPO"
+          done
+
+      - name: 🧾 Verify SBOM
+        if: ${{ needs.build.outputs.sbom-info != '' }}
+        shell: bash
+        env:
+          SBOM_INFO: ${{ needs.build.outputs.sbom-info }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          predicate="https://spdx.dev/Document/v2.3"
+          jq -c '.subjects[]' <<<"$SBOM_INFO" | while read -r subject; do
+            name=$(jq -r '.name' <<<"$subject")
+            file="${DIST_DIR}/${name##*/}"
+            if [ ! -f "$file" ]; then
+              echo "::error::missing SBOM subject artifact $file"
+              exit 14
+            fi
+            gh attestation verify "$file" -R "$REPO" --predicate-type "$predicate"
+          done
+
+      - name: 🏷️ Setup for GitHub Packages
+        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+        # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
+        # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
+      - name: 😺 GitHub Packages
+        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # uploaded at:
+          # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
+          # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
+          # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
+
+          # publish both stripped and debug
+          mvn deploy:deploy-file \
+            -DgroupId="${GROUP_GITHUB}" \
+            -DartifactId="${ARTIFACT}" \
+            -Dversion="$VCSVER" \
+            -Dpackaging="${PACK}" \
+            -Dfile="${DIST_DIR}/${FOUT}" \
+            -Dfiles="${DIST_DIR}/${FOUTDBG}" \
+            -Dtypes="${PACK}" \
+            -Dclassifiers=${CLASSDBG} \
+            -DrepositoryId="${REPO_GITHUB}" \
+            -Dsources="${DIST_DIR}/${SOURCES}" \
+            -Durl="https://maven.pkg.github.com/${REPOSITORY}"
+
+        # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+        # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
+        # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
+      - name: 🏛️ Setup for Maven Central
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.OSSRH_CELZERO_GPG_PRIVATE_KEY }}
+          gpg-passphrase: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
+
+      - name: 📦 Publish to Maven Central
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_NS: ${{ secrets.OSSRH_CELZERO_NAMESPACE }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
+        run: |
+          mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
+          # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
+          # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
+
+          # upload both stripped and debug
+          mvn gpg:sign-and-deploy-file \
+            -DgroupId="${GROUP_OSSRH}" \
+            -DartifactId="${ARTIFACT}" \
+            -Dversion="$VCSVER" \
+            -Dpackaging="${PACK}" \
+            -Dfile="${DIST_DIR}/${FOUT}" \
+            -DrepositoryId="${REPO_OSSRH}" \
+            -DpomFile=${POM_OSSRH} \
+            -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+            -Dsources="${DIST_DIR}/${SOURCES}" \
+            -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+          mvn gpg:sign-and-deploy-file \
+            -DgroupId="${GROUP_OSSRH}" \
+            -DartifactId="${ARTIFACT}" \
+            -Dversion="$VCSVER" \
+            -Dpackaging="${PACK}" \
+            -Dfile="${DIST_DIR}/${FOUTDBG}" \
+            -Dclassifier=${CLASSDBG} \
+            -DrepositoryId="${REPO_OSSRH}" \
+            -DgeneratePom=false \
+            -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+            -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+          # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+          tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
+          # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
+          # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
+          # auth required for publishing_type=automatic
+          curl -D - -X POST -H "Authorization: Bearer ${tok}" \
+            "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
 
   checker:
     name: 🔐 Security checker
@@ -528,8 +586,10 @@ jobs:
       # consolidated in: github.com/tailscale/tailscale/commit/4022796484
       - name: 📦 Depaware
         run: |
-          go run github.com/tailscale/depaware github.com/celzero/firestack/intra
-          go run github.com/tailscale/depaware github.com/celzero/firestack/tunnel
+          # Error: ../../../go/pkg/mod/github.com/tailscale/depaware@v0.0.0-20251001183927-9c2ad255ef3f/depaware/depaware.go:238:17: undefined: imports.VendorlessPath
+          # Error: Process completed with exit code 1.
+          # go run github.com/tailscale/depaware github.com/celzero/firestack/intra
+          # go run github.com/tailscale/depaware github.com/celzero/firestack/tunnel
       - name: 🏅 Lint
         uses: golangci/golangci-lint-action@v9.2.0
         with:
