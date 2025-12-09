@@ -260,7 +260,6 @@ jobs:
           digest="sha256:$(sha256sum "$artifact" | awk '{print $1}')"
           subjects=$(jq -c --arg name "$artifact" --arg digest "$digest" '. + [{ "name": $name, "digest": $digest }]' <<<"$subjects")
         done
-        printf 'subjects=%s\n' "$subjects" >> "$GITHUB_OUTPUT"
 
         sbom_path="${SBOM_PATH}"
         if [ ! -f "$sbom_path" ]; then
@@ -273,7 +272,7 @@ jobs:
           exit 14
         fi
         sbominfo=$(
-          jq -c \
+          jq -c -n \
             --argjson subjects "$subjects" \
             --arg artifactId "$SBOM_ARTIFACT_ID" \
             --arg artifactName "$SBOM_ARTIFACT_NAME" \
@@ -281,11 +280,16 @@ jobs:
             --arg digest "$sbom_digest" \
             '{subjects:$subjects,artifactId:$artifactId,artifactName:$artifactName,path:$path,digest:$digest}'
         )
+
+        # print sbominfo and subjects
+        echo "== Subjects =="
+        jq . <<<${subjects}
+        echo "== SBOM Info =="
+        jq . <<<${sbominfo}
+
+        printf 'subjects=%s\n' "$subjects" >> "$GITHUB_OUTPUT"
         printf 'sbom-info=%s\n' "$sbominfo" >> "$GITHUB_OUTPUT"
         printf 'vcs-ver=%s\n' "$VCSVER" >> "$GITHUB_OUTPUT"
-        # print sbominfo and subjects
-        jq . <<<${subjects}
-        jq . <<<${sbominfo}
       shell: bash
       env:
         SBOM_PATH: _manifest/spdx_2.2/manifest.spdx.json
@@ -399,7 +403,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: firestack-aar-${{ github.sha }}
-          path: ${{ env.DIST_DIR }}
+          path: "${{ github.workspace}}/${{ env.DIST_DIR }}"
 
       - name: ⬇️ Get SBOM
         if: ${{ needs.build.outputs.sbom-info != '' }}
@@ -415,6 +419,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          ls -ltr "${DIST_DIR}/"
           if [ -z "$SUBJECTS" ] || [ "$SUBJECTS" = "[]" ]; then
             echo "::error::missing artifact subjects"
             exit 12
