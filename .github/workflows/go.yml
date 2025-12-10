@@ -396,7 +396,7 @@ jobs:
       CLASSFULL: full
       CLASSDBG: debug
       # artifact bytecode sources
-      SOURCES: build/intra/tun2socks-sources.jar
+      SOURCES: tun2socks-sources.jar
       # POM for Maven Central
       POM_OSSRH: ossrhpom.xml
       DIST_DIR: dist
@@ -420,6 +420,7 @@ jobs:
           SUBJECTS: ${{ needs.build.outputs.artifact-subjects }}
           REPO: ${{ github.repository }}
           ART_DIR: ${{ env.DIST_DIR }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           ls -ltr "${ART_DIR}/"
@@ -444,6 +445,7 @@ jobs:
           SBOM_INFO: ${{ needs.build.outputs.sbom-info }}
           REPO: ${{ github.repository }}
           ART_DIR: ${{ env.DIST_DIR }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # andrewlock.net/creating-sbom-attestations-in-github-actions/
