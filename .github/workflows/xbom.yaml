@@ -1,0 +1,55 @@
+name: Cryptography BoM
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ n2 ]
+    paths:
+      - '**/*.go'
+  pull_request:
+    branches: [ n2 ]
+    paths:
+      - '**/*.go'
+
+jobs:
+
+  # github.com/advanced-security/cbom-action
+  build-matrix:
+    name: 🚏 Repo analysis
+    runs-on: ubuntu-latest
+    outputs:
+      repositories: ${{ steps.rm.outputs.repositories }}
+    steps:
+      - name: 🚀 Build analysis matrix
+        uses: advanced-security/cbom-action/build-matrix@v1
+        id: rm
+        with:
+          repositoryNameWithOwner: ${{ github.repository }}
+          analyzeDependencies: true
+          minimumLanguageBytes: 0
+
+  run-cbom-action:
+    name: 📜 ${{ fromJson(matrix.repository).nameWithOwner }} - ${{ fromJson(matrix.repository).language }}
+    runs-on: ubuntu-latest
+    needs: build-matrix
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        repository: ${{ fromJSON(needs.build-matrix.outputs.repositories) }}
+
+    steps:
+      - name: 💈 Run
+        id: cbom
+        uses: advanced-security/cbom-action/analyze@v1
+        with:
+          repositoryNameWithOwner: ${{ fromJson(matrix.repository).nameWithOwner }}
+          language: ${{ fromJson(matrix.repository).language }}
+          createCodeQLDatabaseIfRequired: true
+          uploadToCodeScanning: false
+          requestGitHubAnalysis: false
+          queryTimeout: 500
+
+      - name: 🔅 Summarize
+        if: success()
+        uses: advanced-security/cbom-action/workflow-summary@v1
