@@ -55,7 +55,7 @@ jobs:
       matrix:
         subject: ${{ fromJson(inputs.sbom-info).subjects }}
     steps:
-      - name: ⬇️ Download SBOM artifact
+      - name: ⬇️ Download SBOM
         uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ fromJson(inputs.sbom-info).artifactId }}
@@ -65,7 +65,7 @@ jobs:
         id: oksbom
         shell: bash
         env:
-          SBOM_PATH: ${{ format('sbom/{0}/{1}', fromJson(inputs.sbom-info.artifactName), fromJson(inputs.sbom-info).path) }}
+          SBOM_PATH: ${{ format('sbom/{0}/{1}', fromJson(inputs.sbom-info).artifactName, fromJson(inputs.sbom-info).path) }}
           SBOM_DIGEST: ${{ fromJson(inputs.sbom-info).digest }}
         run: |
           set -euo pipefail
