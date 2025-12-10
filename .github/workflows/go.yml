@@ -55,6 +55,7 @@ jobs:
         # go test -v -race -bench=. -benchtime=100ms ./...
         echo "::notice::success"
 
+    # ref: make-aar for output file names
     # for provenance, better to upload as soon as possible
     # github.com/actions/upload-artifact
     - name: 🚀 Upload
@@ -63,7 +64,8 @@ jobs:
       with:
         name: firestack-aar-${{ github.sha }} # must be unique
         path: |
-          firestack*.aar # see: make-aar
+          firestack.aar
+          firestack-debug.aar
           build/intra/tun2socks-sources.jar
         retention-days: 52 # 0-90; 90 is max
         if-no-files-found: error # error, warn (default), ignore
@@ -252,7 +254,7 @@ jobs:
           subjects=$(jq -c --arg name "$artifact" --arg digest "$digest" '. + [{ "name": $name, "digest": $digest }]' <<<"$subjects")
         done
 
-        sbom_path="${SBOM_PATH}"
+        sbom_path="${SBOM_PATH}/${SBOM_FNAME}"
         if [ ! -f "$sbom_path" ]; then
           echo "::error::missing SBOM at ${sbom_path}"
           exit 13
@@ -283,6 +285,7 @@ jobs:
         printf 'vcs-ver=%s\n' "$VCSVER" >> "$GITHUB_OUTPUT"
       shell: bash
       env:
+        SBOM_PATH: _manifest/spdx_2.2/
         SBOM_FNAME: manifest.spdx.json
         SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
         SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
