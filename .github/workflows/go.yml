@@ -409,7 +409,7 @@ jobs:
           persist-credentials: false
 
       - name: ⬇️ Get artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: firestack-aar-${{ github.sha }}
           path: ${{ env.DIST_DIR }}
@@ -419,7 +419,7 @@ jobs:
         env:
           SUBJECTS: ${{ needs.build.outputs.artifact-subjects }}
           REPO: ${{ github.repository }}
-          ART_DIR: "${{ env.DIST_DIR }}/firestack-aar-${{ github.sha }}"
+          ART_DIR: ${{ env.DIST_DIR }}
         run: |
           set -euo pipefail
           ls -ltr "${ART_DIR}/"
@@ -443,7 +443,7 @@ jobs:
         env:
           SBOM_INFO: ${{ needs.build.outputs.sbom-info }}
           REPO: ${{ github.repository }}
-          ART_DIR: "${{ env.DIST_DIR }}/firestack-aar-${{ github.sha }}"
+          ART_DIR: ${{ env.DIST_DIR }}
         run: |
           set -euo pipefail
           # andrewlock.net/creating-sbom-attestations-in-github-actions/
