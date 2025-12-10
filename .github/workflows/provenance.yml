@@ -33,9 +33,10 @@ jobs:
         subject: ${{ fromJson(inputs.subjects) }}
 
     steps:
-      # also: buildsec.github.io/frsca/docs/slsa/frsca-slsa/
-      # github.com/actions/attest-build-provenance
+      # attest provenance for uploaded artifacts
+      # github.com/actions/attest-build-provenance?tab=readme-ov-file#integration-with-actionsupload-artifact
       # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-build-provenance-for-binaries
+      # also: buildsec.github.io/frsca/docs/slsa/frsca-slsa/
       - name: ✅ Attest provenance
         uses: actions/attest-build-provenance@v3
         with:
@@ -60,19 +61,23 @@ jobs:
           artifact-ids: ${{ fromJson(inputs.sbom-info).artifactId }}
           path: sbom
 
-      - name: 🔐 Verify SBOM digest
+      - name: 🔐 Verify SBOM
+        id: oksbom
         shell: bash
         env:
-          SBOM_PATH: ${{ format('sbom/{0}', fromJson(inputs.sbom-info).path) }}
+          SBOM_PATH: ${{ format('sbom/{0}/{1}', fromJson(inputs.sbom-info.artifactName), fromJson(inputs.sbom-info).path) }}
           SBOM_DIGEST: ${{ fromJson(inputs.sbom-info).digest }}
         run: |
+          set -euo pipefail
           file="${SBOM_PATH}"
           if [ ! -f "$file" ]; then
             echo "missing SBOM file: $file" >&2
             exit 1
           fi
+
           digest="${SBOM_DIGEST#sha256:}"
           echo "${digest}  ${file}" | sha256sum -c -
+          printf 'sbom-path=%s\n' "${SBOM_PATH}" >> "$GITHUB_OUTPUT"
 
         # github.com/actions/attest-sbom
         # docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations#generating-an-sbom-attestation-for-binaries
@@ -81,4 +86,4 @@ jobs:
         with:
           subject-name: ${{ matrix.subject.name }}
           subject-digest: ${{ matrix.subject.digest }}
-          sbom-path: ${{ format('sbom/{0}', fromJson(inputs.sbom-info).path) }}
+          sbom-path: ${{ steps.oksbom.outputs.sbom-path }}

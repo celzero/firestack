@@ -403,30 +403,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: firestack-aar-${{ github.sha }}
-          path: "${{ github.workspace}}/${{ env.DIST_DIR }}"
-
-      - name: ⬇️ Get SBOM
-        if: ${{ needs.build.outputs.sbom-info != '' }}
-        uses: actions/download-artifact@v4
-        with:
-          artifact-ids: ${{ fromJson(needs.build.outputs.sbom-info).artifactId }}
-          path: sbom
+          path: ${{ env.DIST_DIR }}
 
       - name: 🔐 Verify artifacts
         shell: bash
         env:
           SUBJECTS: ${{ needs.build.outputs.artifact-subjects }}
           REPO: ${{ github.repository }}
+          ART_DIR: "${{ env.DIST_DIR }}/firestack-aar-${{ github.sha }}"
         run: |
           set -euo pipefail
-          ls -ltr "${DIST_DIR}/"
+          ls -ltr "${ART_DIR}/"
           if [ -z "$SUBJECTS" ] || [ "$SUBJECTS" = "[]" ]; then
             echo "::error::missing artifact subjects"
             exit 12
           fi
           jq -c '.[]' <<<"$SUBJECTS" | while read -r subject; do
             name=$(jq -r '.name' <<<"$subject")
-            file="${DIST_DIR}/${name##*/}"
+            file="${ART_DIR}/${name##*/}"
             if [ ! -f "$file" ]; then
               echo "::error::missing artifact $file"
               exit 13
@@ -435,17 +429,19 @@ jobs:
           done
 
       - name: 🧾 Verify SBOM
-        if: ${{ needs.build.outputs.sbom-info != '' }}
+        if: success() && ${{ needs.build.outputs.sbom-info != '' }}
         shell: bash
         env:
           SBOM_INFO: ${{ needs.build.outputs.sbom-info }}
           REPO: ${{ github.repository }}
+          ART_DIR: "${{ env.DIST_DIR }}/firestack-aar-${{ github.sha }}"
         run: |
           set -euo pipefail
+          # andrewlock.net/creating-sbom-attestations-in-github-actions/
           predicate="https://spdx.dev/Document/v2.3"
           jq -c '.subjects[]' <<<"$SBOM_INFO" | while read -r subject; do
             name=$(jq -r '.name' <<<"$subject")
-            file="${DIST_DIR}/${name##*/}"
+            file="${ART_DIR}/${name##*/}"
             if [ ! -f "$file" ]; then
               echo "::error::missing SBOM subject artifact $file"
               exit 14
