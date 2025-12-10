@@ -72,7 +72,7 @@ jobs:
         compression-level: 9 # 0-9; 9 is max
 
     # github.com/microsoft/sbom-tool
-    # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md?plain=1#L1
+    # github.com/microsoft/sbom-tool/blob/f5f65011f2/docs/sbom-tool-arguments.md
     - name: 🧾 SBOM
       id: sbom-gen
       if: always()
@@ -291,71 +291,6 @@ jobs:
         SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
         GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
 
-
-  osv:
-    name: 🛡️ OSV scanner
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-      actions: read
-      security-events: write
-
-    # github.com/hasansino/go42/blob/3be871dcfe/.github/workflows/140-security-extra.yaml#L102
-    steps:
-      - name: 🥏 Checkout
-        uses: actions/checkout@v6
-
-      - name: 🔍 Scan
-        id: osv-scan
-        continue-on-error: true
-        uses: google/osv-scanner-action/osv-scanner-action@v2.2.2
-        with:
-          scan-args: --output=osv-scanner-results.json --format=json --all-vulns --recursive ./
-
-      - name: 🧾 Report
-        if: ${{ steps.osv-scan.outcome != 'skipped' }}
-        continue-on-error: true
-        uses: google/osv-scanner-action/osv-reporter-action@v2.2.2
-        with:
-          scan-args: |-
-            --output=osv-scanner-results.sarif
-            --new=osv-scanner-results.json
-            --gh-annotations=true
-            --fail-on-vuln=true
-            --all-vulns
-
-      - name: ⚖️ Licenses
-        continue-on-error: true
-        run: |
-          # installing osv-scanner is ... expensive
-          # github.com/google/osv-scanner/blob/main/README.md
-          if ! command -v osv-scanner >/dev/null 2>&1; then
-            go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
-          fi
-          osv-scanner --licenses .
-
-          # github.com/google/go-licenses?tab=readme-ov-file#build-tags
-          # go install github.com/google/go-licenses/v2@latest
-          # github.com/google/licenseclassifier/blob/e6a9bb99b5/license_type.go#L28
-          # go-licenses check ./... --include_tests --allowed_licenses=notice,permissive,reciprocal,unencumbered
-
-      - name: 🚀 Upload
-        if: ${{ steps.osv-scan.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: "osv-scanner-results-${{ github.sha }}"
-          path: osv-scanner-results.sarif
-          retention-days: 72
-          compression-level: 9
-
-      - name: 📡 OSV to code-scanning
-        if: ${{ steps.osv-scan.outcome != 'skipped' }}
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: osv-scanner-results.sarif
-
   attestation:
     name: 🪪 Artifact attestations
     needs: build
@@ -396,7 +331,7 @@ jobs:
       CLASSFULL: full
       CLASSDBG: debug
       # artifact bytecode sources
-      SOURCES: tun2socks-sources.jar
+      SOURCES: build/intra/tun2socks-sources.jar
       # POM for Maven Central
       POM_OSSRH: ossrhpom.xml
       DIST_DIR: dist
@@ -449,7 +384,7 @@ jobs:
         run: |
           set -euo pipefail
           # andrewlock.net/creating-sbom-attestations-in-github-actions/
-          predicate="https://spdx.dev/Document/v2.3"
+          predicate="https://spdx.dev/Document/v2.2"
           jq -c '.subjects[]' <<<"$SBOM_INFO" | while read -r subject; do
             name=$(jq -r '.name' <<<"$subject")
             file="${ART_DIR}/${name##*/}"
@@ -557,8 +492,99 @@ jobs:
           curl -D - -X POST -H "Authorization: Bearer ${tok}" \
             "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
 
+  osv:
+    name: 🛡️ OSV scanner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      security-events: write
+
+    # github.com/hasansino/go42/blob/3be871dcfe/.github/workflows/140-security-extra.yaml#L102
+    steps:
+      - name: 🥏 Checkout
+        uses: actions/checkout@v6
+
+      - name: 🔍 Scan
+        id: osv-scan
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-scanner-action@v2.2.2
+        with:
+          scan-args: --output=osv-scanner-results.json --format=json --all-vulns --recursive ./
+
+      - name: 🧾 Report
+        if: ${{ steps.osv-scan.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: google/osv-scanner-action/osv-reporter-action@v2.2.2
+        with:
+          scan-args: |-
+            --output=osv-scanner-results.sarif
+            --new=osv-scanner-results.json
+            --gh-annotations=true
+            --fail-on-vuln=true
+            --all-vulns
+
+      - name: ⚖️ Licenses
+        continue-on-error: true
+        run: |
+          # installing osv-scanner is ... expensive
+          # github.com/google/osv-scanner/blob/main/README.md
+          if ! command -v osv-scanner >/dev/null 2>&1; then
+            go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+          fi
+          osv-scanner --licenses .
+
+          # also: github.com/oss-review-toolkit/ort
+
+          # github.com/google/go-licenses?tab=readme-ov-file#build-tags
+          # go install github.com/google/go-licenses/v2@latest
+          # github.com/google/licenseclassifier/blob/e6a9bb99b5/license_type.go#L28
+          # go-licenses check ./... --include_tests --allowed_licenses=notice,permissive,reciprocal,unencumbered
+
+      - name: 🚀 Upload
+        if: ${{ steps.osv-scan.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: "osv-scanner-results-${{ github.sha }}"
+          path: osv-scanner-results.sarif
+          retention-days: 72
+          compression-level: 9
+
+      - name: 📡 OSV to code-scanning
+        if: ${{ steps.osv-scan.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: osv-scanner-results.sarif
+
+  # github.com/oss-review-toolkit/ort-ci-github-action
+  # github.com/oss-review-toolkit/ort
+  ort:
+    name: 🌈 ORT
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      security-events: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🥏 Checkout
+        uses: actions/checkout@v5
+      - name: 🍭 Run
+        uses: oss-review-toolkit/ort-ci-github-action@main
+        with:
+          run: >
+            cache-dependencies,
+            metadata-labels,
+            analyzer,
+            advisor,
+            reporter,
+            upload-results,
+            upload-evaluation-result
+
   checker:
-    name: 🔐 Security checker
+    name: 🗳️ Security checker
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -568,7 +594,7 @@ jobs:
     steps:
       - name: 🥏 Checkout
         uses: actions/checkout@v4
-      - name: 🕵️ Gosec Scanner
+      - name: 📀 Gosec Scanner
         uses: securego/gosec@master
         with:
           # github.com/securego/gosec/issues/1219
