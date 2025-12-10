@@ -39,8 +39,7 @@ jobs:
         repository: ${{ fromJSON(needs.build-matrix.outputs.repositories) }}
 
     steps:
-      - name: 💈 Run
-        id: cbom
+      - name: 💈 CBOM run
         uses: advanced-security/cbom-action/analyze@d5f28cfce2a516c74cae4ebb296a427eb51f62ec # 11 Dec 25
         with:
           repositoryNameWithOwner: ${{ fromJson(matrix.repository).nameWithOwner }}
@@ -50,6 +49,10 @@ jobs:
           requestGitHubAnalysis: false
           queryTimeout: 500
 
+  cbom-summary:
+    name: 🌋 CBOM results
+    runs-on: ubuntu-latest
+    needs: run-cbom-action
+    steps:
       - name: 🔅 Summarize
-        if: success()
         uses: advanced-security/cbom-action/workflow-summary@d5f28cfce2a516c74cae4ebb296a427eb51f62ec # 11 Dec 25
