@@ -206,15 +206,6 @@ jobs:
         go install github.com/google/capslock/cmd/capslock@latest
         # github.com/hasansino/go42/blob/3be871dcfe/.github/workflows/130-security.yaml#L199
         capslock -packages ./... -output v
-
-        # github.com/google/osv-scanner/blob/main/README.md
-        go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
-        osv-scanner --licenses .
-
-        # github.com/google/go-licenses?tab=readme-ov-file#build-tags
-        go install github.com/google/go-licenses/v2@latest
-        # github.com/google/licenseclassifier/blob/e6a9bb99b5/license_type.go#L28
-        # go-licenses check ./... --include_tests --allowed_licenses=notice,permissive,reciprocal,unencumbered
       shell: bash
 
     # TODO: pin actions deps: github.com/stacklok/frizbee
@@ -330,6 +321,21 @@ jobs:
             --gh-annotations=true
             --fail-on-vuln=true
             --all-vulns
+
+      - name: ⚖️ Licenses
+        continue-on-error: true
+        run: |
+          # installing osv-scanner is ... expensive
+          # github.com/google/osv-scanner/blob/main/README.md
+          if ! command -v osv-scanner >/dev/null 2>&1; then
+            go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest
+          fi
+          osv-scanner --licenses .
+
+          # github.com/google/go-licenses?tab=readme-ov-file#build-tags
+          # go install github.com/google/go-licenses/v2@latest
+          # github.com/google/licenseclassifier/blob/e6a9bb99b5/license_type.go#L28
+          # go-licenses check ./... --include_tests --allowed_licenses=notice,permissive,reciprocal,unencumbered
 
       - name: 🚀 Upload
         if: ${{ steps.osv-scan.outcome != 'skipped' }}
