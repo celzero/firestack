@@ -69,6 +69,8 @@ jobs:
           SBOM_DIGEST: ${{ fromJson(inputs.sbom-info).digest }}
         run: |
           set -euo pipefail
+          ls -ltr sbom
+
           file="${SBOM_PATH}"
           if [ ! -f "$file" ]; then
             echo "missing SBOM file: $file" >&2

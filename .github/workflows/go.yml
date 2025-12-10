@@ -267,7 +267,7 @@ jobs:
             --argjson subjects "$subjects" \
             --arg artifactId "$SBOM_ARTIFACT_ID" \
             --arg artifactName "$SBOM_ARTIFACT_NAME" \
-            --arg path "$SBOM_PATH" \
+            --arg path "$SBOM_FNAME" \
             --arg digest "$sbom_digest" \
             '{subjects:$subjects,artifactId:$artifactId,artifactName:$artifactName,path:$path,digest:$digest}'
         )
@@ -283,7 +283,7 @@ jobs:
         printf 'vcs-ver=%s\n' "$VCSVER" >> "$GITHUB_OUTPUT"
       shell: bash
       env:
-        SBOM_PATH: _manifest/spdx_2.2/manifest.spdx.json
+        SBOM_FNAME: manifest.spdx.json
         SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
         SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
         GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
