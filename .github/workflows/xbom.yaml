@@ -41,7 +41,7 @@ jobs:
     steps:
       - name: 💈 Run
         id: cbom
-        uses: advanced-security/cbom-action/analyze@95d1511de9cab4561b8c5826c76569d2a1c22200 # latest
+        uses: advanced-security/cbom-action/analyze@d5f28cfce2a516c74cae4ebb296a427eb51f62ec # 11 Dec 25
         with:
           repositoryNameWithOwner: ${{ fromJson(matrix.repository).nameWithOwner }}
           language: ${{ fromJson(matrix.repository).language }}
@@ -52,4 +52,4 @@ jobs:
 
       - name: 🔅 Summarize
         if: success()
-        uses: advanced-security/cbom-action/workflow-summary@v1
+        uses: advanced-security/cbom-action/workflow-summary@d5f28cfce2a516c74cae4ebb296a427eb51f62ec # 11 Dec 25
