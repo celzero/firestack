@@ -41,7 +41,7 @@ jobs:
     steps:
       - name: 💈 Run
         id: cbom
-        uses: advanced-security/cbom-action/analyze@v1
+        uses: advanced-security/cbom-action/analyze@95d1511de9cab4561b8c5826c76569d2a1c22200 # latest
         with:
           repositoryNameWithOwner: ${{ fromJson(matrix.repository).nameWithOwner }}
           language: ${{ fromJson(matrix.repository).language }}
