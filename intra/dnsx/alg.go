@@ -83,7 +83,7 @@ type Gateway interface {
 	// given an alg or real ip, retrieves assoc real ips as csv, if any
 	X(maybeAlg netip.Addr, uid string, tids ...string) (realips []netip.Addr, undidAlg bool)
 	// given an alg or real ip, retrieves assoc dns names as csv, if any
-	PTR(maybeAlg netip.Addr, force bool) (domaincsv string, didForce bool)
+	PTR(maybeAlg netip.Addr, uid, tid string, force bool) (domaincsv string, didForce bool)
 	// given domain, retrieve assoc alg ips or real ips as csv, if any
 	RESOLV(domain, uid, tid string) []netip.Addr
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
@@ -96,6 +96,8 @@ type Gateway interface {
 	q(t1, t2 Transport, preset []netip.Addr, network, uid string, q *dns.Msg, s *x.DNSSummary) (og *dns.Msg, algd *dns.Msg, err error)
 	// onStopped is called when a transport tid is stopped. Gateway invalidates its local caches, if any.
 	onStopped(tid string)
+	// S reveals internal state for debugging
+	S() string
 }
 
 type secans struct {
@@ -521,9 +523,182 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 	return
 }
 
+// expdomains tracks domains with ttl and birth for ordering; unlike expaddr,
+// there is no secondary domains map.
+type expdomains struct {
+	domains []string
+	ttl     time.Time
+	dob     time.Time
+}
+
+func (a expdomains) sizes() (alive, tot int) {
+	if a.domains == nil {
+		return
+	}
+	return len(a.get(xalive)), len(a.domains)
+}
+
+func (a expdomains) get(s xaddrstatus) (out []string) {
+	if a.domains == nil {
+		return
+	}
+	if s == xall {
+		return a.domains
+	}
+	if s == xalive {
+		if _, y := a.fresh(); y {
+			return a.domains
+		}
+	}
+	return
+}
+
+func (a expdomains) fresh() (rem time.Duration, y bool) {
+	if a.ttl.IsZero() {
+		return
+	}
+	rem = time.Until(a.ttl)
+	y = rem > 0
+	return
+}
+
+func (a expdomains) after(b expdomains) bool {
+	if a.dob.IsZero() {
+		return b.dob.IsZero()
+	}
+	return a.dob.After(b.dob)
+}
+
+// xdomains tracks domains per tid+uid; there is no secondary (aux) store.
+type xdomains struct {
+	pmu *sync.RWMutex
+	pri map[string]expdomains // tid+uid -> domains
+}
+
+// NewXdomains returns a new xdomains object keyed by tid+uid.
+func NewXdomains(tid, uid string, pri []string, ttl time.Time) *xdomains {
+	if len(tid) <= 0 {
+		log.W("alg: xdomains: tid cannot be empty")
+		return nil
+	}
+	if len(uid) <= 0 {
+		uid = core.UNKNOWN_UID_STR
+	}
+
+	x := &xdomains{
+		pmu: new(sync.RWMutex),
+		pri: make(map[string]expdomains),
+	}
+
+	if len(pri) > 0 { // pri may be nil
+		x.pri[tid+uid] = expdomains{domains: pri, ttl: ttl, dob: time.Now()}
+	}
+	return x
+}
+
+func (p *xdomains) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	p.pmu.RLock()
+	defer p.pmu.RUnlock()
+	return fmt.Sprintf("xdomains: pri(%v)", p.pri)
+}
+
+func (p *xdomains) domainsFor(tid, uid string, s xaddrstatus) (out []string) {
+	if p == nil {
+		return nil
+	}
+	if len(uid) <= 0 {
+		uid = core.UNKNOWN_UID_STR
+	}
+
+	key := tid + uid
+
+	p.pmu.RLock()
+	defer p.pmu.RUnlock()
+
+	if tid == notransport || tid == NoDNS || len(tid) <= 0 {
+		for k, v := range p.pri {
+			if !strings.HasSuffix(k, uid) {
+				continue
+			}
+			out = append(out, v.get(s)...)
+		}
+	} else if v, ok := p.pri[key]; ok {
+		out = v.get(s)
+	}
+	return
+}
+
+func (p *xdomains) rmv(tid string) (done bool) {
+	if p == nil {
+		return
+	}
+	if len(tid) <= 0 || tid == NoDNS || tid == notransport {
+		return
+	}
+
+	keyPrefix := tid
+	i := 0
+	p.pmu.Lock()
+	defer p.pmu.Unlock()
+	for k, v := range p.pri {
+		if !strings.HasPrefix(k, keyPrefix) {
+			continue
+		}
+		if _, y := v.fresh(); y {
+			i++
+			v.ttl = time.Now() // mark as expired
+			p.pri[k] = v
+		}
+	}
+	done = i > 0
+	return
+}
+
+func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
+	szprialiv, szpri = -1, -1 // -1 means no change
+
+	if p == nil || q == nil {
+		return
+	}
+
+	p.pmu.Lock()
+	defer p.pmu.Unlock()
+	q.pmu.RLock()
+	defer q.pmu.RUnlock()
+
+	for qk, qv := range q.pri {
+		pv := p.pri[qk]
+		if _, y := pv.fresh(); !y {
+			p.pri[qk] = qv // copy v from q into p
+			szprialiv, szpri = qv.sizes()
+		} else {
+			var doms []string
+			ttl := pv.ttl
+			dob := pv.dob
+			if !pv.after(qv) {
+				// qv is younger, so qv's domains should come first (youngest first ordering)
+				doms = copyUniq(qv.get(xalive), pv.get(xalive))
+				ttl = qv.ttl
+				dob = qv.dob
+			} else {
+				// pv is younger, so pv's domains should come first (youngest first ordering)
+				doms = copyUniq(pv.get(xalive), qv.get(xalive))
+			}
+			v := expdomains{domains: doms, ttl: ttl, dob: dob}
+			p.pri[qk] = v
+			szprialiv, szpri = v.sizes()
+		}
+	}
+
+	return
+}
+
 type baseans struct {
 	ips        *xips     // all ip answers, v6+v4; may be nil
-	domains    []string  // all domain names in an answer (incl qname)
+	domains    *xdomains // all domain names in an answer (incl qname); per tid+uid
 	blocklists string    // csv blocklists containing qname per active config at the time
 	ttl        time.Time // ttl for this alg translation
 }
@@ -584,14 +759,26 @@ func (a *algans) merge(b *algans) {
 		logeif(totpri < 0 && totsec < 0)("alg: merge: err ips merge; pri(%d/%d) sec(%d/%d), out(%s)",
 			prialiv, totpri, secaliv, totsec, a)
 	}
-	a.domains = copyUniq(a.domains, b.domains)
+	if a.domains == nil {
+		a.domains = b.domains
+	} else {
+		prialiv, totpri := a.domains.merge(b.domains)
+		logeif(totpri < 0)("alg: merge: err domains merge; pri(%d/%d), out(%s)",
+			prialiv, totpri, a)
+	}
 	a.blocklists = b.blocklists // TODO: merge?
 	if b.after(a) {
 		a.ttl = b.ttl
 	}
 }
 
-// TODO: Keep a context here so that queries can be canceled.
+func domainsFor(base *baseans, tid, uid string, s xaddrstatus) []string {
+	if base == nil || base.domains == nil {
+		return nil
+	}
+	return base.domains.domainsFor(tid, uid, s)
+}
+
 type dnsgateway struct {
 	sync.RWMutex                         // protects alg, nat, octets, hexes
 	alg          map[string]*algans      // domain+type => ans
@@ -658,9 +845,15 @@ func (t *dnsgateway) onStopped(tid string) {
 
 	t.RLock()
 	algEntries := make([]*xips, 0, len(t.alg))
+	domEntries := make([]*xdomains, 0, len(t.alg))
 	for _, algans := range t.alg {
-		if algans != nil && algans.ips != nil {
-			algEntries = append(algEntries, algans.ips)
+		if algans != nil {
+			if algans.ips != nil {
+				algEntries = append(algEntries, algans.ips)
+			}
+			if algans.domains != nil {
+				domEntries = append(domEntries, algans.domains)
+			}
 		}
 	}
 	t.RUnlock()
@@ -672,7 +865,13 @@ func (t *dnsgateway) onStopped(tid string) {
 			n++
 		}
 	}
-	log.I("alg: onStopped(%s): removed %d alg<>realip translations", tid, n)
+	m := 0
+	for _, xdom := range domEntries {
+		if xdom.rmv(tid) {
+			m++
+		}
+	}
+	log.I("alg: onStopped(%s): removed %d alg<>realip translations; %d domains", tid, n, m)
 }
 
 // clears alg states
@@ -1243,20 +1442,20 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 	// if fixedips is being used.
 	am4 := &baseans{
 		ips:        NewXips(tid, uid, v4only(realips), v4only(secres.ips), xipsttl),
-		domains:    targets, // may be nil
+		domains:    NewXdomains(tid, uid, targets, xipsttl), // targets may be nil
 		blocklists: secres.smm.Blocklists,
 		ttl:        ansttl, // extended by 2m on every use
 	}
 	am6 := &baseans{
 		ips:        NewXips(tid, uid, v6only(realips), v6only(secres.ips), xipsttl),
-		domains:    targets, // may be nil
+		domains:    NewXdomains(tid, uid, targets, xipsttl), // targets may be nil
 		blocklists: secres.smm.Blocklists,
 		ttl:        ansttl, // extended by 2m on every use
 	}
 
 	// Check if NewXips failed to create valid xips objects
-	if am4.ips == nil || am6.ips == nil {
-		log.E("alg: failed to create xips for %s@%s[%s]; am4.ips: %v, am6.ips: %v",
+	if am4.ips == nil || am6.ips == nil || am4.domains == nil || am6.domains == nil {
+		log.E("alg: failed to create xips/xdomains for %s@%s[%s]; am4.ips: %v, am6.ips: %v",
 			q, tid, uid, am4.ips, am6.ips)
 		return false
 	}
@@ -1491,6 +1690,27 @@ func gen6Locked(k string, hop int) netip.Addr {
 	return netip.AddrFrom16(b16)
 }
 
+func (t *dnsgateway) S() string {
+	t.RLock()
+	defer t.RUnlock()
+
+	var sb strings.Builder
+	sb.WriteString("dnsgateway state:\n")
+	sb.WriteString(" mod: ")
+	sb.WriteString(strconv.FormatBool(t.mod.Load()))
+	sb.WriteString("/ split: ")
+	sb.WriteString(strconv.FormatBool(t.split.Load()))
+	sb.WriteString("/ chash: ")
+	sb.WriteString(strconv.FormatBool(t.chash))
+	sb.WriteString("/ adv: ")
+	sb.WriteString(strconv.Itoa(len(t.alg)))
+	sb.WriteString("/ nat: ")
+	sb.WriteString(strconv.Itoa(len(t.nat)))
+	sb.WriteString("/ ptr: ")
+	sb.WriteString(strconv.Itoa(len(t.ptr)))
+	return sb.String()
+}
+
 func (t *dnsgateway) X(maybeAlg netip.Addr, uid string, tids ...string) (ips []netip.Addr, undidAlg bool) {
 	t.RLock()
 	defer t.RUnlock()
@@ -1503,14 +1723,18 @@ func (t *dnsgateway) X(maybeAlg netip.Addr, uid string, tids ...string) (ips []n
 	return t.xLocked(maybeAlg, usestale, uid, tids...) // ips may be 0 len
 }
 
-func (t *dnsgateway) PTR(maybeAlg netip.Addr, force bool) (domains string, didForce bool) {
+func (t *dnsgateway) PTR(maybeAlg netip.Addr, uid, tid string, force bool) (domains string, didForce bool) {
 	t.RLock()
 	defer t.RUnlock()
+
+	if !t.split.Load() {
+		uid = core.UNKNOWN_UID_STR
+	}
 
 	// do not use t.ptr (realip -> ans) in mod (alg) mode, unless forced;
 	// as t.nat (algip -> ans) is a more accurate translation.
 	useptr := !t.mod.Load() || force
-	d := t.ptrLocked(maybeAlg, useptr)
+	d := t.ptrLocked(maybeAlg, uid, tid, useptr)
 	if len(d) > 0 {
 		domains = strings.Join(d, ",")
 	} // else: algip isn't really an alg ip, nothing to do
@@ -1660,14 +1884,21 @@ func (t *dnsgateway) maybeUndoNat64Locked(realips ...netip.Addr) (unnateds []net
 	return copyUniq(unnateds)
 }
 
-func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, useptr bool) (domains []string) {
+func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool) (domains []string) {
 	// alg ips are always unmappped; see take4Locked
 	unmapped := maybeAlg.Unmap()
+	if len(uid) <= 0 {
+		uid = core.UNKNOWN_UID_STR
+	}
+	if len(tid) <= 0 {
+		tid = notransport
+	}
 	if ans, ok := t.nat[unmapped]; ok {
-		domains = ans.domains
+		domains = domainsFor(ans, tid, uid, xalive)
 	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
-		domains = ans.domains
+		// XXX: for useptr, s/xalive/xall/?
+		domains = domainsFor(ans, tid, uid, xalive)
 	}
 	return copyUniq(domains)
 }
@@ -1694,7 +1925,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k4]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, ans.algip)
-					targets = append(targets, ans.domains...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
@@ -1708,7 +1939,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k6]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, ans.algip)
-					targets = append(targets, ans.domains...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
@@ -1727,7 +1958,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k4]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, v4only(ans.ips.realipsFor(tid, uid, xalive))...)
-					targets = append(targets, ans.domains...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
@@ -1741,7 +1972,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k6]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, v6only(ans.ips.realipsFor(tid, uid, xalive))...)
-					targets = append(targets, ans.domains...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
@@ -1760,7 +1991,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k4]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, v4only(ans.ips.secipsFor(tid, uid))...)
-					targets = append(targets, ans.domains...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.secips(xall)...)
@@ -1774,9 +2005,10 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k6]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, v6only(ans.ips.secipsFor(tid, uid))...)
-					targets = append(targets, ans.domains...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
 					until = min(until, life)
 				} else {
+					// TODO: stale targets?
 					staleips = append(staleips, ans.ips.secips(xall)...)
 				}
 				// all ans{} have all secondaryips; pick the first one

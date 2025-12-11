@@ -171,6 +171,7 @@ type RDNSInfo struct {
 	DNSDefault   string
 	DNSSystem    string
 	DNS          string
+	ALG          string
 
 	ProxiesHas4 bool
 	ProxiesHas6 bool

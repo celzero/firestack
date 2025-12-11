@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"net/netip"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -513,7 +514,14 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		out.RDNSIn.DNSPreferred = fetchDNSInfo(r, x.Preferred)
 		out.RDNSIn.DNSDefault = fetchDNSInfo(r, x.Default)
 		out.RDNSIn.DNSSystem = fetchDNSInfo(r, x.System)
-		out.RDNSIn.DNS = csv2ssv(r.LiveTransports().V())
+		dns := make([]string, 0, 3)
+		if csv := r.LiveTransports().V(); len(csv) > 0 {
+			for tr := range strings.SplitSeq(csv, ",") {
+				dns = append(dns, fetchDNSInfo(r, tr))
+			}
+		}
+		out.RDNSIn.DNS = strconv.Itoa(len(dns)) + "\n" + strings.Join(dns, ";")
+		out.RDNSIn.ALG = t.resolver.S()
 	}
 	if p := t.proxies; p != nil {
 		rr := p.Router()

@@ -519,16 +519,18 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 // returned realips may be incoming algip itself or translated from algip,
 // depending on whether alg is enabled (ref: undidAlg).
 func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+	const forcePTR = true // force PTR (realip => algans) translation?
+	anyTransport := dnsx.NoDNS
 	r := h.resolver
-	didForce := false
-	forcePTR := true // force PTR (realip => algans) translation?
 	gw := r.Gateway()
+
 	ipok := !algip.IsUnspecified() && algip.IsValid()
+	didForce := false
 	hasreal := false
 	if ipok && gw != nil {
-		domains, didForce = gw.PTR(algip, !forcePTR) // does NAT (algip => algans) translation
+		domains, didForce = gw.PTR(algip, uid, anyTransport, !forcePTR) // does NAT (algip => algans) translation
 		if !didForce && len(domains) <= 0 {
-			probableDomains, _ = gw.PTR(algip, forcePTR)
+			probableDomains, _ = gw.PTR(algip, uid, anyTransport, forcePTR)
 		}
 		var ips []netip.Addr
 		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
@@ -537,6 +539,7 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 		hasreal = len(realips) > 0
 		blocklists = gw.RDNSBL(algip)
 	}
+	// pick up corresponding domains from dialer's ipmap cache if none from gw.PTR
 	if ipok && len(domains) <= 0 && len(probableDomains) <= 0 {
 		if hosts := dialers.Ptr(algip); len(hosts) > 0 {
 			probableDomains = strings.Join(hosts, ",")

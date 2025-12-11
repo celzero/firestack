@@ -167,6 +167,9 @@ type Resolver interface {
 
 	// StopAll stops all transports.
 	StopAll()
+
+	// S reveals internal state for debugging
+	S() string
 }
 
 type resolver struct {
@@ -380,6 +383,10 @@ func (r *resolver) GetInternal(id string) (Transport, error) {
 	} else {
 		return t, nil
 	}
+}
+
+func (r *resolver) S() string {
+	return r.gateway.S()
 }
 
 func (r *resolver) Get(id *x.Gostr) (x.DNSTransport, error) {
