@@ -26,6 +26,7 @@ jobs:
       artifact-subjects: ${{ steps.post-build.outputs.subjects }}
       sbom-info: ${{ steps.post-build.outputs.sbom-info }}
       vcs-ver: ${{ steps.post-build.outputs.vcs-ver }}
+      publish: ${{ steps.post-build.outputs.publish }}
     env:
       FOUT: firestack.aar
       FOUTDBG: firestack-debug.aar
@@ -283,6 +284,7 @@ jobs:
         printf 'subjects=%s\n' "$subjects" >> "$GITHUB_OUTPUT"
         printf 'sbom-info=%s\n' "$sbominfo" >> "$GITHUB_OUTPUT"
         printf 'vcs-ver=%s\n' "$VCSVER" >> "$GITHUB_OUTPUT"
+        printf 'publish=%s\n' "$PUBLISH" >> "$GITHUB_OUTPUT"
       shell: bash
       env:
         SBOM_PATH: _manifest/spdx_2.2/
@@ -290,11 +292,12 @@ jobs:
         SBOM_ARTIFACT_ID: ${{ steps.sbom-upload.outputs.artifact-id }}
         SBOM_ARTIFACT_NAME: ${{ format('firestack-sbom-{0}', github.sha) }}
         GRYPE_SARIF: ${{ steps.gr.outputs.sarif }}
+        PUBLISH: ${{ github.event_name == 'workflow_dispatch' }}
 
   attestation:
     name: 🪪 Artifact attestations
     needs: build
-    if: ${{ needs.build.result == 'success' && needs.build.outputs.artifact-subjects != '' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ needs.build.result == 'success' && needs.build.outputs.artifact-subjects != '' && needs.build.outputs.publish == 'true' }}
     uses: ./.github/workflows/provenance.yml
     with:
       subjects: ${{ needs.build.outputs.artifact-subjects }}
@@ -305,7 +308,7 @@ jobs:
     needs:
       - build
       - attestation
-    if: ${{ needs.build.result == 'success' && needs.attestation.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ needs.build.result == 'success' && needs.attestation.result == 'success' && needs.build.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -396,7 +399,6 @@ jobs:
           done
 
       - name: 🏷️ Setup for GitHub Packages
-        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -405,7 +407,6 @@ jobs:
         # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
         # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
       - name: 😺 GitHub Packages
-        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
           REPOSITORY: ${{ github.repository }}
@@ -435,7 +436,6 @@ jobs:
         # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
         # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
       - name: 🏛️ Setup for Maven Central
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -447,7 +447,6 @@ jobs:
           gpg-passphrase: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
 
       - name: 📦 Publish to Maven Central
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
