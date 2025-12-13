@@ -22,6 +22,8 @@ type DNSSummary struct {
 	QName string
 	// Query type: A, AAAA, SVCB, HTTPS, etc. May be 0.
 	QType int
+	// CSV of all DNS aliases/names in the answer section (ex: CNAMEs)
+	Targets string
 	// Was this response returned from cache?
 	Cached bool
 	// DNS Response data, ex: a csv of ips for A, AAAA.
@@ -40,6 +42,8 @@ type DNSSummary struct {
 	Status int
 	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
 	Blocklists string
+	// Actual target (domain name) that was blocked (could be a CNAME or HTTPS/SVCB alias) by Blocklists
+	BlockedTarget string
 	// True if any among upstream transports (primary or secondary) returned blocked ans.
 	// Only valid for A/AAAA queries. Unspecified IPs are considered as "blocked ans".
 	UpstreamBlocks bool

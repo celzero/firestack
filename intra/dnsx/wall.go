@@ -147,7 +147,7 @@ func applyBlocklists(b RDNS, q *dns.Msg) (ans *dns.Msg, blocklists string, err e
 // If blocklistStamp is empty, it resolves the answer to blocklist names, if blocked by local blocklists.
 // If blocklistStamp is empty and the answer is not blocked by local blocklists, it returns nil.
 // If blocklistStamp is empty and the answer is blocked by local blocklists, it returns a refused response.
-func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blocklistNames string) {
+func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp string) (finalans *dns.Msg, blockedtarget, blocklistNames string) {
 	br := r.getRdnsRemote()
 	b := r.getRdnsLocal()
 
@@ -185,7 +185,7 @@ func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp strin
 		return
 	}
 
-	if blocklistNames, err = b.blockAnswer(ans); err != nil {
+	if blockedtarget, blocklistNames, err = b.blockAnswer(ans); err != nil {
 		if settings.Debug {
 			log.D("wall: answer for %s not blocked %v", qname, err)
 		}

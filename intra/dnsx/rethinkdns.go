@@ -65,7 +65,7 @@ var (
 type RdnsResolver interface {
 	x.RDNSResolver
 	blockQ(Transport, Transport, *dns.Msg) (*dns.Msg, string, error)
-	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string)
+	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string, string)
 }
 
 // ResolverSelf is for internal resolution needs.
@@ -333,7 +333,7 @@ func (r *rethinkdnslocal) blockQuery(msg *dns.Msg) (blocklists string, err error
 	return
 }
 
-func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err error) {
+func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blockedtarget, blocklists string, err error) {
 	if msg == nil {
 		err = errNoAnswer
 		return
@@ -384,6 +384,7 @@ func (r *rethinkdnslocal) blockAnswer(msg *dns.Msg) (blocklists string, err erro
 		target, _ = xdns.NormalizeQName(target)
 		block, lists := r.ftrie.DNlookup(target, stamp)
 		if block { // TODO: handle empty lists as err?
+			blockedtarget = target
 			blocklists = strings.Join(r.keyToNames(lists), ",")
 			return
 		}

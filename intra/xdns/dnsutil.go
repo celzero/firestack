@@ -217,6 +217,31 @@ func RTtl(msg *dns.Msg) int {
 	return int(maxttl)
 }
 
+func GetTargets(msg *dns.Msg) string {
+	if msg == nil {
+		return "--"
+	}
+
+	if !msg.Response {
+		return QName(msg)
+	}
+
+	targets := make(map[string]struct{}, len(msg.Answer))
+	for _, a := range msg.Answer {
+		nom := a.Header().Name
+		if len(nom) > 0 {
+			targets[nom] = struct{}{}
+		}
+	}
+	var sb strings.Builder
+	sb.Grow(len(targets))
+	for k := range targets {
+		sb.WriteString(k)
+		sb.WriteString(",")
+	}
+	return strings.TrimSuffix(sb.String(), ",")
+}
+
 func GetInterestingRData(msg *dns.Msg) string {
 	if msg == nil {
 		return "--"

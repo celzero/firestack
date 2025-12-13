@@ -510,6 +510,7 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	qtyp := qtype(msg)
 	ogsmm.QName = qname
 	ogsmm.QType = qtyp
+	ogsmm.Targets = qname
 
 	if len(qname) <= 0 { // unexpected; github.com/celzero/rethink-app/issues/1210
 		ogsmm.Latency = time.Since(starttime).Seconds()
@@ -629,7 +630,9 @@ runagain:
 		return res2, smm.ID, err
 	}
 
-	ans2, blocklistnames := r.blockA(t, t2, msg, nonalg, smm.Blocklists)
+	smm.Targets = xdns.GetTargets(ans1)
+
+	ans2, blockedtarget, blocklistnames := r.blockA(t, t2, msg, nonalg, smm.Blocklists)
 
 	isnewans := ans2 != nil
 	hasblocklists := len(blocklistnames) > 0
@@ -637,6 +640,7 @@ runagain:
 
 	if hasblocklists { // blocklists added even if pref.NOBLOCK is set
 		smm.Blocklists = blocklistnames
+		smm.BlockedTarget = blockedtarget
 	}
 	if !hasmsg {
 		smm.Msg = errNop.Error() // no error
