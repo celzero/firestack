@@ -816,6 +816,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	smm.RTtl = xdns.RTtl(r)
 	smm.Status = status
 	smm.Region = region
+	// TODO: smm.BlockedTarget
 	smm.Blocklists = blocklists
 	if t.typ == dnsx.ODOH && len(t.odohproxyname) > 0 {
 		smm.PID = t.odohproxyname // odoh proxy

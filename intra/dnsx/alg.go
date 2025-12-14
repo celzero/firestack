@@ -1011,10 +1011,11 @@ func (t *dnsgateway) querySecondary(t2 Transport, uid, network string, msg *dns.
 		log.V("alg: querySecondary: skip; sec transport %s; nores? %t, err? %v", idstr(t2), r == nil, err)
 		result.smm.Msg = errNotEnoughAnswers.Error()
 		return
-	} else if a, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, r, result.smm.Blocklists); a != nil {
+	} else if a, blockedtarget, blocklistnames := t.rdns.blockA( /*may be nil*/ t2, nil, msg, r, result.smm.Blocklists); a != nil {
 		// if "a" is not nil, then the r is blocked
 		if len(blocklistnames) > 0 {
 			result.smm.Blocklists = blocklistnames
+			result.smm.BlockedTarget = blockedtarget
 		}
 		// when rdns.blockA blocks, A/AAAA must be 0.0.0.0/::
 		// and HTTPS/SVCB is an empty answer section
@@ -1028,6 +1029,7 @@ func (t *dnsgateway) querySecondary(t2 Transport, uid, network string, msg *dns.
 	} else {
 		if len(blocklistnames) > 0 {
 			result.smm.Blocklists = blocklistnames
+			result.smm.BlockedTarget = blockedtarget
 		}
 		if xdns.AQuadAUnspecified(r) {
 			// A/AAAA must be 0.0.0.0/::, set UpstreamBlocks to true
@@ -1200,6 +1202,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	// inform kt of secondary blocklists, if any
 	smm.Blocklists = secres.smm.Blocklists
+	smm.BlockedTarget = secres.smm.BlockedTarget
 	smm.UpstreamBlocks = secres.smm.UpstreamBlocks || smm.UpstreamBlocks
 
 	if smm.UpstreamBlocks || len(secres.smm.Msg) > 0 {
@@ -2261,9 +2264,10 @@ func withPresetSummary(smm *x.DNSSummary, reqSent, fixed bool) {
 		smm.Server = "127.5.3.9"
 	}
 	smm.Server = PrefixFor(id) + smm.Server
-	smm.Blocklists = "" // blocklists are not honoured
-	smm.PID = ""        // no relay is used
-	smm.RPID = ""       // no hops either
+	smm.Blocklists = ""    // blocklists are not honoured
+	smm.BlockedTarget = "" // no targets are blocked
+	smm.PID = ""           // no relay is used
+	smm.RPID = ""          // no hops either
 }
 
 func idstr(t Transport) string {

@@ -175,7 +175,7 @@ func (r *resolver) blockA(t, t2 Transport, q, ans *dns.Msg, blocklistStamp strin
 		if settings.Debug {
 			log.V("wall: no local blockerA; letting through %s", qname)
 		}
-		return nil, ""
+		return
 	}
 
 	if !b.OnDeviceBlock() {

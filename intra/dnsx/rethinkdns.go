@@ -84,7 +84,7 @@ type RDNS interface {
 	x.RDNS
 	OnDeviceBlock() bool // Mode
 	blockQuery(*dns.Msg) (string, error)
-	blockAnswer(*dns.Msg) (string, error)
+	blockAnswer(*dns.Msg) (string, string, error)
 }
 
 type rethinkdns struct {
@@ -297,8 +297,8 @@ func (r *rethinkdns) keyToNames(list []string) (v []string) {
 	return
 }
 
-func (r *rethinkdns) blockQuery(*dns.Msg) (b string, err error)  { err = errRemote; return }
-func (r *rethinkdns) blockAnswer(*dns.Msg) (b string, err error) { err = errRemote; return }
+func (r *rethinkdns) blockQuery(*dns.Msg) (b string, err error)     { err = errRemote; return }
+func (r *rethinkdns) blockAnswer(*dns.Msg) (t, b string, err error) { err = errRemote; return }
 
 func (r *rethinkdnslocal) blockQuery(msg *dns.Msg) (blocklists string, err error) {
 	if len(msg.Question) <= 0 {

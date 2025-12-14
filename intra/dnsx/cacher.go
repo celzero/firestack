@@ -608,6 +608,7 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	out.RTtl = s.RTtl
 	out.Status = s.Status
 	out.Blocklists = s.Blocklists
+	out.BlockedTarget = s.BlockedTarget
 	out.Msg = s.Msg
 	out.UpstreamBlocks = s.UpstreamBlocks
 }
