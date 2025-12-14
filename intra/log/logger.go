@@ -574,7 +574,7 @@ func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 }
 
 // go.dev/play/p/h9Woqcp0Xz0
-func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped int) {
+func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, skipped int) {
 	if until <= 0 {
 		return []uintptr{0}, []string{fileunknown}, 0
 	} else if until == 1 {
@@ -599,11 +599,14 @@ func callers(at, until int, sep1 string) (pcs []uintptr, files []string, skipped
 		fn := frame.Function
 		if len(fn) <= 0 {
 			fn = callerunknown
+		} else {
+			// ex: github.com/celzero/firestack/intra/dnsx.ChooseHealthyProxyHostPort
+			fn = shortfile(fn)
 		}
 		if len(file) <= 0 { // more is false when file is empty
 			file = fileunknown
 		} else {
-			file = shortfile(file) + sep1 + fn + sep1 + fmt.Sprint(line)
+			file = shortfile(file) + sep1 + fmt.Sprint(line) + sep2 + fn
 		}
 		pcs = append(pcs, pc)
 		files = append(files, file)
@@ -660,7 +663,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 
 	if ll || cc {
-		_, x, _ := callers(at+nextframe, 7, ":")
+		_, x, _ := callers(at+nextframe, 7, ":", "@")
 		switch lvl {
 		case USR, STACKTRACE, NONE: // no-op
 		case VVERBOSE:
