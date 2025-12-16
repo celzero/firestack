@@ -923,9 +923,15 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 		cachedips = cached6s
 	}
 
+	ttlnegative := false
 	ttl := int64(until / time.Second)
-	log.VV("alg: response for %s by %s[%s] (q4? %t / q6? %t) realip; in cache? %v [until: %s] (or stale? %v)",
-		domain, tid, uid, a, aaaa, cachedips, core.FmtSecs(ttl), stale)
+	if ttl <= 0 {
+		ttl = int64(ttl8s / time.Second)
+		ttlnegative = true
+	}
+
+	logeif(ttlnegative)("alg: response for %s by %s[%s] (q4? %t / q6? %t) realip; in cache? %v [ttl: %s / -ve? %t / until: %s] (or stale? %v)",
+		domain, tid, uid, a, aaaa, cachedips, core.FmtSecs(ttl), ttlnegative, core.FmtPeriod(until), stale)
 
 	if len(cachedips) <= 0 {
 		return nil, errNilCacheResponse
