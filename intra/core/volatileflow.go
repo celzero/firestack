@@ -9,6 +9,7 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"time"
 )
 
 type FlowFunc[T any] func(v T)
@@ -28,6 +29,15 @@ func (f FlowOn[T]) flow(v T) (flowed bool) {
 	default:
 		(*on)(v)
 		return true
+	}
+	return false
+}
+
+func (f FlowOn[T]) obsolete() bool {
+	select {
+	case <-f.ctx.Done():
+		return true
+	default:
 	}
 	return false
 }
@@ -72,6 +82,16 @@ func (f *Flow[T]) stream() {
 				notflowing := make(map[FlowOn[T]]struct{}, 0)
 				for _, o := range f.observers() {
 					if ok := o.flow(v); !ok {
+						notflowing[o] = struct{}{}
+					}
+				}
+				f.removeFinallys(notflowing)
+			}()
+		case <-time.Tick(3 * time.Hour):
+			go func() {
+				notflowing := make(map[FlowOn[T]]struct{})
+				for _, o := range f.observers() {
+					if o.obsolete() {
 						notflowing[o] = struct{}{}
 					}
 				}
