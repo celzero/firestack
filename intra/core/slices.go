@@ -61,6 +61,13 @@ func ChooseOne[T any](c []T) (zz T) {
 	return c[rand.Intn(len(c))]
 }
 
+func FirstOf[T any](c []T) (zz T) {
+	if len(c) <= 0 {
+		return zz
+	}
+	return c[0]
+}
+
 // sorts arr x in ascending order. less(a, b) < 0 when a < b, a > 0 when a > b
 // and 0 when a == b.
 func Sort[T any](arr []T, less func(a, b T) int) []T {
