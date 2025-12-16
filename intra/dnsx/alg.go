@@ -613,6 +613,7 @@ func (p *xdomains) domainsFor(tid, uid string, s xaddrstatus) (out []string) {
 		uid = core.UNKNOWN_UID_STR
 	}
 
+	ttls := []time.Time{}
 	key := tid + uid
 
 	p.pmu.RLock()
@@ -623,10 +624,20 @@ func (p *xdomains) domainsFor(tid, uid string, s xaddrstatus) (out []string) {
 			if !strings.HasSuffix(k, uid) {
 				continue
 			}
+			if settings.Debug {
+				ttls = append(ttls, v.ttl)
+			}
 			out = append(out, v.get(s)...)
 		}
 	} else if v, ok := p.pri[key]; ok {
+		if settings.Debug {
+			ttls = append(ttls, v.ttl)
+		}
 		out = v.get(s)
+	}
+
+	if settings.Debug {
+		log.VV("alg: xdomains: xof(%s): %s => %v [%v]", s, key, out, core.Map(ttls, core.FmtTimeAsPeriod))
 	}
 	return
 }
@@ -1075,6 +1086,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// should not be alg'd as the alg'd ips will end up as "realips" in xips caches.
 	// nb: setting mod = false will achieve the same effect but it goes through
 	// the effort of setting up alg/ptr/nat caches which is wasteful in this case.
+	// TODO: handle Loopback scenario for uidself (which probably should be alg'd?)
 	dontalg := usepreset || skipcache || uidself || hasblock
 	synthAns := usepreset || usefixed
 	hasdnssec := xdns.IsDNSSECRequested(q)
@@ -1900,8 +1912,11 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 		domains = domainsFor(ans, tid, uid, xalive)
 	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
-		// XXX: for useptr, s/xalive/xall/?
-		domains = domainsFor(ans, tid, uid, xalive)
+		// for useptr, s/xalive/xall/
+		domains = domainsFor(ans, tid, uid, xalive /*prefer fresh mapping */)
+		if len(domains) <= 0 {
+			domains = domainsFor(ans, tid, uid, xall /*useptr == true */)
+		}
 	}
 	return copyUniq(domains)
 }
