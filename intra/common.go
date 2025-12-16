@@ -544,6 +544,10 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 		if hosts := dialers.Ptr(algip); len(hosts) > 0 {
 			probableDomains = strings.Join(hosts, ",")
 		}
+		if uid == SELF_UID {
+			domains = probableDomains
+			probableDomains = ""
+		}
 	}
 
 	logwif(!hasreal)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
