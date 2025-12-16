@@ -44,6 +44,11 @@ jobs:
     - name: 🏗️ Make
       id: make
       run: |
+        # 10 chars of the commit sha
+        VCSVER="${GITHUB_SHA:0:10}"
+        # GET triggers a build; api: docs.jitpack.io/api/#builds
+        curl https://jitpack.io/api/builds/com.github.celzero/firestack/${VCSVER} | jq || true
+
         # outputs firestack.aar and firestack-debug.aar; also see: "Obj" below
         ./make-aar nogo debug
       shell: bash
@@ -275,6 +280,8 @@ jobs:
             '{subjects:$subjects,artifactId:$artifactId,artifactName:$artifactName,path:$path,digest:$digest}'
         )
 
+        # api: docs.jitpack.io/api/#builds
+        curl https://jitpack.io/api/builds/com.github.celzero/firestack/${VCSVER} | jq || true
         # print sbominfo and subjects
         echo "== Subjects =="
         jq . <<<${subjects}
