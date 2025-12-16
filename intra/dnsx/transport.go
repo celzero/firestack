@@ -463,6 +463,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 		return nil, NoDNS, errResolverClosed
 	}
 
+	loopingBack := settings.Loopingback.Load()
 	defaultIsSystemDNS := false
 	if dtr, _ := r.Get(x.StrOf(Default)); dtr != nil {
 		// todo: a better way to determine whether Default is SystemDNS
@@ -472,13 +473,13 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 
 	// including dns64 and/or alg
 	ans, tid, err := r.forward(q, protect.UidSelf, Default)
-	if defaultIsSystemDNS {
+	if !defaultIsSystemDNS || loopingBack {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
 
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
-		log.I("dns: nxdomain via Default (err? %v); using Goos for %s", err, xdns.QName(msg))
+		log.I("dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(msg))
 		ans, tid, err = r.forward(q, protect.UidSelf, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
