@@ -1927,6 +1927,19 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 	return copyUniq(domains)
 }
 
+func minNonZeroDuration(curr, next time.Duration) time.Duration {
+	if curr == 0 {
+		return next
+	}
+	if next == 0 {
+		return curr
+	}
+	if next < curr {
+		return next
+	}
+	return curr
+}
+
 // resolvLocked returns IPs and related targets for domain
 // depending on typ.
 // If typ is typalg, returns all algips for domain.
@@ -1950,7 +1963,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, ans.algip)
 					targets = append(targets, domainsFor(ans.baseans, tid, uid, ans.algip, xalive)...)
-					until = min(until, life)
+					until = minNonZeroDuration(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
 				}
@@ -1964,7 +1977,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, ans.algip)
 					targets = append(targets, domainsFor(ans.baseans, tid, uid, ans.algip, xalive)...)
-					until = min(until, life)
+					until = minNonZeroDuration(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
 				}
@@ -1984,7 +1997,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 					all4s := v4only(ans.ips.realipsFor(tid, uid, xalive))
 					ip4s = append(ip4s, all4s...)
 					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all4s), xalive)...)
-					until = min(until, life)
+					until = minNonZeroDuration(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
 				}
@@ -1999,7 +2012,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 					all6s := v6only(ans.ips.realipsFor(tid, uid, xalive))
 					ip6s = append(ip6s, all6s...)
 					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all6s), xalive)...)
-					until = min(until, life)
+					until = minNonZeroDuration(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
 				}
@@ -2019,7 +2032,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 					all4s := v4only(ans.ips.secipsFor(tid, uid))
 					ip4s = append(ip4s, all4s...)
 					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all4s), xalive)...)
-					until = min(until, life)
+					until = minNonZeroDuration(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.secips(xall)...)
 				}
@@ -2034,7 +2047,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 					all6s := v6only(ans.ips.secipsFor(tid, uid))
 					ip6s = append(ip6s, all6s...)
 					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all6s), xalive)...)
-					until = min(until, life)
+					until = minNonZeroDuration(until, life)
 				} else {
 					// TODO: stale targets?
 					staleips = append(staleips, ans.ips.secips(xall)...)
