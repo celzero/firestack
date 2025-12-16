@@ -605,7 +605,7 @@ func (p *xdomains) String() string {
 	return fmt.Sprintf("xdomains: pri(%v)", p.pri)
 }
 
-func (p *xdomains) domainsFor(tid, uid string, s xaddrstatus) (out []string) {
+func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) (out []string) {
 	if p == nil {
 		return nil
 	}
@@ -637,7 +637,7 @@ func (p *xdomains) domainsFor(tid, uid string, s xaddrstatus) (out []string) {
 	}
 
 	if settings.Debug {
-		log.VV("alg: xdomains: xof(%s): %s => %v [%v]", s, key, out, core.Map(ttls, core.FmtTimeAsPeriod))
+		log.VV("alg: xdomains: xof(%s/%s): %s => %v [%v]", s, forIP, key, out, core.Map(ttls, core.FmtTimeAsPeriod))
 	}
 	return
 }
@@ -783,11 +783,11 @@ func (a *algans) merge(b *algans) {
 	}
 }
 
-func domainsFor(base *baseans, tid, uid string, s xaddrstatus) []string {
+func domainsFor(base *baseans, tid, uid string, forIP netip.Addr, s xaddrstatus) []string {
 	if base == nil || base.domains == nil {
 		return nil
 	}
-	return base.domains.domainsFor(tid, uid, s)
+	return base.domains.domainsFor(tid, uid, forIP, s)
 }
 
 type dnsgateway struct {
@@ -1855,7 +1855,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	} // else: send realips as is
 
 	logeif(!hasrealips && (!usestale && (!undidAlg || !undidPtr)))("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
-		tids, uid, didnotAlg, fresh, undidPtr, undidAlg, usestale, unmapped, realips, unnated, until)
+		tids, uid, didnotAlg, fresh, undidAlg, undidPtr, usestale, unmapped, realips, unnated, until)
 
 	if len(unnated) > 0 { // unnated is already de-duplicated
 		return unnated, undidAlg
@@ -1915,13 +1915,13 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 		tid = notransport
 	}
 	if ans, ok := t.nat[unmapped]; ok {
-		domains = domainsFor(ans, tid, uid, xalive)
+		domains = domainsFor(ans, tid, uid, unmapped, xalive)
 	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
 		// for useptr, s/xalive/xall/
-		domains = domainsFor(ans, tid, uid, xalive /*prefer fresh mapping */)
+		domains = domainsFor(ans, tid, uid, unmapped, xalive /*prefer fresh mapping */)
 		if len(domains) <= 0 {
-			domains = domainsFor(ans, tid, uid, xall /*useptr == true */)
+			domains = domainsFor(ans, tid, uid, unmapped, xall /*useptr == true */)
 		}
 	}
 	return copyUniq(domains)
@@ -1949,7 +1949,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k4]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip4s = append(ip4s, ans.algip)
-					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, ans.algip, xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
@@ -1963,7 +1963,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			if ans, ok := t.alg[k6]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
 					ip6s = append(ip6s, ans.algip)
-					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, ans.algip, xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.algip)
@@ -1981,8 +1981,9 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.realipsFor(tid, uid, xalive))...)
-					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
+					all4s := v4only(ans.ips.realipsFor(tid, uid, xalive))
+					ip4s = append(ip4s, all4s...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all4s), xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
@@ -1995,8 +1996,9 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.realipsFor(tid, uid, xalive))...)
-					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
+					all6s := v6only(ans.ips.realipsFor(tid, uid, xalive))
+					ip6s = append(ip6s, all6s...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all6s), xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.realipsFor(tid, uid, xall)...)
@@ -2014,8 +2016,9 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			k4 := partkey4 + strconv.Itoa(i)
 			if ans, ok := t.alg[k4]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
-					ip4s = append(ip4s, v4only(ans.ips.secipsFor(tid, uid))...)
-					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
+					all4s := v4only(ans.ips.secipsFor(tid, uid))
+					ip4s = append(ip4s, all4s...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all4s), xalive)...)
 					until = min(until, life)
 				} else {
 					staleips = append(staleips, ans.ips.secips(xall)...)
@@ -2028,8 +2031,9 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 			k6 := partkey6 + strconv.Itoa(i)
 			if ans, ok := t.alg[k6]; ok {
 				if life, fresh := ans.fresh(); fresh { // not stale
-					ip6s = append(ip6s, v6only(ans.ips.secipsFor(tid, uid))...)
-					targets = append(targets, domainsFor(ans.baseans, tid, uid, xalive)...)
+					all6s := v6only(ans.ips.secipsFor(tid, uid))
+					ip6s = append(ip6s, all6s...)
+					targets = append(targets, domainsFor(ans.baseans, tid, uid, core.FirstOf(all6s), xalive)...)
 					until = min(until, life)
 				} else {
 					// TODO: stale targets?
