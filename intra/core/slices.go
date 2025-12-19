@@ -68,8 +68,8 @@ func FirstOf[T any](c []T) (zz T) {
 	return c[0]
 }
 
-// sorts arr x in ascending order. less(a, b) < 0 when a < b, a > 0 when a > b
-// and 0 when a == b.
+// sorts arr x in ascending order. less(a, b) < 0 when a < b,
+// less(a, b) > 0 when a > b, and less(a, b) == 0 when a == b.
 func Sort[T any](arr []T, less func(a, b T) int) []T {
 	slices.SortStableFunc(arr, less)
 	return arr

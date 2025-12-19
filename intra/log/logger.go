@@ -600,7 +600,7 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 		if len(fn) <= 0 {
 			fn = callerunknown
 		} else {
-			// ex: github.com/celzero/firestack/intra/dnsx.ChooseHealthyProxyHostPort
+			// ex: fn = "github.com/celzero/firestack/intra/dnsx.ChooseHealthyProxyHostPort"
 			fn = shortfile(fn)
 		}
 		if len(file) <= 0 { // more is false when file is empty

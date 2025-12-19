@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"net"
 	"net/netip"
 	"strconv"
@@ -173,9 +174,19 @@ func (a expaddr) get(s xaddrstatus) (out []netip.Addr) {
 	return
 }
 
+// go.dev/play/p/t24GYIQERsp
+func expaddrDobSorter(a, b expaddr) int {
+	if a.after(b) {
+		return -1
+	} else if b.after(a) {
+		return 1
+	}
+	return 0
+}
+
 type xips struct {
 	// protects pri, aux
-	pmu *sync.RWMutex
+	pmu sync.RWMutex
 	// resolved expaddr(v6 or v4) by tid; may be nil
 	pri map[string]expaddr
 	// resolved expaddr(v6 or v4) by secondary tid for a uid; may be nil
@@ -227,7 +238,6 @@ func NewXips(tid, uid string, pri, sec []netip.Addr, ttl time.Time) *xips {
 	}
 
 	x := &xips{
-		pmu: new(sync.RWMutex),
 		pri: make(map[string]expaddr),
 		aux: make(map[string]expaddr), // sec may be nil
 	}
@@ -291,17 +301,7 @@ func (p *xips) allips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 	const all = 0
 	addrs := append([]expaddr{}, vals(g, all)...)
 
-	// go.dev/play/p/t24GYIQERsp
-	sorted := core.Sort(addrs, func(a, b expaddr) int {
-		if a.after(b) {
-			return -1
-		} else if b.after(a) {
-			return 1
-		}
-		return 0
-	})
-
-	for _, v := range sorted {
+	for _, v := range core.Sort(addrs, expaddrDobSorter) {
 		out = append(out, v.get(s)...)
 	}
 	return
@@ -535,7 +535,7 @@ func (a expdomains) sizes() (alive, tot int) {
 	if a.domains == nil {
 		return
 	}
-	return len(a.get(xalive)), len(a.domains)
+	return len(a.get(xalive)), len(a.domains) // == len(a.get(xall))
 }
 
 func (a expdomains) get(s xaddrstatus) (out []string) {
@@ -567,6 +567,15 @@ func (a expdomains) after(b expdomains) bool {
 		return b.dob.IsZero()
 	}
 	return a.dob.After(b.dob)
+}
+
+func expdomainsDobSorter(a, b expdomains) int {
+	if a.after(b) { // a is born after b (ie, a is younger)
+		return -1
+	} else if b.after(a) { // b is younger
+		return 1
+	}
+	return 0
 }
 
 // xdomains tracks domains per tid+uid; there is no secondary (aux) store.
@@ -613,6 +622,7 @@ func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) 
 		uid = core.UNKNOWN_UID_STR
 	}
 
+	doms := make([]expdomains, 0)
 	ttls := []time.Time{}
 	key := tid + uid
 
@@ -624,7 +634,11 @@ func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) 
 			if !strings.HasSuffix(k, uid) {
 				continue
 			}
+			doms = append(doms, v)
+		}
+		for _, v := range core.Sort(doms, expdomainsDobSorter) {
 			if settings.Debug {
+				// for debugging: may have expired ttls
 				ttls = append(ttls, v.ttl)
 			}
 			out = append(out, v.get(s)...)
@@ -922,18 +936,18 @@ func (t *dnsgateway) fromInternalCache(tid, uid string, q *dns.Msg, typ iptype) 
 	} else if aaaa && len(cached6s) > 0 {
 		cachedips = cached6s
 	}
-
+	cachehit := len(cachedips) > 0
 	ttlnegative := false
 	ttl := int64(until / time.Second)
-	if ttl <= 0 {
+	if ttl < 0 {
 		ttl = int64(ttl8s / time.Second)
 		ttlnegative = true
 	}
 
-	logeif(ttlnegative)("alg: response for %s by %s[%s] (q4? %t / q6? %t) realip; in cache? %v [ttl: %s / -ve? %t / until: %s] (or stale? %v)",
-		domain, tid, uid, a, aaaa, cachedips, core.FmtSecs(ttl), ttlnegative, core.FmtPeriod(until), stale)
+	logeif(ttlnegative && cachehit)("alg: response for %s by %s[%s] (q4? %t / q6? %t) realip; in cache? %v [ttl: %s / -ve? %t / hit? %t / until: %s] (or stale? %v)",
+		domain, tid, uid, a, aaaa, cachedips, core.FmtSecs(ttl), ttlnegative, cachehit, core.FmtPeriod(until), stale)
 
-	if len(cachedips) <= 0 {
+	if !cachehit {
 		return nil, errNilCacheResponse
 	}
 	return xdns.AQuadAForQueryTTL(q, uint32(ttl), cachedips...)
@@ -1937,6 +1951,7 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (ip4s, ip6s, staleips []netip.Addr, until time.Duration, targets []string) {
 	partkey4 := domain + key4
 	partkey6 := domain + key6
+	until = time.Duration(math.MaxInt64)
 
 	ip4s = make([]netip.Addr, 0)
 	ip6s = make([]netip.Addr, 0)
