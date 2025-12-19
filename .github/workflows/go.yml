@@ -384,7 +384,7 @@ jobs:
           done
 
       - name: 🧾 Verify SBOM
-        if: success() && ${{ needs.build.outputs.sbom-info != '' }}
+        if: ${{ needs.build.outputs.sbom-info != '' }}
         shell: bash
         env:
           SBOM_INFO: ${{ needs.build.outputs.sbom-info }}
