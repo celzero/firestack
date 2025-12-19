@@ -110,25 +110,25 @@ var _ Proxy = (*seproxy)(nil)
 var _ proxy.Dialer = (*sedialer)(nil)
 
 // NewSEasyProxy returns a new seproxy.
-func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, sec *seasy.SEApi) (*seproxy, error) {
-	if sec == nil {
+func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, seapi *seasy.SEApi) (*seproxy, error) {
+	if seapi == nil {
 		return nil, errMissingSEClient
 	}
 
 	ctx, done := context.WithCancel(ctx)
-	if _, err := sec.Start(ctx); err != nil {
+	if _, err := seapi.Start(ctx); err != nil {
 		done()
 		return nil, err
 	}
 
-	endpoints := sec.Endpoints()
+	endpoints := seapi.Endpoints()
 	if len(endpoints) <= 0 { // unlikely
 		done()
 		return nil, errSENoEndpoints
 	}
 
 	authfn := func() string {
-		return headerBasicAuth(sec.GetProxyCredentials())
+		return headerBasicAuth(seapi.GetProxyCredentials())
 	}
 
 	var missingcert *x509.Certificate
@@ -145,8 +145,8 @@ func NewSEasyProxy(ctx context.Context, c protect.Controller, px ProxyProvider, 
 
 	sep := &seproxy{
 		done:        done,
-		sec:         sec,
-		addrs:       sec.Addrs(),
+		sec:         seapi,
+		addrs:       seapi.Addrs(),
 		px:          px,
 		viaID:       core.NewZeroVolatile[string](),
 		lastRefresh: core.NewVolatile(now),

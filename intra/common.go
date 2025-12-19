@@ -227,21 +227,23 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		return h.listener.Flow(proto, int32(uid), x.StrOf(src), x.StrOf(dst), x.StrOf(ips), x.StrOf(doms), x.StrOf(pdoms), x.StrOf(blocklists)), nil
 	}, onFlowTimeout)
 
+	loopback := settings.Loopingback.Load()
+
 	if fm == nil || !ok { // zeroListener returns nil
 		log.W("com: %s: onFlow: empty res or on flow timeout %t; block!", h.proto, ok)
 		fm = optionsBlock
 	} else if len(fm.PIDCSV) <= 0 {
+		fm.PIDCSV = ipn.Exit
 		if preuid == SELF_UID {
-			fm.PIDCSV = ipn.Exit
-		} else if h.prox.AutoActive() {
-			fm.PIDCSV = ipn.Auto
-		} else {
-			fm.PIDCSV = ipn.Exit
+			if loopback {
+				fm.PIDCSV = ipn.Base
+			} else if h.prox.AutoActive() {
+				fm.PIDCSV = ipn.Auto
+			}
 		}
 		log.E("com: %s: onFlow: missing proxyid for preuid %s (%s => %s) from kt (alg: %v + %v); %s!",
 			h.proto, preuid, src, dst, ips, doms, fm.PIDCSV)
 	}
-	loopback := settings.Loopingback.Load()
 	// in loopback mode, user may have setup SELF_UID to be routed out via remote proxies.
 	// in other cases, routing Rethink via remote proxies is probably a bug.
 	if !loopback && preuid == SELF_UID && !ipn.IsAnyLocalProxy(strings.Split(fm.PIDCSV, ",")...) {
