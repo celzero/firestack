@@ -296,6 +296,9 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if resp == nil {
+		return nil, errors.New("ip lookup: nil response")
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
