@@ -19,6 +19,7 @@ type ground struct {
 	SkipRefresh
 	GWNoVia
 	CantPause
+	NoClient
 	addr string
 }
 

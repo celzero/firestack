@@ -112,6 +112,11 @@ func (r *rpnp) Router() x.Router {
 	return r.ensureProxy().Router()
 }
 
+// Client implements x.Proxy.
+func (r *rpnp) Client() x.Client {
+	return r.ensureProxy().Client()
+}
+
 // GetAddr implements x.Proxy.
 func (r *rpnp) GetAddr() *x.Gostr {
 	return r.ensureProxy().GetAddr()

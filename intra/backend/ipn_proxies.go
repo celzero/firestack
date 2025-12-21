@@ -116,6 +116,8 @@ type Proxy interface {
 	Type() *Gostr
 	// Returns x.Router.
 	Router() Router
+	// Client returns a client that uses this proxy.
+	Client() Client
 	// GetAddr returns the address of this proxy.
 	GetAddr() *Gostr
 	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
@@ -212,6 +214,13 @@ type Router interface {
 	Contains(ipprefix *Gostr) (y bool)
 }
 
+type Client interface {
+	// IP4 returns information about this client's remote IPv4.
+	IP4() (*IPMetadata, error)
+	// IP6 returns information about this client's remote IPv6.
+	IP6() (*IPMetadata, error)
+}
+
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
@@ -288,4 +297,29 @@ type RpnServer struct {
 	Link int32
 	// Number of active servers in this CC+City.
 	Count int32
+}
+
+type IPMetadata struct {
+	// Proxy ID used to fetch this IP metadata.
+	ID string
+	// Provider that provided this IP metadata.
+	ProviderURL string
+	// IP address, never empty.
+	IP string
+	// ASN number, may be empty.
+	ASN string
+	// ASN organization name, may be empty.
+	ASNOrg string
+	// ASN domain, may be empty.
+	ASNDom string
+	// Country code, may be empty.
+	CC string
+	// City name, may be empty.
+	City string
+	// Address, may be empty.
+	Addr string
+	// Latitude, may be zero.
+	Lat float64
+	// Longitude, may be zero.
+	Lon float64
 }

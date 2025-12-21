@@ -142,6 +142,10 @@ func (NoVia) Hop(Proxy, bool) error { return errNop }
 
 var errNop = errors.New("proxy: nop")
 
+type NoClient struct{}
+
+func (NoClient) Client() x.Client { return nil }
+
 type NoProxy struct {
 	NoDNS
 	ProtoAgnostic
@@ -163,3 +167,4 @@ func (NoProxy) Dialer() protect.RDialer                               { return n
 func (NoProxy) Status() int                                           { return 0 }
 func (NoProxy) GetAddr() *x.Gostr                                     { return nil }
 func (NoProxy) Stop() error                                           { return nil }
+func (NoProxy) Client() x.Client                                      { return nil }
