@@ -216,11 +216,9 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		}
 	}
 
-	if len(ips) <= 0 || len(doms) <= 0 {
-		if settings.Debug {
-			log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
-				h.proto, ips, doms, pdoms, localaddr, target)
-		}
+	if settings.Debug && (len(ips) <= 0 || len(doms) <= 0) {
+		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
+			h.proto, ips, doms, pdoms, localaddr, target)
 	}
 
 	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
