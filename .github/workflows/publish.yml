@@ -1,4 +1,4 @@
-name: Publish Binaries
+name: Publisher
 
 on:
   workflow_dispatch:

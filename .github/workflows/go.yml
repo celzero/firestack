@@ -316,7 +316,7 @@ jobs:
       - build
       - attestation
     if: ${{ needs.build.result == 'success' && needs.attestation.result == 'success' && needs.build.outputs.publish == 'true' }}
-    uses: ./.github/workflows/publish-manual.yml
+    uses: ./.github/workflows/publish.yml
     with:
       run-id: ${{ github.run_id }}
       vcsver: ${{ needs.build.outputs.vcs-ver }}
