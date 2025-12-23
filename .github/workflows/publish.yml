@@ -7,6 +7,30 @@ on:
         description: "Workflow run id that produced signed artifacts (from go.yml build job)"
         required: true
         type: number
+  workflow_call:
+    inputs:
+      run-id:
+        description: "Workflow run id that produced signed artifacts"
+        required: true
+        type: number
+      vcsver:
+        description: "Short git version"
+        required: false
+        type: string
+      artifact-subjects:
+        description: "JSON array of artifact subjects with sha256 digests"
+        required: false
+        type: string
+      sbom-info:
+        description: "SBOM info JSON blob with subjects and digest"
+        required: false
+        type: string
+
+env:
+  ARTIFACT_PATTERN: "firestack-aar-*"
+  SBOM_PATTERN: "firestack-sbom-*"
+  SBOM_MANIFEST: "manifest.spdx.json"
+  SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
 
 permissions:
   contents: read
@@ -42,6 +66,10 @@ jobs:
       # POM for Maven Central
       POM_OSSRH: ossrhpom.xml
       DIST_DIR: dist
+      RUN_ID: ${{ inputs.run-id || inputs['build-run-id'] }}
+      VCSVER_INPUT: ${{ inputs.vcsver }}
+      ARTIFACT_SUBJECTS: ${{ inputs['artifact-subjects'] }}
+      SBOM_INFO: ${{ inputs['sbom-info'] }}
     steps:
       - name: 🥏 Checkout
         uses: actions/checkout@v6
@@ -51,10 +79,14 @@ jobs:
       - name: ℹ️ Source run metadata
         id: runmeta
         env:
-          RUN_ID: ${{ inputs.build-run-id }}
+          RUN_ID: ${{ env.RUN_ID }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [ -n "${VCSVER_INPUT:-}" ]; then
+            printf 'vcsver=%s\n' "${VCSVER_INPUT}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           info=$(gh run view "$RUN_ID" --json headSha,headBranch,event,displayTitle)
           echo "$info" | jq
           sha=$(echo "$info" | jq -r '.headSha')
@@ -69,16 +101,16 @@ jobs:
       - name: ⬇️ Download artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: firestack-aar-*
-          run-id: ${{ inputs.build-run-id }}
+          pattern: ${{ env.ARTIFACT_PATTERN }}
+          run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
           path: ${{ env.DIST_DIR }}
 
       - name: ⬇️ Download SBOM artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: firestack-sbom-*
-          run-id: ${{ inputs.build-run-id }}
+          pattern: ${{ env.SBOM_PATTERN }}
+          run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
           path: sbom
 
@@ -97,18 +129,55 @@ jobs:
             gh attestation verify "$file" -R "$REPO"
           done
 
+          if [ -n "${ARTIFACT_SUBJECTS:-}" ]; then
+            jq -c '.[]' <<<"${ARTIFACT_SUBJECTS}" | while read -r subject; do
+              name=$(jq -r '.name' <<<"$subject")
+              digest=$(jq -r '.digest' <<<"$subject")
+              file="${ART_DIR}/${name##*/}"
+              if [ ! -f "$file" ]; then
+                echo "::error::missing artifact $file for digest check" >&2
+                exit 13
+              fi
+              want=${digest#sha256:}
+              got=$(sha256sum "$file" | awk '{print $1}')
+              if [ "$got" != "$want" ]; then
+                echo "::error::digest mismatch for $file (got $got, want $want)" >&2
+                exit 14
+              fi
+            done
+          fi
+
       - name: 🔐 Verify SBOM attestation
         env:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          # andrewlock.net/creating-sbom-attestations-in-github-actions/
           set -euo pipefail
-          sbom_file=$(find sbom -name manifest.spdx.json -print -quit)
+          if [ -n "${SBOM_INFO:-}" ]; then
+            name=$(jq -r '.path' <<<"${SBOM_INFO}")
+            sbom_file="sbom/$(jq -r '.artifactName' <<<"${SBOM_INFO}")/${name}"
+            digest=$(jq -r '.digest' <<<"${SBOM_INFO}")
+          else
+            sbom_file=$(find sbom -name "${SBOM_MANIFEST}" -print -quit)
+            digest=""
+          fi
+
           if [ -z "$sbom_file" ]; then
             echo "::error::SBOM file not found in sbom/" >&2
-            exit 13
+            exit 15
           fi
-          gh attestation verify "$sbom_file" -R "$REPO" --predicate-type "https://spdx.dev/Document/v2.2"
+
+          if [ -n "$digest" ] && [ "$digest" != "null" ]; then
+            want=${digest#sha256:}
+            got=$(sha256sum "$sbom_file" | awk '{print $1}')
+            if [ "$got" != "$want" ]; then
+              echo "::error::SBOM digest mismatch (got $got, want $want)" >&2
+              exit 16
+            fi
+          fi
+
+          gh attestation verify "$sbom_file" -R "$REPO" --predicate-type "${SBOM_PREDICATE}"
 
       - name: 🏷️ Setup for GitHub Packages
         uses: actions/setup-java@v4
@@ -116,6 +185,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+        # docs.github.com/en/actions/tutorials/build-and-test-code/java-with-maven
+        # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-github-packages
       - name: 😺 Publish to GitHub Packages
         shell: bash
         env:
@@ -124,6 +195,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           VCSVER: ${{ steps.runmeta.outputs.vcsver }}
         run: |
+          # uploaded at:
+          # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
+          # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
+          # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
+          # publish both stripped and debug
           mvn deploy:deploy-file \
             -DgroupId="${GROUP_GITHUB}" \
             -DartifactId="${ARTIFACT}" \
@@ -137,6 +213,9 @@ jobs:
             -Dsources="${DIST_DIR}/${SOURCES}" \
             -Durl="https://maven.pkg.github.com/${REPOSITORY}"
 
+        # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
+        # github.com/slsa-framework/slsa-github-generator/blob/4876e96b8268/actions/maven/publish/action.yml#L49
+        # docs.github.com/en/actions/tutorials/publish-packages/publish-java-packages-with-maven#publishing-packages-to-the-maven-central-repository-and-github-packages
       - name: 🏛️ Setup for Maven Central
         uses: actions/setup-java@v4
         with:
@@ -158,6 +237,8 @@ jobs:
           VCSVER: ${{ steps.runmeta.outputs.vcsver }}
         run: |
           mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
+          # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
+          # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
 
           mvn gpg:sign-and-deploy-file \
             -DgroupId="${GROUP_OSSRH}" \
@@ -183,6 +264,11 @@ jobs:
             -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
             -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
+          # central.sonatype.org/publish/publish-portal-api/#authentication-authorization
           tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
+
+          # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#1-modify-your-ci-script
+          # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#post-to-manualuploaddefaultrepositorynamespace
+          # auth required for publishing_type=automatic
           curl -D - -X POST -H "Authorization: Bearer ${tok}" \
             "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
