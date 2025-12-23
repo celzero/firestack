@@ -219,6 +219,8 @@ type Client interface {
 	IP4() (*IPMetadata, error)
 	// IP6 returns information about this client's remote IPv6.
 	IP6() (*IPMetadata, error)
+	// TODO: Move Reaches here?
+	// TODO: Fetch(method, url, headers, body) (status, headers, body, err)
 }
 
 // ProxyListener is a listener for proxy events.

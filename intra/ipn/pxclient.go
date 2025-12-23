@@ -381,7 +381,6 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 	}
 }
 
-// Client implementations for proxies that previously lacked x.Client.
 func (h *base) Client() x.Client    { return newProxyClient(h) }
 func (h *exit) Client() x.Client    { return newProxyClient(h) }
 func (h *exit64) Client() x.Client  { return newProxyClient(h) }
