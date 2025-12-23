@@ -424,9 +424,11 @@ loop:
 			xxlans := append(msg.Answer, msg.Extra...)
 			for _, ans := range xxlans {
 				ansname, aerr := xdns.AName(ans)
-				// expect answers only for the service name client queried for
-				if (aerr != nil) || (c.oneshot && !strings.Contains(ansname, qctx.svc)) {
-					log.V("mdns: listen: ignoring %s ans for %s svc; err? %v", ansname, qctx.svc, aerr)
+				tracked := c.isTracked(ansname)
+				// expect answers only for the service name client queried for, or
+				// an already tracked alias (ex: cname targets)
+				if (aerr != nil) || (c.oneshot && !strings.Contains(ansname, qctx.svc) && !tracked) {
+					log.V("mdns: listen: ignoring %s ans for %s svc; tracked? %t; err? %v", ansname, qctx.svc, tracked, aerr)
 					continue
 				}
 				log.D("mdns: listen: processing %s ans for %s", ansname, qname)
@@ -446,6 +448,10 @@ loop:
 					disco = c.track(rr.Hdr.Name)
 					disco.txt = rr.Txt
 					// todo: r.ans = ans ?
+				case *dns.CNAME:
+					disco = c.track(rr.Hdr.Name)
+					disco.target = rr.Target
+					c.alias(rr.Hdr.Name, rr.Target)
 				case *dns.A:
 					disco = c.track(rr.Hdr.Name)
 					// todo: append to ip4?
@@ -593,6 +599,13 @@ func (c *client) track(name string) *dnssdanswer {
 	defer c.tmu.Unlock()
 
 	return c.trackLocked(name)
+}
+
+func (c *client) isTracked(name string) bool {
+	c.tmu.RLock()
+	defer c.tmu.RUnlock()
+	_, ok := c.tracker[name]
+	return ok
 }
 
 // alias sets up mapping between two tracked entries;
