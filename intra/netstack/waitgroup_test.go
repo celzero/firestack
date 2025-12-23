@@ -8,7 +8,7 @@ import (
 )
 
 // TestWaitGroupRaceCondition tests that the WaitGroup reuse issue is fixed.
-// This test reproduces the scenario where an endpoint is swapped while 
+// This test reproduces the scenario where an endpoint is swapped while
 // another goroutine is waiting on the old endpoint.
 func TestWaitGroupRaceCondition(t *testing.T) {
 	// Create a temp file to simulate a TUN device
@@ -20,7 +20,7 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 	defer tmpFile.Close()
 
 	fd := int(tmpFile.Fd())
-	
+
 	// Create a magiclink endpoint
 	endpoint, err := NewEndpoint(fd, 1500, &testSink{})
 	if err != nil {
@@ -37,7 +37,7 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 	// while we swap endpoints in the background
 	var wg sync.WaitGroup
 	errors := make(chan error, 10)
-	
+
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -47,7 +47,7 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 					errors <- r.(error)
 				}
 			}()
-			
+
 			// Call Wait() multiple times to increase chance of race condition
 			for j := 0; j < 10; j++ {
 				magicLink.Wait()
@@ -55,7 +55,7 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	// Swap endpoints multiple times while Wait() is being called
 	go func() {
 		for i := 0; i < 5; i++ {
@@ -65,23 +65,23 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 				continue
 			}
 			fd2 := int(tmpFile2.Fd())
-			
+
 			// Swap to new fd
 			magicLink.Swap(fd2, 1500)
 			time.Sleep(time.Millisecond * 5)
-			
+
 			tmpFile2.Close()
 			os.Remove(tmpFile2.Name())
 		}
 	}()
-	
+
 	// Wait for all goroutines to complete
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Check if any errors occurred
@@ -108,7 +108,7 @@ func TestStackTraceScenario(t *testing.T) {
 	defer tmpFile.Close()
 
 	fd := int(tmpFile.Fd())
-	
+
 	// Create a magiclink endpoint
 	endpoint, err := NewEndpoint(fd, 1500, &testSink{})
 	if err != nil {
@@ -125,7 +125,7 @@ func TestStackTraceScenario(t *testing.T) {
 	// seamless.go:312>fdbased.go:413 - magiclink.Wait() calls endpoint.Wait()
 	panicked := false
 	done := make(chan struct{})
-	
+
 	// Start a goroutine that continuously calls Wait() like the tunnel waiter
 	go func() {
 		defer func() {
@@ -134,13 +134,13 @@ func TestStackTraceScenario(t *testing.T) {
 			}
 			close(done)
 		}()
-		
+
 		for i := 0; i < 100; i++ {
 			magicLink.Wait()
 			time.Sleep(time.Millisecond)
 		}
 	}()
-	
+
 	// Concurrently perform rapid endpoint swaps
 	for i := 0; i < 10; i++ {
 		tmpFile2, err := os.CreateTemp("", "test_tun2")
@@ -148,15 +148,15 @@ func TestStackTraceScenario(t *testing.T) {
 			continue
 		}
 		fd2 := int(tmpFile2.Fd())
-		
+
 		// Rapid swap - this should not cause WaitGroup reuse panic
 		magicLink.Swap(fd2, 1500)
-		
+
 		tmpFile2.Close()
 		os.Remove(tmpFile2.Name())
 		time.Sleep(time.Millisecond * 2)
 	}
-	
+
 	// Wait for the wait goroutine to complete
 	select {
 	case <-done:
