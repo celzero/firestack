@@ -334,7 +334,7 @@ jobs:
       REPO_OSSRH: ossrh
       # artefact type
       PACK: aar
-        # final out from make-aar
+      # final out from make-aar
       FOUT: firestack.aar
       FOUTDBG: firestack-debug.aar
       # artifact classifier; full unused

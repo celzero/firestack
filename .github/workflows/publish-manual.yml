@@ -1,0 +1,188 @@
+name: Publish Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-run-id:
+        description: "Workflow run id that produced signed artifacts (from go.yml build job)"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+  packages: write
+
+jobs:
+
+  publish:
+    name: 🚚 Publish
+    runs-on: ubuntu-latest
+    env:
+      # docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context
+      GROUP_GITHUB: ${{ format('com.github.{0}', github.repository_owner) }}
+      GROUP_OSSRH: com.celzero
+      # project artifactId; see: pom.xml
+      ARTIFACT: firestack
+      REPO_GITHUB: github
+      # central.sonatype.org/pages/ossrh-eol
+      # or "central"
+      REPO_OSSRH: ossrh
+      # artefact type
+      PACK: aar
+      # final out from make-aar
+      FOUT: firestack.aar
+      FOUTDBG: firestack-debug.aar
+      # artifact classifier; full unused
+      CLASSFULL: full
+      CLASSDBG: debug
+      # artifact bytecode sources
+      SOURCES: build/intra/tun2socks-sources.jar
+      # POM for Maven Central
+      POM_OSSRH: ossrhpom.xml
+      DIST_DIR: dist
+    steps:
+      - name: 🥏 Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: ℹ️ Source run metadata
+        id: runmeta
+        env:
+          RUN_ID: ${{ inputs.build-run-id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          info=$(gh run view "$RUN_ID" --json headSha,headBranch,event,displayTitle)
+          echo "$info" | jq
+          sha=$(echo "$info" | jq -r '.headSha')
+          if [ -z "$sha" ] || [ "$sha" = "null" ]; then
+            echo "::error::unable to resolve head sha for run $RUN_ID" >&2
+            exit 11
+          fi
+          # git version (short commit sha)
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+          printf 'vcsver=%s\n' "${sha:0:10}" >> "$GITHUB_OUTPUT"
+
+      - name: ⬇️ Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firestack-aar-*
+          run-id: ${{ inputs.build-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.DIST_DIR }}
+
+      - name: ⬇️ Download SBOM artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: firestack-sbom-*
+          run-id: ${{ inputs.build-run-id }}
+          github-token: ${{ github.token }}
+          path: sbom
+
+      - name: 🔐 Verify artifact attestations
+        env:
+          REPO: ${{ github.repository }}
+          ART_DIR: ${{ env.DIST_DIR }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for file in "$ART_DIR/${FOUT}" "$ART_DIR/${FOUTDBG}"; do
+            if [ ! -f "$file" ]; then
+              echo "::error::missing artifact $file" >&2
+              exit 12
+            fi
+            gh attestation verify "$file" -R "$REPO"
+          done
+
+      - name: 🔐 Verify SBOM attestation
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sbom_file=$(find sbom -name manifest.spdx.json -print -quit)
+          if [ -z "$sbom_file" ]; then
+            echo "::error::SBOM file not found in sbom/" >&2
+            exit 13
+          fi
+          gh attestation verify "$sbom_file" -R "$REPO" --predicate-type "https://spdx.dev/Document/v2.2"
+
+      - name: 🏷️ Setup for GitHub Packages
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: 😺 Publish to GitHub Packages
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VCSVER: ${{ steps.runmeta.outputs.vcsver }}
+        run: |
+          mvn deploy:deploy-file \
+            -DgroupId="${GROUP_GITHUB}" \
+            -DartifactId="${ARTIFACT}" \
+            -Dversion="$VCSVER" \
+            -Dpackaging="${PACK}" \
+            -Dfile="${DIST_DIR}/${FOUT}" \
+            -Dfiles="${DIST_DIR}/${FOUTDBG}" \
+            -Dtypes="${PACK}" \
+            -Dclassifiers=${CLASSDBG} \
+            -DrepositoryId="${REPO_GITHUB}" \
+            -Dsources="${DIST_DIR}/${SOURCES}" \
+            -Durl="https://maven.pkg.github.com/${REPOSITORY}"
+
+      - name: 🏛️ Setup for Maven Central
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.OSSRH_CELZERO_GPG_PRIVATE_KEY }}
+          gpg-passphrase: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
+
+      - name: 📦 Publish to Maven Central
+        shell: bash
+        env:
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_NS: ${{ secrets.OSSRH_CELZERO_NAMESPACE }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
+          VCSVER: ${{ steps.runmeta.outputs.vcsver }}
+        run: |
+          mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
+
+          mvn gpg:sign-and-deploy-file \
+            -DgroupId="${GROUP_OSSRH}" \
+            -DartifactId="${ARTIFACT}" \
+            -Dversion="$VCSVER" \
+            -Dpackaging="${PACK}" \
+            -Dfile="${DIST_DIR}/${FOUT}" \
+            -DrepositoryId="${REPO_OSSRH}" \
+            -DpomFile=${POM_OSSRH} \
+            -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+            -Dsources="${DIST_DIR}/${SOURCES}" \
+            -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+          mvn gpg:sign-and-deploy-file \
+            -DgroupId="${GROUP_OSSRH}" \
+            -DartifactId="${ARTIFACT}" \
+            -Dversion="$VCSVER" \
+            -Dpackaging="${PACK}" \
+            -Dfile="${DIST_DIR}/${FOUTDBG}" \
+            -Dclassifier=${CLASSDBG} \
+            -DrepositoryId="${REPO_OSSRH}" \
+            -DgeneratePom=false \
+            -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
+            -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+
+          tok=$(printf "${MAVEN_USERNAME}:${MAVEN_PASSWORD}" | base64)
+          curl -D - -X POST -H "Authorization: Bearer ${tok}" \
+            "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
