@@ -305,15 +305,18 @@ func (t *rtunnel) SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error {
 
 	err := tunnel.SetLinkAndRoutes(fd, tunmtu, engine) // route is always dual-stack
 
+	if l3diff {
+		if mdns, err := t.resolver.MDNS(); err == nil {
+			mdns.RefreshProto(l3)
+		}
+	}
+
 	// TODO: skip refresh on err?
 	core.Gx("i.setLinkAndRoutesRefresh", func() {
 		if l3diff || mtudiff {
-			// dialers.IPProtos must always preced calls to other refreshes
+			// dialers.IPProtos must always precede calls to other refreshes
 			// as it carries the global state for dialers and ipn/multihost
-			go t.proxies.RefreshProto(l3, linkmtu, false /*force*/)
-		}
-		if l3diff {
-			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
+			t.proxies.RefreshProto(l3, linkmtu, false /*force*/)
 		}
 	})
 
@@ -365,12 +368,14 @@ func (t *rtunnel) Restart(fd, linkmtu, tunmtu, engine int) error {
 
 	log.I("tun: <<< restart >>>; for: %d (linkmtu: %d / tunmtu: %d), netstack ok; rev err? %v", fd, linkmtu, tunmtu, rerr)
 
+	if l3diff {
+		if mdns, err := t.resolver.MDNS(); err == nil {
+			mdns.RefreshProto(l3)
+		}
+	}
 	core.Gx("i.RestartRefresh", func() {
 		// Refresh proxies to update to the new reverser
-		go t.proxies.RefreshProto(l3, linkmtu, true /*force; reverser changed*/) // also updates reverser
-		if l3diff {
-			t.resolver.Add(newMDNSTransport(t.ctx, l3, t.proxies))
-		}
+		t.proxies.RefreshProto(l3, linkmtu, true /*force; reverser changed*/) // also updates reverser
 	})
 
 	return err

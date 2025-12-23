@@ -113,7 +113,7 @@ func newDNSCryptTransport(ctx context.Context, px ipn.ProxyProvider, bdg Bridge)
 	return
 }
 
-func newMDNSTransport(ctx context.Context, protos string, px ipn.ProxyProvider) (d dnsx.Transport) {
+func newMDNSTransport(ctx context.Context, protos string, px ipn.ProxyProvider) (d dnsx.MDNSTransport) {
 	return dns53.NewMDNSTransport(ctx, protos, px)
 }
 

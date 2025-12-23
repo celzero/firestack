@@ -107,9 +107,15 @@ var (
 	errBlockFreeTransport      = errors.New("dns: block free transport")
 	errNoRdns                  = errors.New("dns: no rdns")
 	errTransportNotMult        = errors.New("dns: not a multi-transport")
+	errTransportNotMDNS        = errors.New("dns: not an mdns transport")
 	errMissingQueryName        = errors.New("dns: no query name")
 	errResolverClosed          = errors.New("dns: closed for business")
 )
+
+type MDNSTransport interface {
+	Transport
+	RefreshProto(protos string)
+}
 
 // Transport represents a DNS query transport.  This interface is exported by gobind,
 // so it has to be very simple.
@@ -150,6 +156,8 @@ type TransportProviderInternal interface {
 
 	// Gateway implements a DNS ALG transport
 	Gateway() Gateway
+	// MDNS returns the mdns transport, if available; error otherwise.
+	MDNS() (MDNSTransport, error)
 }
 
 type Resolver interface {
@@ -258,6 +266,18 @@ func (r *resolver) queueSummary(smm *x.DNSSummary) {
 
 func (r *resolver) Gateway() Gateway {
 	return r.gateway
+}
+
+func (r *resolver) MDNS() (MDNSTransport, error) {
+	r.RLock()
+	defer r.RUnlock()
+	if t, ok := r.transports[Local]; ok {
+		if mdnst, ok := t.(MDNSTransport); ok {
+			return mdnst, nil
+		}
+		return nil, errTransportNotMDNS
+	}
+	return nil, errNoSuchTransport
 }
 
 func (r *resolver) Translate(b bool) {

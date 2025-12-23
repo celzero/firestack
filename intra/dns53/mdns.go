@@ -47,13 +47,13 @@ type dnssd struct {
 	dialer ipn.Proxy
 	id     string              // ID of this transport
 	ipport string              // IP:Port queries are sent to (v4)
-	use4   bool                // Use IPv4
-	use6   bool                // Use IPv6
+	use4   atomic.Bool         // Use IPv4
+	use6   atomic.Bool         // Use IPv6
 	status *core.Volatile[int] // Status of this transport
 	est    core.P2QuantileEstimator
 }
 
-var _ dnsx.Transport = (*dnssd)(nil)
+var _ dnsx.MDNSTransport = (*dnssd)(nil)
 
 // NewMDNSTransport returns a DNS transport that sends all DNS queries to mDNS endpoint.
 func NewMDNSTransport(pctx context.Context, protos string, pxr ipn.ProxyProvider) *dnssd {
@@ -72,12 +72,12 @@ func NewMDNSTransport(pctx context.Context, protos string, pxr ipn.ProxyProvider
 		done:   done,
 		id:     dnsx.Local,
 		dialer: exit,
-		use4:   use4(protos),
-		use6:   use6(protos),
 		ipport: xdns.MDNSAddr4.String(), // ip6: ff02::fb:5353
 		status: core.NewVolatile(dnsx.Start),
 		est:    core.NewP50Estimator(ctx),
 	}
+	t.use4.Store(use4(protos))
+	t.use6.Store(use6(protos))
 	log.I("mdns: setup: %s", protos)
 	return t
 }
@@ -98,6 +98,14 @@ func use6(l3 string) bool {
 	default:
 		return false
 	}
+}
+
+func (t *dnssd) RefreshProto(protos string) {
+	n4 := use4(protos)
+	n6 := use6(protos)
+	o4 := t.use4.Swap(n4)
+	o6 := t.use6.Swap(n6)
+	log.I("mdns: proto change: %s; 4(%s => %s) 6(%s => %s)", protos, o4, n4, o6, n6)
 }
 
 func (t *dnssd) oneshotQuery(msg *dns.Msg) (*dns.Msg, *dnsx.QueryError) {
@@ -291,7 +299,9 @@ func (c *client) String() string {
 
 // newClient creates a new mdns unicast and multicast client
 func (t *dnssd) newClient(oneshot bool) (*client, error) {
-	if !t.use4 && !t.use6 {
+	use4 := t.use4.Load()
+	use6 := t.use6.Load()
+	if !use4 && !use6 {
 		return nil, errNoProtos
 	}
 
@@ -299,7 +309,7 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 	var mconn4, mconn6 net.PacketConn // bind to port 5353 for multicast
 	var err error
 
-	if t.use4 {
+	if use4 {
 		uconn4, err = t.dialer.Announce("udp4", "0.0.0.0:0")
 		if err != nil {
 			log.E("mdns: new-client: unicast4 bind fail: %v", err)
@@ -314,7 +324,7 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 		}
 	}
 
-	if t.use6 {
+	if use6 {
 		uconn6, err = t.dialer.Announce("udp6", "[::]:0")
 		if err != nil {
 			log.E("mdns: new-client: unicast6 bind fail: %v", err)
@@ -328,16 +338,16 @@ func (t *dnssd) newClient(oneshot bool) (*client, error) {
 		}
 	}
 
-	has4 := t.use4 && uconn4 != nil && (oneshot || mconn4 != nil)
-	has6 := t.use6 && uconn6 != nil && (oneshot || mconn6 != nil)
+	has4 := use4 && uconn4 != nil && (oneshot || mconn4 != nil)
+	has6 := use6 && uconn6 != nil && (oneshot || mconn6 != nil)
 	if !has4 && !has6 {
 		log.E("mdns: new-client: oneshot? %t with no4? %t / no6? %t", oneshot, has4, has6)
 		return nil, errBindFail
 	}
 
 	c := &client{
-		use4:       t.use4,
-		use6:       t.use6,
+		use4:       use4,
+		use6:       use6,
 		multicast4: mconn4, // nil if oneshot
 		multicast6: mconn6, // nil if oneshot
 		unicast4:   uconn4,
