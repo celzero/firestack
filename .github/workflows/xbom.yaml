@@ -2,14 +2,6 @@ name: Cryptography BoM
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ n2 ]
-    paths:
-      - '**/*.go'
-  pull_request:
-    branches: [ n2 ]
-    paths:
-      - '**/*.go'
 
 jobs:
 

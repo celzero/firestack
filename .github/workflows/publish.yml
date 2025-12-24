@@ -26,18 +26,6 @@ on:
         required: false
         type: string
 
-env:
-  ARTIFACT_PATTERN: "firestack-aar-*"
-  SBOM_PATTERN: "firestack-sbom-*"
-  SBOM_MANIFEST: "manifest.spdx.json"
-  SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
-
-permissions:
-  contents: read
-  actions: read
-  attestations: read
-  packages: write
-
 jobs:
 
   publish:
@@ -68,15 +56,27 @@ jobs:
       DIST_DIR: dist
       RUN_ID: ${{ inputs.run-id || inputs['build-run-id'] }}
       VCSVER_INPUT: ${{ inputs.vcsver }}
+      # workflow input constants
       ARTIFACT_SUBJECTS: ${{ inputs['artifact-subjects'] }}
       SBOM_INFO: ${{ inputs['sbom-info'] }}
+      ARTIFACT_PATTERN: "firestack-aar-*"
+      SBOM_PATTERN: "firestack-sbom-*"
+      SBOM_MANIFEST: "manifest.spdx.json"
+      SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
+
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      packages: write
+
     steps:
       - name: 🥏 Checkout
         uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - name: ℹ️ Source run metadata
+      - name: 📀 Metadata
         id: runmeta
         env:
           RUN_ID: ${{ env.RUN_ID }}
