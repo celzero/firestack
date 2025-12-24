@@ -99,6 +99,7 @@ jobs:
           printf 'vcsver=%s\n' "${sha:0:10}" >> "$GITHUB_OUTPUT"
 
       - name: ⬇️ Download artifacts
+        id: dlaar
         uses: actions/download-artifact@v4
         with:
           pattern: ${{ env.ARTIFACT_PATTERN }}
@@ -107,20 +108,22 @@ jobs:
           path: ${{ env.DIST_DIR }}
 
       - name: ⬇️ Download SBOM artifact
+        id: dlsbom
         uses: actions/download-artifact@v4
         with:
           pattern: ${{ env.SBOM_PATTERN }}
           run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
-          path: sbom
+          path: ${{ env.DIST_DIR }}
 
       - name: 🔐 Verify artifact attestations
         env:
           REPO: ${{ github.repository }}
-          ART_DIR: ${{ env.DIST_DIR }}
+          ART_DIR: ${{ steps.dlaar.outputs.download-path }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          ls -ltr "${ART_DIR}/"
           for file in "$ART_DIR/${FOUT}" "$ART_DIR/${FOUTDBG}"; do
             if [ ! -f "$file" ]; then
               echo "::error::missing artifact $file" >&2
@@ -150,21 +153,23 @@ jobs:
       - name: 🔐 Verify SBOM attestation
         env:
           REPO: ${{ github.repository }}
+          ART_DIR: ${{ steps.dlsbom.outputs.download-path }}
           GH_TOKEN: ${{ github.token }}
         run: |
           # andrewlock.net/creating-sbom-attestations-in-github-actions/
           set -euo pipefail
+          ls -ltr "${ART_DIR}/"
           if [ -n "${SBOM_INFO:-}" ]; then
             name=$(jq -r '.path' <<<"${SBOM_INFO}")
-            sbom_file="sbom/$(jq -r '.artifactName' <<<"${SBOM_INFO}")/${name}"
+            sbom_file="$ART_DIR/$(jq -r '.artifactName' <<<"${SBOM_INFO}")/${name}"
             digest=$(jq -r '.digest' <<<"${SBOM_INFO}")
           else
-            sbom_file=$(find sbom -name "${SBOM_MANIFEST}" -print -quit)
+            sbom_file=$(find "${ART_DIR}" -name "${SBOM_MANIFEST}" -print -quit)
             digest=""
           fi
 
           if [ -z "$sbom_file" ]; then
-            echo "::error::SBOM file not found in sbom/" >&2
+            echo "::error::SBOM file not found in ${ART_DIR}/" >&2
             exit 15
           fi
 
@@ -175,6 +180,8 @@ jobs:
               echo "::error::SBOM digest mismatch (got $got, want $want)" >&2
               exit 16
             fi
+          else
+            echo "No SBOM digest; skipping digest verification" >&2
           fi
 
           gh attestation verify "$sbom_file" -R "$REPO" --predicate-type "${SBOM_PREDICATE}"
