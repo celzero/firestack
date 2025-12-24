@@ -127,8 +127,9 @@ jobs:
         run: |
           set -xeuo pipefail
           ls -ltr "${ART_DIR}/"
-          ART_DIR="${ART_DIR}/${ARTIFACT_PREFIX}${SHA}"
-          ls -ltr "${ART_DIR}/"
+          # need to go one dir further for download-artifact v4 not v7
+          # ART_DIR="${ART_DIR}/${ARTIFACT_PREFIX}${SHA}"
+          # ls -ltr "${ART_DIR}/"
           for file in "$ART_DIR/${FOUT}" "$ART_DIR/${FOUTDBG}"; do
             if [ ! -f "$file" ]; then
               echo "::error::missing artifact $file" >&2
@@ -165,8 +166,9 @@ jobs:
           # andrewlock.net/creating-sbom-attestations-in-github-actions/
           set -xeuo pipefail
           ls -ltr "${ART_DIR}/"
-          ART_DIR="${ART_DIR}/${SBOM_PREFIX}${SHA}"
-          ls -ltr "${ART_DIR}/"
+          # need to go one dir further for download-artifact v4 not v7
+          # ART_DIR="${ART_DIR}/${SBOM_PREFIX}${SHA}"
+          # ls -ltr "${ART_DIR}/"
           if [ -n "${SBOM_INFO:-}" ]; then
             name=$(jq -r '.path' <<<"${SBOM_INFO}")
             sbom_file="$ART_DIR/$(jq -r '.artifactName' <<<"${SBOM_INFO}")/${name}"
