@@ -102,7 +102,7 @@ jobs:
 
       - name: ⬇️ Download artifacts
         id: dlaar
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: ${{ env.ARTIFACT_PATTERN }}
           run-id: ${{ env.RUN_ID }}
@@ -111,21 +111,21 @@ jobs:
 
       - name: ⬇️ Download SBOM artifact
         id: dlsbom
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: ${{ env.SBOM_PATTERN }}
           run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
           path: ${{ env.DIST_DIR }}
 
-      - name: 🔐 Verify artifact attestations
+      - name: 🔐 Verify build provenance
         env:
           REPO: ${{ github.repository }}
           ART_DIR: ${{ steps.dlaar.outputs.download-path }}
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.runmeta.outputs.sha }}
         run: |
-          set -euo pipefail
+          set -xeuo pipefail
           ls -ltr "${ART_DIR}/"
           ART_DIR="${ART_DIR}/${ARTIFACT_PREFIX}${SHA}"
           ls -ltr "${ART_DIR}/"
@@ -163,7 +163,7 @@ jobs:
           SHA: ${{ steps.runmeta.outputs.sha }}
         run: |
           # andrewlock.net/creating-sbom-attestations-in-github-actions/
-          set -euo pipefail
+          set -xeuo pipefail
           ls -ltr "${ART_DIR}/"
           ART_DIR="${ART_DIR}/${SBOM_PREFIX}${SHA}"
           ls -ltr "${ART_DIR}/"
@@ -173,7 +173,7 @@ jobs:
             digest=$(jq -r '.digest' <<<"${SBOM_INFO}")
           else
             sbom_file=$(find "${ART_DIR}" -name "${SBOM_MANIFEST}" -print -quit)
-            digest=""
+            digest=$(cat < $(find "${ART_DIR}" -name "${SBOM_MANIFEST}.sha256" -print -quit))
           fi
 
           if [ -z "$sbom_file" ]; then
