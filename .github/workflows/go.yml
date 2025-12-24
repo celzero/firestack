@@ -318,10 +318,10 @@ jobs:
     if: ${{ needs.build.result == 'success' && needs.attestation.result == 'success' && needs.build.outputs.publish == 'true' }}
     uses: ./.github/workflows/publish.yml
     with:
-      run-id: ${{ github.run_id }}
+      run_id: ${{ github.run_id }}
       vcsver: ${{ needs.build.outputs.vcs-ver }}
-      artifact-subjects: ${{ needs.build.outputs.artifact-subjects }}
-      sbom-info: ${{ needs.build.outputs.sbom-info }}
+      artifact_subjects: ${{ needs.build.outputs.artifact-subjects }}
+      sbom_info: ${{ needs.build.outputs.sbom-info }}
     secrets: inherit
 
   osv:

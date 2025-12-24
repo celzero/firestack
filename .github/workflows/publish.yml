@@ -3,25 +3,25 @@ name: Publisher
 on:
   workflow_dispatch:
     inputs:
-      build-run-id:
-        description: "Workflow run id that produced signed artifacts (from go.yml build job)"
+      build_run_id:
         required: true
-        type: number
+        type: string
   workflow_call:
     inputs:
-      run-id:
+      # docs.github.com/en/actions/reference/workflows-and-actions/contexts
+      run_id:
         description: "Workflow run id that produced signed artifacts"
         required: true
-        type: number
+        type: string
       vcsver:
         description: "Short git version"
         required: false
         type: string
-      artifact-subjects:
+      artifact_subjects:
         description: "JSON array of artifact subjects with sha256 digests"
         required: false
         type: string
-      sbom-info:
+      sbom_info:
         description: "SBOM info JSON blob with subjects and digest"
         required: false
         type: string
@@ -54,11 +54,11 @@ jobs:
       # POM for Maven Central
       POM_OSSRH: ossrhpom.xml
       DIST_DIR: dist
-      RUN_ID: ${{ inputs.run-id || inputs['build-run-id'] }}
+      RUN_ID: ${{ inputs.run_id || inputs.build_run_id }}
       VCSVER_INPUT: ${{ inputs.vcsver }}
       # workflow input constants
-      ARTIFACT_SUBJECTS: ${{ inputs['artifact-subjects'] }}
-      SBOM_INFO: ${{ inputs['sbom-info'] }}
+      ARTIFACT_SUBJECTS: ${{ inputs.artifact_subjects }}
+      SBOM_INFO: ${{ inputs.sbom_info }}
       ARTIFACT_PATTERN: "firestack-aar-*"
       SBOM_PATTERN: "firestack-sbom-*"
       SBOM_MANIFEST: "manifest.spdx.json"
