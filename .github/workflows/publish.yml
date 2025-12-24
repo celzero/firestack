@@ -61,6 +61,8 @@ jobs:
       SBOM_INFO: ${{ inputs.sbom_info }}
       ARTIFACT_PATTERN: "firestack-aar-*"
       SBOM_PATTERN: "firestack-sbom-*"
+      ARTIFACT_PREFIX: "firestack-aar-"
+      SBOM_PREFIX: "firestack-sbom-"
       SBOM_MANIFEST: "manifest.spdx.json"
       SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
 
@@ -121,8 +123,11 @@ jobs:
           REPO: ${{ github.repository }}
           ART_DIR: ${{ steps.dlaar.outputs.download-path }}
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.runmeta.outputs.sha }}
         run: |
           set -euo pipefail
+          ls -ltr "${ART_DIR}/"
+          ART_DIR="${ART_DIR}/${ARTIFACT_PREFIX}${SHA}"
           ls -ltr "${ART_DIR}/"
           for file in "$ART_DIR/${FOUT}" "$ART_DIR/${FOUTDBG}"; do
             if [ ! -f "$file" ]; then
@@ -155,9 +160,12 @@ jobs:
           REPO: ${{ github.repository }}
           ART_DIR: ${{ steps.dlsbom.outputs.download-path }}
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.runmeta.outputs.sha }}
         run: |
           # andrewlock.net/creating-sbom-attestations-in-github-actions/
           set -euo pipefail
+          ls -ltr "${ART_DIR}/"
+          ART_DIR="${ART_DIR}/${SBOM_PREFIX}${SHA}"
           ls -ltr "${ART_DIR}/"
           if [ -n "${SBOM_INFO:-}" ]; then
             name=$(jq -r '.path' <<<"${SBOM_INFO}")
