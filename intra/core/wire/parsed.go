@@ -308,7 +308,7 @@ func (q *Parsed) decode6(b []byte) {
 	// This also means we don't support IPSec headers (AH/ESP), or
 	// IPv6 jumbo frames. Those will get marked Unknown and
 	// dropped.
-	q.subofs = 40
+	q.subofs = IP6HeaderLength
 	sub := b[q.subofs:]
 	sub = sub[:len(sub):len(sub)] // help the compiler do bounds check elimination
 

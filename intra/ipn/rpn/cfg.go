@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/netip"
 	"time"
@@ -187,22 +186,4 @@ func fmtTime(t time.Time) string {
 	return core.FmtTimeAsPeriod(t)
 }
 
-type bytewriter struct {
-	b []byte
-}
-
-var _ io.WriteCloser = (*bytewriter)(nil)
-
-func (w *bytewriter) Write(p []byte) (n int, err error) {
-	w.b = append(w.b, p...)
-	return len(p), nil
-}
-
-func (w *bytewriter) Close() error {
-	w.b = nil
-	return nil
-}
-
-func (w *bytewriter) Bytes() []byte {
-	return w.b
-}
+type bytewriter = core.ByteWriter
