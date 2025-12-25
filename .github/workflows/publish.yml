@@ -4,8 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
+        description: "Workflow run id that produced build artifacts"
         required: true
         type: string
+      verify_attestation:
+        description: "Verify build provenance attestations before publishing"
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       # docs.github.com/en/actions/reference/workflows-and-actions/contexts
@@ -119,6 +125,7 @@ jobs:
           path: ${{ env.DIST_DIR }}
 
       - name: 🔐 Verify build provenance
+        if: ${{ inputs.verify_attestation == true || github.event.event_name == 'workflow_call' }}
         env:
           REPO: ${{ github.repository }}
           ART_DIR: ${{ steps.dlaar.outputs.download-path }}
@@ -157,6 +164,7 @@ jobs:
           fi
 
       - name: 🔐 Verify SBOM attestation
+        if: ${{ inputs.verify_attestation == true || github.event.event_name == 'workflow_call' }}
         env:
           REPO: ${{ github.repository }}
           ART_DIR: ${{ steps.dlaar.outputs.download-path }}
