@@ -9,29 +9,46 @@ package core
 import "io"
 
 type ByteWriter struct {
-	b []byte
+	b *[]byte // pooled byte slice
 }
 
 var _ io.WriteCloser = (*ByteWriter)(nil)
 
 func (w *ByteWriter) Write(p []byte) (n int, err error) {
-	w.b = append(w.b, p...)
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if w.b == nil {
+		w.b = AllocRegion(len(p))
+	}
+	*w.b = append(*w.b, p...)
 	return len(p), nil
 }
 
 func (w *ByteWriter) Close() error {
-	w.b = nil
+	if w.b != nil {
+		Recycle(w.b)
+		w.b = nil
+	}
 	return nil
 }
 
 func (w *ByteWriter) Bytes() []byte {
-	return w.b
+	if w.b == nil {
+		return nil
+	}
+	return *w.b
 }
 
 func (w *ByteWriter) Len() int {
-	return len(w.b)
+	if w.b == nil {
+		return 0
+	}
+	return len(*w.b)
 }
 
 func (w *ByteWriter) Reset() {
-	w.b = w.b[:0]
+	if w.b != nil {
+		*w.b = (*w.b)[:0]
+	}
 }
