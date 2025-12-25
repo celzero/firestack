@@ -739,6 +739,13 @@ func logwif(cond bool) log.LogFn {
 	return log.VV
 }
 
+func logiif(cond bool) log.LogFn {
+	if cond {
+		return log.I
+	}
+	return log.VV
+}
+
 func pidstr(p ipn.Proxy) string {
 	if p == nil {
 		return ""

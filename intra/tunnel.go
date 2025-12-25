@@ -101,7 +101,7 @@ type Tunnel interface {
 	// min of MTUs of all available underlying networks). Link MTU is different from
 	// tun MTU which must match the TUN device's MTU. Link MTU is used as a hint by
 	// some Proxy implementations (eg. WireGuard).
-	SetLinkMtu(linkmtu int) error
+	SetLinkMtu(linkmtu int) (didchange bool)
 	// Restart restarts the tunnel with the given fd, linkmtu & tunmtu, and engine.
 	// fd is the TUN device file descriptor.
 	// linkmtu is the MTU of the underlying network, tunmtu is the MTU of the TUN device.
@@ -277,14 +277,16 @@ func (t *rtunnel) Disconnect() {
 	})
 }
 
-func (t *rtunnel) SetLinkMtu(linkmtu int) error {
+func (t *rtunnel) SetLinkMtu(linkmtu int) (didchange bool) {
 	prev := t.linkmtu.Swap(linkmtu)
 	mtudiff := prev != linkmtu
-	log.I("tun: set link mtu; set(%d) <= prev(%d); refresh protos? %t", linkmtu, prev, mtudiff)
+	logiif(mtudiff)("tun: set link mtu; set(%d) <= prev(%d); refresh protos? %t", linkmtu, prev, mtudiff)
 	if mtudiff {
-		go t.proxies.RefreshProto("" /*use existing*/, linkmtu, false /*force*/)
+		core.Gx("i.setLinkMtuRefresh", func() {
+			t.proxies.RefreshProto("" /*use existing*/, linkmtu, false /*force*/)
+		})
 	}
-	return nil
+	return mtudiff
 }
 
 func (t *rtunnel) SetLinkAndRoutes(fd, tunmtu, engine int) error {
@@ -311,14 +313,14 @@ func (t *rtunnel) SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error {
 		}
 	}
 
-	// TODO: skip refresh on err?
-	core.Gx("i.setLinkAndRoutesRefresh", func() {
-		if l3diff || mtudiff {
+	if l3diff || mtudiff {
+		// TODO: skip refresh on err?
+		core.Gx("i.setLinkAndRoutesRefresh", func() {
 			// dialers.IPProtos must always precede calls to other refreshes
 			// as it carries the global state for dialers and ipn/multihost
 			t.proxies.RefreshProto(l3, linkmtu, false /*force*/)
-		}
-	})
+		})
+	}
 
 	return err
 }
