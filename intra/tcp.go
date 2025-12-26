@@ -221,9 +221,9 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		return deny
 	}
 
-	isTarget6 := target.Addr().Is6()
+	is6 := target.Addr().Is6() || src.Addr().Is6()
 	happyeyeballs := settings.HappyEyeballs.Load()
-	delayForHappyEyeballs := happyeyeballs && isTarget6
+	delayForHappyEyeballs := happyeyeballs && is6
 
 	if isAnyBasePid(pids) && h.isDNS(target) { // see udp.go:Connect
 		synack, synackerr := h.handshakeIfNeededOrClose(gconn, smm)
