@@ -185,5 +185,3 @@ func fmtUnixMillis(ms int64) string {
 func fmtTime(t time.Time) string {
 	return core.FmtTimeAsPeriod(t)
 }
-
-type bytewriter = core.ByteWriter

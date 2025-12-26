@@ -710,10 +710,11 @@ func (a *WsWgConfig) Json() ([]byte, error) {
 		return nil, errWsNoConfig
 	}
 
-	var w bytewriter
+	var w core.ByteWriter
 	if err := a.writeJson(&w); err != nil {
 		return nil, err
 	}
+	// Bytes not recycled
 	return w.Bytes(), nil
 }
 

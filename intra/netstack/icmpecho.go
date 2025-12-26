@@ -122,7 +122,7 @@ func (r *icmpResponder) handle(b buffer.Buffer) bool {
 
 	// Process asynchronously to avoid blocking the dispatcher loop.
 	core.Go("icmp.responder", func() {
-		r.process(h, w.Bytes(), src, dst)
+		r.process(h, w.Copy(), src, dst)
 	})
 
 	return true
