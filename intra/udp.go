@@ -200,7 +200,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	h.maybeReplaceDest(res, &target)
 
 	filtered, _, fallingback := filterFamilyForDialing(realips)
-	actualTargets := makeIPPorts(filtered, target, 0)
+	actualTargets := makeIPPorts(filtered, target, !undidAlg, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 
 	if len(actualTargets) <= 0 { // unlikely

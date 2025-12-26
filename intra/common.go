@@ -463,11 +463,11 @@ func download(id string, local, remote net.Conn) (n int64, err error) {
 	return
 }
 
-func oneRealIPPort(realips []netip.Addr, origipp netip.AddrPort) netip.AddrPort {
+func oneRealIPPort(realips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool) netip.AddrPort {
 	if len(realips) <= 0 {
 		return origipp
 	}
-	if first := makeIPPorts(realips, origipp, 1); len(first) > 0 {
+	if first := makeIPPorts(realips, origipp, maybeIncludeOrig, 1); len(first) > 0 {
 		return first[0]
 	}
 	return origipp
@@ -485,7 +485,8 @@ func makeAnyAddrPort(origipp netip.AddrPort) netip.AddrPort {
 
 // makeIPPorts returns a slice of valid, non-zero at most cap AddrPorts.
 // The first element may be origipp AddrPort, if realips is empty or contains only unspecified IPs.
-func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.AddrPort {
+// or maybeIncludeOrig is true and origipp's IP family is included in dialer's current config.
+func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool, cap int) []netip.AddrPort {
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
 
@@ -493,14 +494,21 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 		cap = len(ips)
 	}
 
+	origip := origipp.Addr()
+	origport := origipp.Port()
+	willIncludeOrig := maybeIncludeOrig && ((use4 && origip.Is4()) || (use6 && origip.Is6()))
 	r := make([]netip.AddrPort, 0, cap)
 	// override alg-ip with the first real-ip
 	for _, v := range ips { // may contain unspecifed ips
 		if len(r) >= cap {
 			break
 		}
+		if v == origip && willIncludeOrig {
+			// skip duplicate of origipp which will be included later
+			continue
+		}
 		if v.IsValid() && !v.IsUnspecified() {
-			r = append(r, netip.AddrPortFrom(v, origipp.Port()))
+			r = append(r, netip.AddrPortFrom(v, origport))
 		} // else: discard ip
 	}
 
@@ -510,7 +518,11 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, cap int) []netip.Addr
 	}
 
 	if len(r) > 0 {
-		return core.ShuffleInPlace(r)
+		s := core.ShuffleInPlace(r)
+		if willIncludeOrig {
+			return append([]netip.AddrPort{origipp}, s...)
+		}
+		return s
 	}
 	return []netip.AddrPort{origipp}
 }

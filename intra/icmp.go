@@ -60,7 +60,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	h.maybeReplaceDest(res, &target)
 
 	preferred, _, _ := filterFamilyForDialing(realips)
-	dst := oneRealIPPort(preferred, target)
+	dst := oneRealIPPort(preferred, target, !undidAlg)
 	// on Android, uid is always "unknown" for icmp
 	cid, uid, _, pids := h.judge(res)
 	smm := icmpSummary(cid, uid)
