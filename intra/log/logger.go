@@ -221,7 +221,7 @@ const similarTraceThreshold = 8
 const similarUsrMsgThreshold = 3
 
 // charsPerLine is max no. of characters per log line.
-const charsPerLine = 300
+const charsPerLine = 600
 
 // spamMsgThreshold is the min. no. of spammy msgs to report.
 var spammsgThreshold = [NONE + 1]uint32{
