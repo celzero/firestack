@@ -1566,36 +1566,28 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 			continue
 		}
 		if prevans := t.alg[k]; prevans != nil {
-			// merge x into prevam
+			// merge x into prevans
 			prevans.merge(x)
+			x = prevans
 		} else {
 			t.alg[k] = x
 			t.nat[ip] = x.baseans
 			newEntry = true
 		}
+		// am.ips.realips() may return nil; ex: when preset fixed ips are used
+		x.ips.each(func(ip netip.Addr) {
+			// existing am is merged into am4/am6 by t.alg above
+			// register mapping from realip -> algip+qname (ptr)
+
+			t.ptr[ip] = x.baseans
+		})
 		didRegister = true
 	}
-
 	logeif(!didRegister)("alg: algips (reg? %t / new? %t) (alg: %s+%s => real: %s) for %s@%s[%s]; real? %d, sec? %d; until (ans: %s / xips: %s)",
 		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
 
 	if !didRegister {
 		return false
-	}
-
-	// am.ips.realips() may return nil; ex: when preset fixed ips are used
-	for _, ip := range realips {
-		if ip.IsUnspecified() || !ip.IsValid() { // should never happen
-			continue
-		}
-		// register mapping from realip -> algip+qname (ptr)
-		if prevam := t.ptr[ip]; prevam == nil {
-			if ip.Is4() {
-				t.ptr[ip] = am4
-			} else if ip.Is6() {
-				t.ptr[ip] = am6
-			}
-		} // else prevam is merged into am4/am6 by t.alg above
 	}
 	return true
 }
