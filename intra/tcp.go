@@ -292,7 +292,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 }
 
 // handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
-func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, target netip.AddrPort, errOnNoRoute bool, smm *SocketSummary) (cont bool, err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, boundSrc, target netip.AddrPort, errOnNoRoute bool, smm *SocketSummary) (cont bool, err error) {
 	cont = true
 	stop := !cont
 	targetstr := target.String()
@@ -311,7 +311,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, targ
 
 	if settings.Debug {
 		log.VV("tcp: %s dial %s: attempt:  %s [%s] => %s for %s",
-			smm.ID, pidstr(px), src.LocalAddr(), boundSrc, targetstr, smm.UID)
+			smm.ID, pidstr(px), gconn.LocalAddr(), boundSrc, targetstr, smm.UID)
 	}
 
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
@@ -354,14 +354,14 @@ func (h *tcpHandler) handle(px ipn.Proxy, src *netstack.GTCPConn, boundSrc, targ
 		return cont, err
 	}
 
-	if _, synackerr := h.handshakeIfNeededOrClose(src, smm); synackerr != nil {
+	if _, synackerr := h.handshakeIfNeededOrClose(gconn, smm); synackerr != nil {
 		clos(pc)
 		return stop, synackerr
 	}
 
 	core.Go("tcp.forward."+smm.ID, func() {
 		h.listener.PostFlow(smm.postMark())
-		h.forward(src, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
+		h.forward(gconn, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
 	})
 	return cont, nil // handled; takes ownership of src
 }

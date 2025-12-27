@@ -361,6 +361,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	var laddr net.Addr
 	switch x := pc.(type) {
+	case *net.UDPConn: // direct
+		laddr = x.LocalAddr()
 	case core.UDPConn: // connected
 		laddr = x.LocalAddr()
 	case net.Conn: // muxed
