@@ -9,6 +9,7 @@ package intra
 import (
 	"io"
 	"net"
+	"syscall"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -22,9 +23,9 @@ type rwext struct {
 	minidle  uint32 // min idle timeout in secs
 }
 
-// TODO? var _ core.RetrierConn = (*rwext)(nil)
 // TODO? var _ core.DuplexCloser = (*rwext)(nil)
-var _ core.ReadRetrierConn = (*rwext)(nil)
+var _ core.RetrierConn = (*rwext)(nil)
+var _ core.ControlConn = (*rwext)(nil)
 
 func (rw rwext) SetTimeout() (secs int, didSet bool) {
 	r, w := rw.deadlines()
@@ -71,6 +72,29 @@ func (rw rwext) ReadFrom(r io.Reader) (n int64, err error) {
 	}
 	// nb: stream rw (which extends deadlines) not rw.Conn
 	return core.Stream(rw, r)
+}
+
+// WriteTo implements core.RetrierConn.
+func (rw rwext) WriteTo(w io.Writer) (n int64, err error) {
+	switch c := rw.Unwrap().(type) {
+	case io.WriterTo:
+		// disable read and write deadlines for rw.Conn as
+		// io.WriterTo does not support io.Reader+io.Writer
+		// semantics which rwext relies on to extend deadlines.
+		rw.extendForever()
+		return c.WriteTo(w)
+	default:
+	}
+	// nb: stream rw (which extends deadlines) not rw.Conn
+	return core.Stream(w, rw)
+}
+
+// SyscallConn implements core.ControlConn.
+func (rw rwext) SyscallConn() (syscall.RawConn, error) {
+	if sc, ok := rw.Unwrap().(syscall.Conn); ok {
+		return sc.SyscallConn()
+	}
+	return nil, syscall.EINVAL
 }
 
 func (rw rwext) deadlines() (r, w uint32) {
