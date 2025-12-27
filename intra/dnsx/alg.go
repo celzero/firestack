@@ -1586,10 +1586,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 	logeif(!didRegister)("alg: algips (reg? %t / new? %t) (alg: %s+%s => real: %s) for %s@%s[%s]; real? %d, sec? %d; until (ans: %s / xips: %s)",
 		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
 
-	if !didRegister {
-		return false
-	}
-	return true
+	return didRegister
 }
 
 func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
