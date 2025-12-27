@@ -232,7 +232,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			log.I("udp: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
 				cid, uid, src, target, domains, realips, uid, secs)
 		})
-		return nil, nil, nil // disconnect override, no dst
+		return nil, smm, nil // disconnect override, no dst
 	}
 
 	// connect gconn right away, since we assume a duplex-stream from here on
