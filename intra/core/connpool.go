@@ -154,6 +154,10 @@ type agingconn struct {
 // if c is a PoolableConn, it is used to check for readability.
 // if not, c is checked for freshness.
 func newAgingConn(c net.Conn) agingconn {
+	if IsNil(c) {
+		return agingconn{}
+	}
+
 	var sc PoolableConn
 
 	s := conn2str(c)
