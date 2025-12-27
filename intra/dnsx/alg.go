@@ -160,6 +160,13 @@ func (a expaddr) after(b expaddr) bool {
 	return a.dob.After(b.dob)
 }
 
+func (a expaddr) fresherThan(b expaddr) bool {
+	if a.ttl.IsZero() {
+		return b.ttl.IsZero()
+	}
+	return a.ttl.After(b.ttl)
+}
+
 func (a expaddr) get(s xaddrstatus) (out []netip.Addr) {
 	if a.ips == nil {
 		return
@@ -467,11 +474,20 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 	q.pmu.RLock() // read lock on q
 	defer q.pmu.RUnlock()
 
+	if len(q.pri) > 0 {
+		szprialiv, szpri = 0, 0
+	}
+	if len(q.aux) > 0 {
+		szsecaliv, szsec = 0, 0
+	}
+
 	for qk, qv := range q.pri {
 		pv := p.pri[qk]
 		if _, y := pv.fresh(); !y {
 			p.pri[qk] = qv // copy v from q into p
-			szprialiv, szpri = qv.sizes()
+			szqaliv, szqpri := qv.sizes()
+			szprialiv += szqaliv
+			szpri += szqpri
 		} else {
 			var ips []netip.Addr
 			ttl := pv.ttl
@@ -479,20 +495,24 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 			if !pv.after(qv) {
 				// qv is younger, so qv's ips should come first (youngest first ordering)
 				ips = copyUniq(qv.alive(), pv.alive())
+				dob = qv.dob
+			} else {
+				// pv is younger, so pv's ips should come first (youngest first ordering)
+				ips = copyUniq(pv.alive(), qv.alive())
+			}
+			if !pv.fresherThan(qv) {
 				// ips from aa & v both get assigned the latest ttl
 				// which is strictly incorrect, but for accounting
 				// purposes (that is, algip->realip translations),
 				// it is preferable to keep as many realips around
 				// as possible (even at the slight cost of correctness).
 				ttl = qv.ttl
-				dob = qv.dob
-			} else {
-				// pv is younger, so pv's ips should come first (youngest first ordering)
-				ips = copyUniq(pv.alive(), qv.alive())
 			}
 			v := expaddr{ips, ttl, dob}
 			p.pri[qk] = v
-			szprialiv, szpri = v.sizes()
+			szqaliv, szqpri := v.sizes()
+			szprialiv += szqaliv
+			szpri += szqpri
 		}
 	}
 
@@ -500,7 +520,9 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 		pv := p.aux[qk]
 		if _, y := pv.fresh(); !y {
 			p.aux[qk] = qv // copy v from q into p
-			szsecaliv, szsec = qv.sizes()
+			szqaliv, szqsec := qv.sizes()
+			szsecaliv += szqaliv
+			szsec += szqsec
 		} else {
 			var ips []netip.Addr
 			ttl := pv.ttl
@@ -508,15 +530,19 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 			if !pv.after(qv) {
 				// qv is younger, so qv's ips should come first (youngest first ordering)
 				ips = copyUniq(qv.alive(), pv.alive())
-				ttl = qv.ttl
 				dob = qv.dob
 			} else {
 				// pv is younger, so pv's ips should come first (youngest first ordering)
 				ips = copyUniq(pv.alive(), qv.alive())
 			}
+			if !pv.fresherThan(qv) {
+				ttl = qv.ttl
+			}
 			v := expaddr{ips, ttl, dob}
 			p.aux[qk] = v
-			szsecaliv, szsec = v.sizes()
+			szqaliv, szqsec := v.sizes()
+			szsecaliv += szqaliv
+			szsec += szqsec
 		}
 	}
 
@@ -567,6 +593,13 @@ func (a expdomains) after(b expdomains) bool {
 		return b.dob.IsZero()
 	}
 	return a.dob.After(b.dob)
+}
+
+func (a expdomains) fresherThan(b expdomains) bool {
+	if a.ttl.IsZero() {
+		return b.ttl.IsZero()
+	}
+	return a.ttl.After(b.ttl)
 }
 
 func expdomainsDobSorter(a, b expdomains) int {
@@ -694,11 +727,17 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 	q.pmu.RLock()
 	defer q.pmu.RUnlock()
 
+	if len(q.pri) > 0 {
+		szprialiv, szpri = 0, 0
+	}
+
 	for qk, qv := range q.pri {
 		pv := p.pri[qk]
 		if _, y := pv.fresh(); !y {
 			p.pri[qk] = qv // copy v from q into p
-			szprialiv, szpri = qv.sizes()
+			szqaliv, szqpri := qv.sizes()
+			szprialiv += szqaliv
+			szpri += szqpri
 		} else {
 			var doms []string
 			ttl := pv.ttl
@@ -706,15 +745,19 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 			if !pv.after(qv) {
 				// qv is younger, so qv's domains should come first (youngest first ordering)
 				doms = copyUniq(qv.get(xalive), pv.get(xalive))
-				ttl = qv.ttl
 				dob = qv.dob
 			} else {
 				// pv is younger, so pv's domains should come first (youngest first ordering)
 				doms = copyUniq(pv.get(xalive), qv.get(xalive))
 			}
+			if !pv.fresherThan(qv) {
+				pv.ttl = qv.ttl
+			}
 			v := expdomains{domains: doms, ttl: ttl, dob: dob}
 			p.pri[qk] = v
-			szprialiv, szpri = v.sizes()
+			szqaliv, szqpri := v.sizes()
+			szprialiv += szqaliv
+			szpri += szqpri
 		}
 	}
 
@@ -769,6 +812,7 @@ func (a *algans) after(b *algans) bool {
 	return a.ttl.After(b.ttl)
 }
 
+// merge merges b into a.
 func (a *algans) merge(b *algans) {
 	if a == nil || b == nil {
 		log.W("alg: merge: nil algans; a? %s; b? %s", a, b)
