@@ -720,30 +720,39 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 		return bytes, io.ErrUnexpectedEOF
 	}
 
-	optimizedWriteTo := true
+	// check if writer is a Unix Domain Socket (splice) or tcp.WriteTo
+	// won't be optimized (as of go1.25).
+	_, canOptimizeWriteTo := w.(*net.UnixConn)
+
+	optimizedWriteTo := canOptimizeWriteTo
 	var b int64
-	switch x := c.(type) {
-	case *net.TCPConn:
-		r.SetDeadline(time.Time{})
-		b, err = x.WriteTo(w)
-		bytes += b
-	case *splitter:
-		r.SetDeadline(time.Time{})
-		b, err = x.WriteTo(w)
-		bytes += b
-	case io.WriterTo:
-		r.SetDeadline(time.Time{})
-		b, err = x.WriteTo(w)
-		bytes += b
-	default: // net.UDPConn, net.PacketConn etc?
-		optimizedWriteTo = false
-		// read from reader until EOF
+	if canOptimizeWriteTo {
+		switch x := c.(type) {
+		case *net.TCPConn:
+			r.SetDeadline(time.Time{})
+			b, err = x.WriteTo(w)
+			bytes += b
+		case *splitter:
+			r.SetDeadline(time.Time{})
+			b, err = x.WriteTo(w)
+			bytes += b
+		case io.WriterTo:
+			r.SetDeadline(time.Time{})
+			b, err = x.WriteTo(w)
+			bytes += b
+		default: // net.UDPConn, net.PacketConn etc?
+			optimizedWriteTo = false
+		}
+	}
+
+	if !optimizedWriteTo {
+		// write to w from c until EOF
 		b, err = core.Stream(w, c)
 		bytes += b
 	}
 
-	msg := fmt.Sprintf("retrier: writerto: %s: (optimized? %t for %T) %s<=%s done; sz: %d; after: %s; err: %v",
-		r.dialerID(), optimizedWriteTo, c, laddr(c), r.raddr, bytes, core.FmtTimeAsPeriod(start), err)
+	msg := fmt.Sprintf("retrier: writerto: %s: (can? %t / optimized? %t for %T) %s<=%s done; sz: %d; after: %s; err: %v",
+		r.dialerID(), canOptimizeWriteTo, optimizedWriteTo, c, laddr(c), r.raddr, bytes, core.FmtTimeAsPeriod(start), err)
 
 	if err != nil {
 		err = log.EE(msg)
@@ -797,33 +806,49 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 		}
 	}
 
+	// check if reader is SyscallConn (sendfile) or *net.TCPConn (splice)
+	// as tcp.ReadFrom otherwise won't be optimized but rather use built-in
+	// io.Copy which doesn't use a buffer pool unlike core.Stream (go1.25).
+	_, canOptimizeReadFrom := reader.(*net.TCPConn)
+	if !canOptimizeReadFrom {
+		if sc, ok := reader.(syscall.Conn); ok {
+			_, err := sc.SyscallConn()
+			canOptimizeReadFrom = err == nil
+		}
+	}
+
 	// disable read and write deadlines as io.ReaderFrom does not
 	// rely on io.Read and io.Write semantics for "r.conn" from which
 	// deadlines are extended to avoid timeouts (see also: rwconn.go)
-	optimizedReadFrom := true
+	optimizedReadFrom := canOptimizeReadFrom
 	var b int64
-	switch x := c.(type) {
-	case *net.TCPConn:
-		r.SetDeadline(time.Time{})
-		b, err = x.ReadFrom(reader)
-		bytes += b
-	case *splitter:
-		r.SetDeadline(time.Time{})
-		b, err = x.ReadFrom(reader)
-		bytes += b
-	case io.ReaderFrom:
-		r.SetDeadline(time.Time{})
-		b, err = x.ReadFrom(reader)
-		bytes += b
-	default: // net.UDPConn, net.PacketConn etc?
-		optimizedReadFrom = false
-		// read from reader until EOF
+	if canOptimizeReadFrom {
+		switch x := c.(type) {
+		case *net.TCPConn:
+			r.SetDeadline(time.Time{})
+			b, err = x.ReadFrom(reader)
+			bytes += b
+		case *splitter:
+			r.SetDeadline(time.Time{})
+			b, err = x.ReadFrom(reader)
+			bytes += b
+		case io.ReaderFrom:
+			r.SetDeadline(time.Time{})
+			b, err = x.ReadFrom(reader)
+			bytes += b
+		default: // net.UDPConn, net.PacketConn etc?
+			optimizedReadFrom = false
+		}
+	}
+
+	if !optimizedReadFrom {
+		// read from reader into c until EOF
 		b, err = core.Stream(c, reader)
 		bytes += b
 	}
 
-	msg := fmt.Sprintf("retrier: readfrom: %s: (optimized? %t for %T) done (id:%s/pinned?%t) %s<=%s; sz: %d; after: %s; err: %v",
-		r.dialerID(), optimizedReadFrom, c, pinnedID, pinned, laddr(c), r.raddr, bytes, core.FmtTimeAsPeriod(start), err)
+	msg := fmt.Sprintf("retrier: readfrom: %s: (can? %t / optimized? %t for %T) done (id:%s/pinned?%t) %s<=%s; sz: %d; after: %s; err: %v",
+		r.dialerID(), canOptimizeReadFrom, optimizedReadFrom, c, pinnedID, pinned, laddr(c), r.raddr, bytes, core.FmtTimeAsPeriod(start), err)
 
 	if err != nil {
 		err = log.EE(msg)
