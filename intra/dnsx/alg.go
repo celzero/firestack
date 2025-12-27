@@ -557,6 +557,10 @@ type expdomains struct {
 	dob     time.Time
 }
 
+func (a expdomains) String() string {
+	return fmt.Sprintf("domains(%v / ttl: %s / dob: %s)", a.domains, core.FmtTimeAsPeriod(a.ttl), core.FmtTimeAsPeriod(a.dob))
+}
+
 func (a expdomains) sizes() (alive, tot int) {
 	if a.domains == nil {
 		return
