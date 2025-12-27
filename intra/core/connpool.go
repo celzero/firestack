@@ -144,10 +144,10 @@ func (m *MultConnPool[T]) Put(id T, conn net.Conn) (ok bool) {
 }
 
 type agingconn struct {
-	c   net.Conn     // pooled conn
-	sc  PoolableConn // raw conn; may be nil
-	dob time.Time    // induction time
-	str string       // local and remote addrs
+	c   net.Conn        // pooled conn
+	sc  syscall.RawConn // raw conn; may be nil
+	dob time.Time       // induction time
+	str string          // local and remote addrs
 }
 
 // newAgingConn creates a new agingconn.
@@ -177,13 +177,16 @@ func newAgingConn(c net.Conn) agingconn {
 		} // else: ok
 	} // sc is nil
 
+	var raw syscall.RawConn
+	var err error
 	if sc != nil { // confirm syscall.Conn works
-		if _, err := sc.SyscallConn(); err != nil {
+		raw, err = sc.SyscallConn()
+		if err != nil {
 			log.VV("pool: sysconn %T for %s; err %v", c, s, err)
-			sc = nil
+			raw = nil
 		}
 	}
-	return agingconn{c, sc /* may be nil */, time.Now(), s}
+	return agingconn{c, raw /* may be nil */, time.Now(), s}
 }
 
 // github.com/redis/go-redis/blob/d9eeed13/internal/pool/pool.go
@@ -407,13 +410,8 @@ func (a agingconn) canread() error {
 	var checkErr error
 	var ctlErr error
 
-	raw, err := sc.SyscallConn()  // some conns embed in retrier.go will err
-	if err != nil || raw == nil { // nilaway
-		return fmt.Errorf("pool: sysconn nil; err? %w", err)
-	}
-
 	if pooluseread { // stackoverflow.com/q/12741386
-		ctlErr = raw.Read(func(fd uintptr) bool {
+		ctlErr = sc.Read(func(fd uintptr) bool {
 			// 0 byte reads do not work to detect readability:
 			// see: go-review.googlesource.com/c/go/+/23227
 			// pitfalls: github.com/redis/go-redis/issues/3137
@@ -433,7 +431,7 @@ func (a agingconn) canread() error {
 			return true
 		})
 	} else {
-		ctlErr = raw.Control(func(fd uintptr) {
+		ctlErr = sc.Control(func(fd uintptr) {
 			fds := []unix.PollFd{
 				{Fd: int32(fd), Events: unix.POLLIN | unix.POLLERR},
 			}
