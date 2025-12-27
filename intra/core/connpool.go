@@ -176,7 +176,14 @@ func newAgingConn(c net.Conn) agingconn {
 			log.VV("pool: tlsconn != sysconn: %T for %s", tc.NetConn(), s)
 		} // else: ok
 	} // sc is nil
-	return agingconn{c, sc, time.Now(), s}
+
+	if sc != nil { // confirm syscall.Conn works
+		if _, err := sc.SyscallConn(); err != nil {
+			log.VV("pool: sysconn %T for %s; err %v", c, s, err)
+			sc = nil
+		}
+	}
+	return agingconn{c, sc /* may be nil */, time.Now(), s}
 }
 
 // github.com/redis/go-redis/blob/d9eeed13/internal/pool/pool.go
