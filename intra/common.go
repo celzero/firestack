@@ -258,6 +258,9 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 }
 
 // forward copies data between local and remote, and tracks the connection.
+// local, wired to TUN via netstack, is either gonet.TCPConn or gonet.UDPConn.
+// remote, wired to egress, is wrapped in rwext; but the underlying conn may
+// be *net.TCPConn, *net.UDPConn, *demuxconn, or dialers.retrier|splitter etc.
 // It also sends a summary to the listener when done. Always called in a goroutine.
 func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	cid := smm.ID

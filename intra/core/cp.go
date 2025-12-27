@@ -27,12 +27,15 @@ func Pipe(dst io.Writer, src io.Reader) (int64, error) {
 		return 0, errNoPipe
 	}
 
+	// when "uploading" src is wired to TUN via netstack as either
+	// gonet.TCPConn or gonet.UDPConn; reverse when "downloading".
+
 	// Retrier conns have specific entry-points; make sure those
 	// get priority over regular copy.
 	if x, ok := src.(WriteRetrierConn); ok {
-		return x.WriteTo(dst)
+		return x.WriteTo(dst) // may be called on "downloading"
 	} else if x, ok := dst.(ReadRetrierConn); ok {
-		return x.ReadFrom(src)
+		return x.ReadFrom(src) // may be called on "uploading"
 	}
 
 	// Prefer WriteTo/ReadFrom if available as they are zero-copy.
