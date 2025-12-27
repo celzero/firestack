@@ -484,12 +484,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	}
 
 	loopingBack := settings.Loopingback.Load()
-	defaultIsSystemDNS := false
-	if dtr, _ := r.Get(x.StrOf(Default)); dtr != nil {
-		// todo: a better way to determine whether Default is SystemDNS
-		// Default is usually SystemDNS if it is of type DNS53
-		defaultIsSystemDNS = dtr.Type().V() == DNS53
-	}
+	defaultIsSystemDNS := r.isDefaultSystemDNS()
 
 	// including dns64 and/or alg
 	ans, tid, err := r.forward(q, protect.UidSelf, Default)
@@ -1352,10 +1347,10 @@ func CanUseProxy(id string) bool {
 	switch id {
 	case Goos, CT + Goos, Local, CT + Local, System, CT + System:
 		return false
-	case Bootstrap, CT + Bootstrap, Default, CT + Default:
-		return false
 	case Preset, CT + Preset:
 		return false
+	case Default, CT + Default, Bootstrap, CT + Bootstrap:
+		return canProxyDefault()
 	}
 	return true
 }
@@ -1371,10 +1366,12 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 			return NetExitProxy
 		case CT + Goos, CT + Local: // exit
 			return NetExitProxy
-		case Bootstrap, Default, System, Preset: // base
+		case System, Preset: // base
 			return NetBaseProxy
-		case CT + Bootstrap, CT + Default, CT + System, CT + Preset: // base
+		case CT + System, CT + Preset: // base
 			return NetBaseProxy
+		case Default, CT + Default, Bootstrap, CT + Bootstrap: // may be proxy
+			return proxyForDefault(pid)
 		}
 	}
 	return pid // as-is
@@ -1386,13 +1383,42 @@ func skipBlock(tr ...Transport) bool {
 			continue
 		}
 		switch idstr(t) { // Plus/CT+Plus to skip blocks conditionally?
-		case Default, BlockFree, Alg, Bootstrap:
+		case BlockFree, Alg:
 			return true
-		case CT + Default, CT + BlockFree, CT + Alg, CT + Bootstrap:
+		case CT + BlockFree, CT + Alg:
 			return true
+		case Default, CT + Default, Bootstrap, CT + Bootstrap:
+			return canBlockDefault()
 		}
 	}
 	return false
+}
+
+func (r *resolver) isDefaultSystemDNS() (y bool) {
+	if dtr, _ := r.GetInternal(Default); dtr != nil {
+		// todo: a better way to determine whether Default is SystemDNS
+		// Default is usually SystemDNS if it is of type DNS53
+		y = dtr.Type().V() == DNS53
+	}
+	return
+}
+
+func canBlockDefault() bool {
+	// TODO: check for gateway.split?
+	return settings.Loopingback.Load()
+}
+
+func canProxyDefault() bool {
+	// TODO: check for gateway.split?
+	// TODO: do not allow proxying when Default is mapped to Goos/System
+	return settings.Loopingback.Load()
+}
+
+func proxyForDefault(pid string) string {
+	if canProxyDefault() {
+		return pid
+	}
+	return NetBaseProxy
 }
 
 func skipInternalCache(tids ...string) bool {

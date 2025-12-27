@@ -144,6 +144,7 @@ func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn
 
 func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, error) {
 	if t.id == dnsx.Bootstrap || t.id == dnsx.System { // bootstrap/default never be proxied
+		// never proxy dns53 transport with "bootstrap" id is a clone of dnsx.System
 		pid = dnsx.NetBaseProxy
 	} else if len(t.relay) > 0 { // relay takes precedence
 		pid = t.relay

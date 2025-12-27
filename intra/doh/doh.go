@@ -130,7 +130,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 
 	var renewed bool
 	var relay string
-	if id != dnsx.Bootstrap && px != nil {
+	if px != nil {
 		if p, _ := px.ProxyFor(id); p != nil {
 			relay = p.ID().V()
 		}
@@ -781,7 +781,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
-	if t.id == dnsx.Bootstrap { // bootstrap/default never be proxied
+	canproxy := dnsx.CanUseProxy(t.id)
+	if !canproxy { // bootstrap/default may not be proxied
 		pid = dnsx.NetBaseProxy
 	} else if r := t.relay; len(r) > 0 {
 		pid = t.chooseProxy(r)
@@ -829,8 +830,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		smm.Msg = err.Error()
 	}
 	if settings.Debug {
-		log.V("doh: (p/px/via %s/%s/%s); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, via: %s, err? %v",
-			network, pid, rpid, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, err)
+		log.V("doh: (p/px/via/can? %s/%s/%s/%t); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, via: %s, err? %v",
+			network, pid, rpid, canproxy, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, err)
 	}
 	return r, err
 }
