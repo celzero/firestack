@@ -1578,7 +1578,6 @@ func (t *dnsgateway) registerLocked(q, tid, uid string, algip4, algip6 netip.Add
 		x.ips.each(func(ip netip.Addr) {
 			// existing am is merged into am4/am6 by t.alg above
 			// register mapping from realip -> algip+qname (ptr)
-
 			t.ptr[ip] = x.baseans
 		})
 		didRegister = true
