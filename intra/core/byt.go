@@ -21,12 +21,13 @@ func (w *ByteWriter) Write(p []byte) (n int, err error) {
 	bptr := w.b
 	if bptr == nil {
 		bptr = AllocRegion(len(p))
+		w.b = bptr
 	}
 	// append may grow the slice beyond original capacity
 	// and so, it may get recycled to a higher slab on Close
 	*bptr = append(*bptr, p...)
 	// w.b and bptr point to same slice & contents; *w.b == *bptr
-	// go.dev/play/p/yXivtcuEK0-
+	// go.dev/play/p/RJjoAXBsXy3
 	return len(p), nil
 }
 
