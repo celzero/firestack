@@ -228,6 +228,13 @@ func logei(cond bool) log.LogFn {
 	return log.I
 }
 
+func logwv(cond bool) log.LogFn {
+	if cond {
+		return log.W
+	}
+	return log.V
+}
+
 func StackAddrs(s *stack.Stack, nic tcpip.NICID) (netip.Addr, netip.Addr) {
 	zeromainaddr := tcpip.AddressWithPrefix{}
 	ip4 := netip.IPv4Unspecified()

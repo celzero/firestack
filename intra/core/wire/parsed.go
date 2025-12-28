@@ -434,6 +434,10 @@ func (p *Parsed) Transport() []byte {
 	return p.b[p.subofs:]
 }
 
+func (p *Parsed) HasTransportData() bool {
+	return p.subofs < len(p.b)
+}
+
 // IsTCPSyn reports whether q is a TCP SYN packet,
 // without ACK set. (i.e. the first packet in a new connection)
 func (q *Parsed) IsTCPSyn() bool {

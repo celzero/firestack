@@ -16,6 +16,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
 
+const minICMPPacketSize = header.ICMPv4MinimumSize + header.IPv4MinimumSize
 const typicalICMPEchoPayloadSize = 32
 const expectedICMPPacketSize = header.IPv6MinimumSize + header.ICMPv6MinimumSize + typicalICMPEchoPayloadSize
 
@@ -59,58 +60,55 @@ func (r *icmpResponder) ok() bool {
 
 // handle returns true if the packet is ICMP and is handled (or dropped) by the
 // bypass path.
-func (r *icmpResponder) handle(b buffer.Buffer) bool {
+func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 	if !r.ok() {
-		return false
+		return
 	}
 
 	inSize := b.Size()
-	if inSize <= header.ICMPv4MinimumSize+header.IPv4MinimumSize {
-		log.VV("icmp: responder: packet too small: %d", inSize)
+	if inSize <= minICMPPacketSize {
+		if settings.Debug {
+			log.V("icmp: responder: packet too small: %d", inSize)
+		}
 		// Too small to be a valid ICMP echo request.
-		return false
+		return
 	}
 
+	h := hdlEcho.Load()
 	var w core.ByteWriter
 	defer w.Close()
 	// lightweight determine if b is ICMP echo request
 	// flatten is expensive, so we avoid it if possible
 	n, err := b.ReadToWriter(&w, expectedICMPPacketSize)
-	logeif(err)("icmp: responder: read to writer (sz: %d); err? %v", n, err)
-	if err != nil || n == 0 {
-		return false
-	}
 
-	h := hdlEcho.Load()
-	if h == nil || w.Len() == 0 {
-		return false
+	logeif(err)("icmp: responder: read to writer (sz: %d / %d); h? %t, err? %v", n, w.Len(), h != nil, err)
+	if err != nil || n == 0 || h == nil || w.Len() == 0 {
+		return
 	}
 
 	parsed := wire.Pool.Get()
-	parsed.Decode(w.Bytes())
-	defer wire.Pool.Put(parsed)
-
-	if parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6 {
-		return false
-	}
+	parsed.Decode(w.Copy())
 
 	// Only echo requests are handled; other ICMP packets are dropped to avoid
 	// feeding them back into netstack.
-	if !parsed.IsEchoRequest() {
-		return true
+	if (parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6) || !parsed.IsEchoRequest() {
+		if settings.Debug {
+			log.V("icmp: responder: unsupported proto: %d", parsed.IPProto)
+		}
+		wire.Pool.Put(parsed)
+		return
 	}
 
 	// Capture fields before spawning the goroutine.
 	src := parsed.Src
 	dst := parsed.Dst
-	transport := parsed.Transport()
+	has := parsed.HasTransportData()
 
-	if settings.Debug {
-		log.VV("icmp: responder: echo request %s => %s; sz %d", src, dst, len(transport))
-	}
+	logwv(!has)("icmp: responder: echo request ipv%d; %s => %s; ok? %t", parsed.IPVersion, src, dst, has)
 
-	if len(transport) == 0 {
-		return true
+	if !has {
+		wire.Pool.Put(parsed)
+		return
 	}
 
 	if inSize > expectedICMPPacketSize {
@@ -122,7 +120,7 @@ func (r *icmpResponder) handle(b buffer.Buffer) bool {
 
 	// Process asynchronously to avoid blocking the dispatcher loop.
 	core.Go("icmp.responder", func() {
-		r.process(h, w.Copy(), src, dst)
+		r.process(h, parsed, src, dst)
 	})
 
 	return true
@@ -130,16 +128,10 @@ func (r *icmpResponder) handle(b buffer.Buffer) bool {
 
 // process handles the ICMP echo request and injects the reply back into the TUN.
 // The parsed packet is released back to the pool after processing.
-func (r *icmpResponder) process(h GICMPHandler, raw []byte, src, dst netip.AddrPort) {
-	parsed := wire.Pool.Get()
-	parsed.Decode(raw)
-	defer wire.Pool.Put(parsed)
+func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip.AddrPort) {
+	defer wire.Pool.Put(pkt)
 
-	if parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6 {
-		return
-	}
-
-	payload := parsed.Transport()
+	payload := pkt.Transport()
 	if len(payload) == 0 {
 		return
 	}
@@ -153,19 +145,20 @@ func (r *icmpResponder) process(h GICMPHandler, raw []byte, src, dst netip.AddrP
 	var proto tcpip.NetworkProtocolNumber
 	var err error
 
-	switch parsed.IPVersion {
+	switch pkt.IPVersion {
 	case 4:
-		resp, err = buildICMPv4Reply(parsed, payload)
+		resp, err = buildICMPv4Reply(pkt, payload)
 		proto = header.IPv4ProtocolNumber
 	case 6:
-		resp, err = buildICMPv6Reply(parsed, payload)
+		resp, err = buildICMPv6Reply(pkt, payload)
 		proto = header.IPv6ProtocolNumber
 	default:
 		return
 	}
 
 	if err != nil || len(resp) <= 0 {
-		log.W("icmp: responder: build reply (sz: %d); err? %v", len(resp), err)
+		log.W("icmp: responder: build reply %s <= %s (sz: %d); err? %v",
+			src, dst, len(resp), err)
 		return
 	}
 
@@ -186,6 +179,7 @@ func (r *icmpResponder) inject(proto tcpip.NetworkProtocolNumber, packet []byte)
 	pkt.NetworkProtocolNumber = proto
 	var list stack.PacketBufferList
 	list.PushBack(pkt)
+
 	n, err := r.ep.WritePackets(list)
 	logeif(e(err))("icmp: responder: inject to tun (sz: %d); err? %v", n, err)
 }
