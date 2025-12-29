@@ -116,6 +116,7 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 		// Reconstruct the full packet.
 		w.Reset()
 		b.ReadToWriter(&w, inSize)
+		parsed.Decode(w.Copy())
 	}
 
 	// Process asynchronously to avoid blocking the dispatcher loop.
