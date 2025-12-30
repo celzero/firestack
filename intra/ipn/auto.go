@@ -527,7 +527,7 @@ func maybeKeepAlive(c net.Conn) (keepingalive bool) {
 }
 
 func maybeKeepAlive2(c net.Conn) (keepingalive, ok bool) {
-	if c == nil {
+	if c == nil || core.IsNil(c) {
 		return
 	}
 
