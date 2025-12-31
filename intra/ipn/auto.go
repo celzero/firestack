@@ -531,7 +531,7 @@ func maybeKeepAlive2(c net.Conn) (keepingalive, ok bool) {
 		return
 	}
 
-	if settings.GetDialerOpts().LowerKeepAlive {
+	if opts := settings.GetDialerOpts(); opts.LowerKeepAlive {
 		// adjust socket's keepalive config
 		lowered := core.SetKeepAliveConfigSockOpt(c)
 		keepingalive = lowered

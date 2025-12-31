@@ -1156,6 +1156,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// the effort of setting up alg/ptr/nat caches which is wasteful in this case.
 	// TODO: handle Loopback scenario for uidself (which probably should be alg'd?)
 	dontalg := usepreset || skipcache || uidself || hasblock
+	// usefixed generates fake but static answers for A/AAAA queries and no
+	// actual resolution request is sent (not even to the cache). It is expected
+	// that during PreFlow, the proxy layer will again attempt to resolve when
+	// it sees that an algip has been mapped to this fake (fixed) ip.
 	synthAns := usepreset || usefixed
 	hasdnssec := xdns.IsDNSSECRequested(q)
 
@@ -1360,7 +1364,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	algXlatTtl := xdns.ZeroTTL
 	substok4 := false
 	substok6 := false
-	// substituions needn't happen when no alg ips to begin with
+	// substitutions needn't happen when no alg ips to begin with
 	// but must happen if (real) ips are fixed
 	mustsubst := false || usefixed
 	ansmod := xdns.CopyAns(ansin)
@@ -1387,7 +1391,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 			smm.ID, idstr(t1), uid, qname, qtyp, !discarduid, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
 	}
 	if !substok4 && !substok6 {
-		if mustsubst {
+		if mustsubst { // always true when usefixed is true
 			err = errAlgCannotSubst
 		} else { // no algips
 			err = nil
