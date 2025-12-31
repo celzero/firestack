@@ -376,15 +376,15 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 		}
 	}
 
-	bindAddr := makeAnyAddrPort(src)
+	var bindAddr netip.AddrPort
 	eim := settings.EndpointIndependentMapping.Load()
 	portfwd := settings.PortForward.Load()
-	maybeDialBind := eim || portfwd
 
-	if eim {
-		if nataddr := h.natLookup(pidstr(px), src, target); nataddr.IsValid() {
-			bindAddr = nataddr
-		}
+	if portfwd { // port forwarding overriden by eim
+		bindAddr = makeAnyAddrPort(src)
+	}
+	if eim { // bindAddr may be invalid
+		bindAddr = h.natLookup(pidstr(px), src, target)
 	}
 
 	var pc protect.Conn
@@ -397,16 +397,17 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 			smm.ID, pidstr(px), src, gconn.LocalAddr(), bindAddr, targetstr, smm.UID)
 	}
 
+	dialbindOK := false
 	// github.com/google/gvisor/blob/5ba35f516b5c2/test/benchmarks/tcp/tcp_proxy.go#L359
 	// ref: stackoverflow.com/questions/63656117
 	// ref: stackoverflow.com/questions/40328025
-	if maybeDialBind {
+	if bindAddr.IsValid() {
 		pc, err = px.Dialer().DialBind("tcp", bindAddr.String(), targetstr)
-		maybeDialBind = err == nil
-		logwif(!maybeDialBind)("tcp: %s dialbind ok? %t (%s [%s] => %s via %s); err? %v",
-			smm.ID, maybeDialBind, src, bindAddr, targetstr, pidstr(px), err)
+		dialbindOK = err == nil
+		logwif(!dialbindOK)("tcp: %s dialbind ok? %t (%s [%s] => %s via %s); err? %v",
+			smm.ID, dialbindOK, src, bindAddr, targetstr, pidstr(px), err)
 	}
-	if !maybeDialBind {
+	if !dialbindOK {
 		pc, err = px.Dialer().Dial("tcp", targetstr)
 	}
 	if err == nil {
@@ -437,7 +438,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	if err != nil {
 		clos(pc)
 		log.W("tcp: err dialing %s proxy(%s) %v [%v] => %v (bind? %t) for %s: %v",
-			smm.ID, smm.PID, src, bindAddr, smm.Target, maybeDialBind, smm.UID, err)
+			smm.ID, smm.PID, src, bindAddr, smm.Target, dialbindOK, smm.UID, err)
 		return cont, err
 	}
 
