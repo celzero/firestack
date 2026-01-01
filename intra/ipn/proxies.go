@@ -1425,6 +1425,10 @@ func local(id string) bool {
 	return id == Base || id == Block || id == Exit || id == Rpn64 || id == Ingress
 }
 
+func automatic(id string) bool {
+	return id == Auto
+}
+
 func noop(typ string) bool {
 	return typ == NOOP
 }
@@ -1432,7 +1436,7 @@ func noop(typ string) bool {
 // TODO: check for hops on "noop" transports; if those
 // are NOT hoppping, then those are NOT remote, either
 func Remote(id string) bool {
-	return !local(id)
+	return !local(id) || !automatic(id)
 }
 
 func hopping(r x.Router) bool {

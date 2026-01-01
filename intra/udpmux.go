@@ -18,7 +18,6 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -600,7 +599,7 @@ func (e *muxTable) pid(src netip.AddrPort) string {
 	return ""
 }
 
-func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk assocFn, v vendor) (_ net.Conn, err error) {
+func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk assocFn, v vendor, portfwd bool) (_ net.Conn, err error) {
 	e.Lock() // lock
 
 	pxm := e.t[pid]
@@ -621,7 +620,7 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 			anyaddr = anyaddr4
 		}
 		anyaddrport := netip.AddrPortFrom(anyaddr, anyport)
-		if settings.PortForward.Load() || ipn.Remote(pid) {
+		if portfwd {
 			anyaddrport = netip.AddrPortFrom(anyaddr, src.Port())
 		}
 
@@ -637,8 +636,8 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 			e.dissociate(cid, pid, src)
 		})
 		pxm[src] = mxr
-		log.I("udp: mux: %s new assoc for %s %s via %s",
-			cid, pid, src, anyaddrport)
+		log.I("udp: mux: %s new assoc for %s %s via %s; fwd? %t",
+			cid, pid, src, anyaddrport, portfwd)
 	}
 
 	if mxr.pid != pid {

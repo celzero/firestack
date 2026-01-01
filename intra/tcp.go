@@ -377,14 +377,16 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	}
 
 	var bindAddr netip.AddrPort
+	pid := pidstr(px)
 	eim := settings.EndpointIndependentMapping.Load()
 	portfwd := settings.PortForward.Load()
+	canportfwd := portfwd && ipn.Remote(pid)
 
-	if portfwd { // port forwarding overriden by eim
-		bindAddr = makeAnyAddrPort(src)
-	}
 	if eim { // bindAddr may be invalid
-		bindAddr = h.natLookup(pidstr(px), src, target)
+		bindAddr = h.natLookup(pid, src, target)
+	}
+	if !bindAddr.IsValid() && canportfwd { // port forwarding overriden by eim
+		bindAddr = makeAnyAddrPort(src)
 	}
 
 	var pc protect.Conn
@@ -393,8 +395,8 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	start := time.Now()
 
 	if settings.Debug {
-		log.VV("tcp: %s dial %s: attempt:  %s [%s [%s]] => %s for %s",
-			smm.ID, pidstr(px), src, gconn.LocalAddr(), bindAddr, targetstr, smm.UID)
+		log.VV("tcp: %s dial %s: attempt(eim? %t / fwd? %t / canfwd? %t):  %s [%s [%s]] => %s for %s",
+			smm.ID, pid, eim, portfwd, canportfwd, src, gconn.LocalAddr(), bindAddr, targetstr, smm.UID)
 	}
 
 	dialbindOK := false
@@ -405,7 +407,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 		pc, err = px.Dialer().DialBind("tcp", bindAddr.String(), targetstr)
 		dialbindOK = err == nil
 		logwif(!dialbindOK)("tcp: %s dialbind ok? %t (%s [%s] => %s via %s); err? %v",
-			smm.ID, dialbindOK, src, bindAddr, targetstr, pidstr(px), err)
+			smm.ID, dialbindOK, src, bindAddr, targetstr, pid, err)
 	}
 	if !dialbindOK {
 		pc, err = px.Dialer().Dial("tcp", targetstr)

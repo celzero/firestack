@@ -66,6 +66,7 @@ const (
 	// preferred forwarding network, if any
 	// ipn.Base is treated as a no-proxy
 	NetBaseProxy = x.Base
+	NetAutoProxy = x.Auto
 	NetNoProxy   = x.Block
 	NetExitProxy = x.Exit
 
@@ -1241,6 +1242,11 @@ func IsLocalProxy(pid string) bool {
 		pid == NetBaseProxy ||
 		pid == NetExitProxy ||
 		pid == NetNoProxy
+}
+
+// return true ipn.Auto
+func IsAutoProxy(pid string) bool {
+	return pid == NetAutoProxy
 }
 
 // RegisterAddrs registers IP ports with all dialers for a given hostname.
