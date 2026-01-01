@@ -122,8 +122,8 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 
 	if !parsed.IsEchoRequest() {
 		if settings.Debug {
-			log.VV("icmp: responder: not echo request ipv%d; %s => %s; type: %d",
-				parsed.IPVersion, src, dst, parsed.IPProto)
+			log.VV("icmp: responder: not echo request ipv%d; %s => %s; type: %d; %x",
+				parsed.IPVersion, src, dst, parsed.IPProto, parsed.Buffer())
 		}
 		wire.Pool.Put(parsed)
 		return
