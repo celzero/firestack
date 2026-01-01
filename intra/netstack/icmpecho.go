@@ -67,9 +67,7 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 
 	inSize := b.Size()
 	if inSize <= minICMPPacketSize {
-		if settings.Debug {
-			log.V("icmp: responder: packet too small: %d", inSize)
-		}
+		// too verbose: log.VV("icmp: responder: packet too small: %d", inSize)
 		// Too small to be a valid ICMP echo request.
 		return
 	}
@@ -81,7 +79,9 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 	// flatten is expensive, so we avoid it if possible
 	n, err := b.ReadToWriter(&w, expectedICMPPacketSize)
 
-	logeif(err)("icmp: responder: read to writer (sz: %d / %d); h? %t, err? %v", n, w.Len(), h != nil, err)
+	if settings.Debug {
+		logeif(err)("icmp: responder: read to writer (sz: %d / %d / %d); h? %t, err? %v", n, w.Len(), inSize, h != nil, err)
+	}
 	if err != nil || n == 0 || h == nil || w.Len() == 0 {
 		return
 	}
@@ -91,9 +91,10 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 
 	// Only echo requests are handled; other ICMP packets are dropped to avoid
 	// feeding them back into netstack.
-	if (parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6) || !parsed.IsEchoRequest() {
+	if parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6 {
 		if settings.Debug {
-			log.V("icmp: responder: unsupported proto: %d", parsed.IPProto)
+			log.VV("icmp: responder: unsupported proto: %d / echo: %t; content: %x",
+				parsed.IPProto, parsed.IsEchoRequest(), parsed.Buffer())
 		}
 		wire.Pool.Put(parsed)
 		return
@@ -104,19 +105,28 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 	dst := parsed.Dst
 	has := parsed.HasTransportData()
 
-	logwv(!has)("icmp: responder: echo request ipv%d; %s => %s; ok? %t", parsed.IPVersion, src, dst, has)
+	logwv(!has)("icmp: responder: request ipv%d; %s => %s; ok? %t", parsed.IPVersion, src, dst, has)
 
 	if !has {
 		wire.Pool.Put(parsed)
 		return
 	}
 
-	if inSize > expectedICMPPacketSize {
+	if inSize > int64(w.Len()) {
 		// There is more data beyond the minimum ICMP echo request.
 		// Reconstruct the full packet.
 		w.Reset()
 		b.ReadToWriter(&w, inSize)
 		parsed.Decode(w.Copy())
+	}
+
+	if !parsed.IsEchoRequest() {
+		if settings.Debug {
+			log.VV("icmp: responder: not echo request ipv%d; %s => %s; type: %d",
+				parsed.IPVersion, src, dst, parsed.IPProto)
+		}
+		wire.Pool.Put(parsed)
+		return
 	}
 
 	// Process asynchronously to avoid blocking the dispatcher loop.
