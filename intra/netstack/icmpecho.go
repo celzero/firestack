@@ -93,8 +93,8 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 	// feeding them back into netstack.
 	if parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6 {
 		if settings.Debug {
-			log.VV("icmp: responder: unsupported proto: %d / echo: %t; content: %x",
-				parsed.IPProto, parsed.IsEchoRequest(), parsed.Buffer())
+			log.VV("icmp: responder: unsupported proto: %d / echo: %t; h: %s; content: %x",
+				parsed.IPProto, parsed.IsEchoRequest(), parsed.ICMPHeaderString(), parsed.Buffer())
 		}
 		wire.Pool.Put(parsed)
 		return
@@ -105,7 +105,7 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 	dst := parsed.Dst
 	has := parsed.HasTransportData()
 
-	logwv(!has)("icmp: responder: request ipv%d; %s => %s; ok? %t", parsed.IPVersion, src, dst, has)
+	logwv(!has)("icmp: responder: request ipv%d; %s => %s; h: %s; ok? %t", parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), has)
 
 	if !has {
 		wire.Pool.Put(parsed)
@@ -122,8 +122,8 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 
 	if !parsed.IsEchoRequest() {
 		if settings.Debug {
-			log.VV("icmp: responder: not echo request ipv%d; %s => %s; type: %d; %x",
-				parsed.IPVersion, src, dst, parsed.IPProto, parsed.Buffer())
+			log.VV("icmp: responder: not echo request ipv%d; %s => %s; h: %s; %x",
+				parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), parsed.Buffer())
 		}
 		wire.Pool.Put(parsed)
 		return
