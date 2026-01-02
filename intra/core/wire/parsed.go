@@ -388,10 +388,11 @@ func (q *Parsed) IP6Header() IP6Header {
 }
 
 func (q *Parsed) ICMPHeaderString() string {
-	if q.IPProto == ICMPv4 {
-		return fmt.Sprint("%s", q.ICMP4Header())
-	} else if q.IPProto == ICMPv6 {
-		return fmt.Sprint("%s", q.ICMP6Header())
+	switch q.IPProto {
+	case ICMPv4:
+		return fmt.Sprintf("%v", q.ICMP4Header())
+	case ICMPv6:
+		return fmt.Sprintf("%v", q.ICMP6Header())
 	}
 	return "ICMP{???}"
 }

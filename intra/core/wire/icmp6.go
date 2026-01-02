@@ -49,7 +49,7 @@ func (t ICMP6Type) String() string {
 	case ICMP6EchoReply:
 		return "EchoReply"
 	default:
-		return "Unknown"
+		return "Unknown " + string(t)
 	}
 }
 
