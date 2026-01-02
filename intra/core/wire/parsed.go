@@ -79,6 +79,8 @@ type Parsed struct {
 	// length is the total length of the packet.
 	// This is not the same as len(b) because b can have trailing zeros.
 	length int
+	// truncated indicates if the packet was truncated.
+	trunc bool
 
 	// IPVersion is the IP protocol version of the packet (4 or
 	// 6), or 0 if the packet doesn't look like IPv4 or IPv6.
@@ -116,12 +118,21 @@ func (p *Parsed) String() string {
 	return string(b)
 }
 
+func (q *Parsed) Decode(b []byte) {
+	q.decode(b, false /*truncated*/)
+}
+
+func (q *Parsed) DecodeTrunc(b []byte, trunc bool) {
+	q.decode(b, trunc /*truncated*/)
+}
+
 // Decode extracts data from the packet in b into q.
 // It performs extremely simple packet decoding for basic IPv4 and IPv6 packet types.
 // It extracts only the subprotocol id, IP addresses, and (if any) ports,
 // and shouldn't need any memory allocation.
-func (q *Parsed) Decode(b []byte) {
+func (q *Parsed) decode(b []byte, trunc bool) {
 	q.b = b
+	q.trunc = trunc
 	q.CaptureMeta = CaptureMeta{} // Clear any capture metadata if it exists.
 
 	if len(b) < 1 {
@@ -152,7 +163,7 @@ func (q *Parsed) decode4(b []byte) {
 	// Check that it's IPv4.
 	q.IPProto = Proto(b[9])
 	q.length = int(binary.BigEndian.Uint16(b[2:4]))
-	if len(b) < q.length {
+	if !q.trunc && len(b) < q.length {
 		// Packet was cut off before full IPv4 length.
 		q.IPProto = unknown
 		return
@@ -283,7 +294,7 @@ func (q *Parsed) decode6(b []byte) {
 
 	q.IPProto = Proto(b[6])
 	q.length = int(binary.BigEndian.Uint16(b[4:6])) + IP6HeaderLength
-	if len(b) < q.length {
+	if !q.trunc && len(b) < q.length {
 		// Packet was cut off before the full IPv6 length.
 		q.IPProto = unknown
 		return
@@ -394,7 +405,7 @@ func (q *Parsed) ICMPHeaderString() string {
 	case ICMPv6:
 		return fmt.Sprintf("%v", q.ICMP6Header())
 	}
-	return "ICMP{???}"
+	return "ICMP" + string(q.IPVersion) + "{???}"
 }
 
 func (q *Parsed) ICMP4Header() ICMP4Header {
@@ -429,13 +440,19 @@ func (q *Parsed) Buffer() []byte {
 
 // Payload returns the payload of the IP subprotocol section.
 // This is a read-only view; that is, q retains the ownership of the buffer.
-func (q *Parsed) Payload() []byte {
+func (q *Parsed) Payload() ([]byte, bool) {
 	// If the packet is truncated, return nothing instead of crashing.
-	if q.length > len(q.b) || q.dataofs > len(q.b) {
-		return nil
+	if q.dataofs > len(q.b) {
+		return nil, q.trunc
+	}
+	if q.length > len(q.b) {
+		if q.trunc {
+			return q.b[q.dataofs:], true
+		}
+		return nil, q.trunc
 	}
 
-	return q.b[q.dataofs:q.length]
+	return q.b[q.dataofs:q.length], false
 }
 
 // Transport returns the transport header and payload (IP subprotocol, such as TCP or UDP).

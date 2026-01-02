@@ -86,8 +86,9 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 		return
 	}
 
+	truncated := inSize > int64(w.Len())
 	parsed := wire.Pool.Get()
-	parsed.Decode(w.Copy())
+	parsed.DecodeTrunc(w.Copy(), truncated)
 
 	// Only echo requests are handled; other ICMP packets are dropped to avoid
 	// feeding them back into netstack.
@@ -105,14 +106,15 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 	dst := parsed.Dst
 	has := parsed.HasTransportData()
 
-	logwv(!has)("icmp: responder: request ipv%d; %s => %s; h: %s; ok? %t", parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), has)
+	logwv(!has)("icmp: responder: request ipv%d; %s => %s; h: %s; trunc? %t, ok? %t",
+		parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), truncated, has)
 
 	if !has {
 		wire.Pool.Put(parsed)
 		return
 	}
 
-	if inSize > int64(w.Len()) {
+	if truncated {
 		// There is more data beyond the minimum ICMP echo request.
 		// Reconstruct the full packet.
 		w.Reset()
@@ -122,8 +124,8 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 
 	if !parsed.IsEchoRequest() {
 		if settings.Debug {
-			log.VV("icmp: responder: not echo request ipv%d; %s => %s; h: %s; %x",
-				parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), parsed.Buffer())
+			log.VV("icmp: responder: not echo request ipv%d (trunc? %t); %s => %s; h: %s; %x",
+				parsed.IPVersion, truncated, src, dst, parsed.ICMPHeaderString(), parsed.Buffer())
 		}
 		wire.Pool.Put(parsed)
 		return
