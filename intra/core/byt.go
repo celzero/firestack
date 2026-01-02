@@ -23,6 +23,7 @@ func (w *ByteWriter) Write(p []byte) (n int, err error) {
 		bptr = AllocRegion(len(p))
 		w.b = bptr
 	}
+	// TODO: copy when cap(*bptr) < len(*bptr)+len(p)?
 	// append may grow the slice beyond original capacity
 	// and so, it may get recycled to a higher slab on Close
 	*bptr = append(*bptr, p...)
@@ -48,32 +49,32 @@ func (w *ByteWriter) Bytes() []byte {
 }
 
 func (w *ByteWriter) Copy() []byte {
-	if bptr := w.b; bptr != nil {
-		bcopy := make([]byte, len(*bptr))
-		copy(bcopy, *bptr)
-		return bcopy
+	if b := w.b; b != nil {
+		c := make([]byte, len(*b))
+		copy(c, *b)
+		return c
 	}
 	return nil
 }
 
 func (w *ByteWriter) Dup() ByteWriter {
-	if bptr := w.b; bptr != nil {
-		bptr2 := AllocRegion(len(*bptr))
-		copy(*bptr2, *bptr)
-		return ByteWriter{b: bptr2}
+	if b := w.b; b != nil {
+		b2 := AllocRegion(len(*b))
+		copy(*b2, *b)
+		return ByteWriter{b: b2}
 	}
 	return ByteWriter{}
 }
 
 func (w *ByteWriter) Len() int {
-	if bptr := w.b; bptr != nil {
-		return len(*bptr)
+	if b := w.b; b != nil {
+		return len(*b)
 	}
 	return 0
 }
 
 func (w *ByteWriter) Reset() {
-	if bptr := w.b; bptr != nil {
-		*bptr = (*bptr)[:0]
+	if b := w.b; b != nil {
+		*b = (*b)[:0]
 	}
 }
