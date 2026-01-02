@@ -363,7 +363,7 @@ func (q *Parsed) decode6(b []byte) {
 
 func (q *Parsed) IP4Header() IP4Header {
 	if q.IPVersion != 4 {
-		panic("IP4Header called on non-IPv4 Parsed")
+		return IP4Header{}
 	}
 	ipid := binary.BigEndian.Uint16(q.b[4:6])
 	return IP4Header{
@@ -376,7 +376,7 @@ func (q *Parsed) IP4Header() IP4Header {
 
 func (q *Parsed) IP6Header() IP6Header {
 	if q.IPVersion != 6 {
-		panic("IP6Header called on non-IPv6 Parsed")
+		return IP6Header{}
 	}
 	ipid := (binary.BigEndian.Uint32(q.b[:4]) << 12) >> 12
 	return IP6Header{
@@ -385,6 +385,15 @@ func (q *Parsed) IP6Header() IP6Header {
 		Src:     q.Src.Addr(),
 		Dst:     q.Dst.Addr(),
 	}
+}
+
+func (q *Parsed) ICMPHeaderString() string {
+	if q.IPProto == ICMPv4 {
+		return fmt.Sprint("%s", q.ICMP4Header())
+	} else if q.IPProto == ICMPv6 {
+		return fmt.Sprint("%s", q.ICMP6Header())
+	}
+	return "ICMP{???}"
 }
 
 func (q *Parsed) ICMP4Header() ICMP4Header {
