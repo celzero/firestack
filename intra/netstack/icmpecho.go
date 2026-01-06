@@ -93,8 +93,8 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 	// feeding them back into netstack.
 	if parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6 {
 		if settings.Debug {
-			log.VV("icmp: responder: unsupported proto: %d / echo: %t; h: %s; content: %x",
-				parsed.IPProto, parsed.IsEchoRequest(), parsed.ICMPHeaderString(), parsed.Buffer())
+			log.VV("icmp: responder: unsupported proto: %d / echo: %t @ %d; h: %s; content: %x",
+				parsed.IPProto, parsed.IsEchoRequest(), parsed.EchoIDSeq(), parsed.ICMPHeaderString(), parsed.Buffer())
 		}
 		wire.Pool.Put(parsed)
 		return
@@ -146,8 +146,8 @@ func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip
 	icmpMsg := pkt.Transport()
 	payload, truncated := pkt.Payload()
 	if truncated || len(icmpMsg) <= 0 {
-		log.E("icmp: responder: truncated? %t or missing? %t ICMPv%d; %s => %s; h: %s; sz: %d",
-			truncated, len(icmpMsg) <= 0, pkt.IPVersion, src, dst, pkt.ICMPHeaderString(), len(payload))
+		log.E("icmp: responder: truncated? %t or missing? %t ICMPv%d; %s => %s; id: %d; h: %s; sz: %d",
+			truncated, len(icmpMsg) <= 0, pkt.IPVersion, src, dst, pkt.EchoIDSeq(), pkt.ICMPHeaderString(), len(payload))
 		return
 	}
 
@@ -155,8 +155,8 @@ func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip
 
 	resp, proto, err := r.echoReply(pkt, payload, pinged)
 	if err != nil || len(resp) == 0 {
-		log.W("icmp: responder: reply %s <= %s (sz: %d); ping? %t; err? %v",
-			src, dst, len(resp), pinged, err)
+		log.W("icmp: responder: reply %s <= %s (sz: %d / id: %d); ping? %t; err? %v",
+			src, dst, len(resp), pkt.EchoIDSeq(), pinged, err)
 		return
 	}
 
@@ -167,25 +167,22 @@ func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, 
 	// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/netstack/netstack.go#L1201-L1212
 	switch pkt.IPVersion {
 	case 4:
-		ipHdr := pkt.IP4Header()
-		if !ok {
-			ipHdr.ToResponse()
-			icmpHdr := wire.ICMP4Header{IP4Header: ipHdr, Type: wire.ICMP4Unreachable, Code: wire.ICMP4HostUnreachable}
-			return wire.Generate(icmpHdr, d), header.IPv4ProtocolNumber, nil
-		}
-		icmpHdr := wire.ICMP4Header{IP4Header: ipHdr}
+		icmpHdr := pkt.ICMP4Header()
 		icmpHdr.ToResponse()
-		return wire.Generate(icmpHdr, d), header.IPv4ProtocolNumber, nil
+		if !ok {
+			icmpHdr.Type = wire.ICMP4Unreachable
+			icmpHdr.Code = wire.ICMP4HostUnreachable
+		}
+		return wire.Generate(&icmpHdr, d), header.IPv4ProtocolNumber, nil
 	case 6:
-		ipHdr := pkt.IP6Header()
-		if !ok {
-			ipHdr.ToResponse()
-			icmpHdr := wire.ICMP6Header{IP6Header: ipHdr, Type: wire.ICMP6Unreachable, Code: wire.ICMP6NoRoute}
-			return wire.Generate(icmpHdr, d), header.IPv6ProtocolNumber, nil
-		}
-		icmpHdr := wire.ICMP6Header{IP6Header: ipHdr}
+		icmpHdr := pkt.ICMP6Header()
 		icmpHdr.ToResponse()
-		return wire.Generate(icmpHdr, d), header.IPv6ProtocolNumber, nil
+		if !ok {
+			icmpHdr.Type = wire.ICMP6Unreachable
+			icmpHdr.Code = wire.ICMP6NoRoute
+		}
+		// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/userspace.go#L577
+		return wire.Generate(&icmpHdr, d), header.IPv6ProtocolNumber, nil
 	default:
 		return nil, 0, fmt.Errorf("unsupported ip version: %d", pkt.IPVersion)
 	}
