@@ -183,7 +183,7 @@ func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, 
 			(&icmpHdr).Type = wire.ICMP4Unreachable
 			(&icmpHdr).Code = wire.ICMP4HostUnreachable
 		}
-		tag := icmpHdr.String()
+		tag := icmpHdr.Stringer()
 		return wire.Generate(&icmpHdr, d), header.IPv4ProtocolNumber, tag, nil
 	case 6:
 		icmpHdr := pkt.ICMP6Header()
@@ -192,7 +192,7 @@ func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, 
 			(&icmpHdr).Type = wire.ICMP6Unreachable
 			(&icmpHdr).Code = wire.ICMP6NoRoute
 		}
-		tag := icmpHdr.String()
+		tag := icmpHdr.Stringer()
 		// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/userspace.go#L577
 		return wire.Generate(&icmpHdr, d), header.IPv6ProtocolNumber, tag, nil
 	default:

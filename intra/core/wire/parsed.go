@@ -401,9 +401,9 @@ func (q *Parsed) IP6Header() IP6Header {
 func (q *Parsed) ICMPHeaderString() string {
 	switch q.IPProto {
 	case ICMPv4:
-		return q.ICMP4Header().String()
+		return q.ICMP4Header().Stringer()
 	case ICMPv6:
-		return q.ICMP6Header().String()
+		return q.ICMP6Header().Stringer()
 	}
 	return "ICMP" + string(q.IPVersion) + "{???}"
 }
@@ -416,11 +416,11 @@ func (q *Parsed) ICMP4Header() ICMP4Header {
 	}
 }
 
-func (h ICMP4Header) String() string {
+func (h ICMP4Header) Stringer() string {
 	return fmt.Sprintf("%v", h)
 }
 
-func (h ICMP6Header) String() string {
+func (h ICMP6Header) Stringer() string {
 	return fmt.Sprintf("%v", h)
 }
 
