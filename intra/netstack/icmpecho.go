@@ -145,46 +145,58 @@ func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip
 
 	icmpMsg := pkt.Transport()
 	payload, truncated := pkt.Payload()
-	if truncated || len(icmpMsg) <= 0 {
-		log.E("icmp: responder: truncated? %t or missing? %t ICMPv%d; %s => %s; id: %d; h: %s; sz: %d",
+	notok := truncated || len(icmpMsg) <= 0
+
+	if notok || settings.Debug {
+		logwv(notok)("icmp: responder: truncated? %t or missing? %t ICMPv%d; %s => %s; id: %d; h: %s; sz: %d",
 			truncated, len(icmpMsg) <= 0, pkt.IPVersion, src, dst, pkt.EchoIDSeq(), pkt.ICMPHeaderString(), len(payload))
+	}
+
+	if notok {
 		return
 	}
 
 	pinged := h.Ping(icmpMsg, src, dst)
 
-	resp, proto, err := r.echoReply(pkt, payload, pinged)
+	resp, proto, tag, err := r.echoReply(pkt, payload, pinged)
+	notok = err != nil || len(resp) == 0
+
+	if notok || settings.Debug {
+		logwv(notok)("icmp: responder: reply %s <= %s (sz: %d / id: %d); ping? %t; res: %s; err? %v",
+			src, dst, len(resp), pkt.EchoIDSeq(), pinged, tag, err)
+	}
+
 	if err != nil || len(resp) == 0 {
-		log.W("icmp: responder: reply %s <= %s (sz: %d / id: %d); ping? %t; err? %v",
-			src, dst, len(resp), pkt.EchoIDSeq(), pinged, err)
 		return
 	}
 
 	r.inject(proto, resp)
 }
 
-func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, error) {
+func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, string, error) {
 	// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/netstack/netstack.go#L1201-L1212
 	switch pkt.IPVersion {
 	case 4:
 		icmpHdr := pkt.ICMP4Header()
-		icmpHdr.ToResponse()
+		(&icmpHdr).ToResponse()
 		if !ok {
-			icmpHdr.Type = wire.ICMP4Unreachable
-			icmpHdr.Code = wire.ICMP4HostUnreachable
+			(&icmpHdr).Type = wire.ICMP4Unreachable
+			(&icmpHdr).Code = wire.ICMP4HostUnreachable
 		}
-		return wire.Generate(&icmpHdr, d), header.IPv4ProtocolNumber, nil
+		tag := icmpHdr.String()
+		return wire.Generate(&icmpHdr, d), header.IPv4ProtocolNumber, tag, nil
 	case 6:
 		icmpHdr := pkt.ICMP6Header()
-		icmpHdr.ToResponse()
+		(&icmpHdr).ToResponse()
 		if !ok {
-			icmpHdr.Type = wire.ICMP6Unreachable
-			icmpHdr.Code = wire.ICMP6NoRoute
+			(&icmpHdr).Type = wire.ICMP6Unreachable
+			(&icmpHdr).Code = wire.ICMP6NoRoute
 		}
+		tag := icmpHdr.String()
 		// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/userspace.go#L577
-		return wire.Generate(&icmpHdr, d), header.IPv6ProtocolNumber, nil
+		return wire.Generate(&icmpHdr, d), header.IPv6ProtocolNumber, tag, nil
 	default:
-		return nil, 0, fmt.Errorf("unsupported ip version: %d", pkt.IPVersion)
+		return nil, 0, "<nil>", fmt.Errorf("unsupported ip version: %d", pkt.IPVersion)
 	}
 }
 
