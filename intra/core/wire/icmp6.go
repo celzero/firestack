@@ -58,7 +58,8 @@ func (t ICMP6Type) String() string {
 type ICMP6Code uint8
 
 const (
-	ICMP6NoCode ICMP6Code = 0
+	ICMP6NoCode  ICMP6Code = 0
+	ICMP6NoRoute ICMP6Code = 0 // code 0: no route to destination
 )
 
 // ICMP6Header is an IPv4+ICMPv4 header.

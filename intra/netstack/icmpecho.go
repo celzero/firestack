@@ -11,7 +11,6 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/checksum"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 )
@@ -144,38 +143,54 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip.AddrPort) {
 	defer wire.Pool.Put(pkt)
 
-	payload := pkt.Transport()
-	if len(payload) == 0 {
+	payload, ok := pkt.Payload()
+	if !ok {
 		return
 	}
 
-	if !h.Ping(payload, src, dst) {
-		// Ping failed; nothing to inject back.
+	icmpMsg := pkt.Transport()
+	if len(icmpMsg) == 0 {
 		return
 	}
 
-	var resp []byte
-	var proto tcpip.NetworkProtocolNumber
-	var err error
+	pinged := h.Ping(icmpMsg, src, dst)
 
+	resp, proto, err := r.makeReply(pkt, payload, pinged)
+	if err != nil || len(resp) == 0 {
+		log.W("icmp: responder: reply %s <= %s (sz: %d); ping? %t; err? %v",
+			src, dst, len(resp), pinged, err)
+		return
+	}
+
+	// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/netstack/netstack.go#L1201-L1212
+	r.inject(proto, resp)
+}
+
+func (r *icmpResponder) makeReply(pkt *wire.Parsed, payload []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, error) {
 	switch pkt.IPVersion {
 	case 4:
-		resp, err = buildICMPv4Reply(pkt, payload)
-		proto = header.IPv4ProtocolNumber
+		ipHdr := pkt.IP4Header()
+		ipHdr.ToResponse()
+		if !ok {
+			icmpHdr := wire.ICMP4Header{IP4Header: ipHdr, Type: wire.ICMP4Unreachable, Code: wire.ICMP4HostUnreachable}
+			return wire.Generate(icmpHdr, payload), header.IPv4ProtocolNumber, nil
+		}
+		icmpHdr := wire.ICMP4Header{IP4Header: ipHdr}
+		icmpHdr.ToResponse()
+		return wire.Generate(icmpHdr, payload), header.IPv4ProtocolNumber, nil
 	case 6:
-		resp, err = buildICMPv6Reply(pkt, payload)
-		proto = header.IPv6ProtocolNumber
+		ipHdr := pkt.IP6Header()
+		ipHdr.ToResponse()
+		if !ok {
+			icmpHdr := wire.ICMP6Header{IP6Header: ipHdr, Type: wire.ICMP6Unreachable, Code: wire.ICMP6NoRoute}
+			return wire.Generate(icmpHdr, payload), header.IPv6ProtocolNumber, nil
+		}
+		icmpHdr := wire.ICMP6Header{IP6Header: ipHdr}
+		icmpHdr.ToResponse()
+		return wire.Generate(icmpHdr, payload), header.IPv6ProtocolNumber, nil
 	default:
-		return
+		return nil, 0, fmt.Errorf("unsupported ip version: %d", pkt.IPVersion)
 	}
-
-	if err != nil || len(resp) <= 0 {
-		log.W("icmp: responder: build reply %s <= %s (sz: %d); err? %v",
-			src, dst, len(resp), err)
-		return
-	}
-
-	r.inject(proto, resp)
 }
 
 func (r *icmpResponder) inject(proto tcpip.NetworkProtocolNumber, packet []byte) {
@@ -195,66 +210,5 @@ func (r *icmpResponder) inject(proto tcpip.NetworkProtocolNumber, packet []byte)
 
 	sz := pkt.Size()
 	n, err := r.ep.WritePackets(list)
-	logeif(e(err))("icmp: responder: inject to tun (n: %d; sz: %d); err? %v", n, sz, err)
-}
-
-func buildICMPv4Reply(p *wire.Parsed, req []byte) ([]byte, error) {
-	if len(req) < header.ICMPv4MinimumSize {
-		return nil, fmt.Errorf("icmp: responder: v4 payload too small: %d", len(req))
-	}
-
-	reply := make([]byte, len(req))
-	copy(reply, req)
-
-	icmpHdr := header.ICMPv4(reply)
-	icmpHdr.SetType(header.ICMPv4EchoReply)
-	icmpHdr.SetCode(0)
-	icmpHdr.SetChecksum(0)
-	payload := reply[header.ICMPv4MinimumSize:]
-	payloadSum := checksum.Checksum(payload, 0)
-	icmpHdr.SetChecksum(header.ICMPv4Checksum(icmpHdr, payloadSum))
-
-	ipHdr := p.IP4Header()
-	ipHdr.ToResponse()
-
-	packet := make([]byte, wire.IP4HeaderLength+len(reply))
-	copy(packet[wire.IP4HeaderLength:], reply)
-	if err := ipHdr.Marshal(packet); err != nil {
-		return nil, err
-	}
-	return packet, nil
-}
-
-func buildICMPv6Reply(p *wire.Parsed, req []byte) ([]byte, error) {
-	if len(req) < header.ICMPv6MinimumSize {
-		return nil, fmt.Errorf("icmp: responder: v6 payload too small: %d", len(req))
-	}
-
-	reply := make([]byte, len(req))
-	copy(reply, req)
-
-	icmpHdr := header.ICMPv6(reply)
-	icmpHdr.SetType(header.ICMPv6EchoReply)
-	icmpHdr.SetCode(0)
-	icmpHdr.SetChecksum(0)
-
-	ipHdr := p.IP6Header()
-	ipHdr.ToResponse()
-
-	payload := reply[header.ICMPv6MinimumSize:]
-	payloadSum := checksum.Checksum(payload, 0)
-	icmpHdr.SetChecksum(header.ICMPv6Checksum(header.ICMPv6ChecksumParams{
-		Header:      icmpHdr,
-		Src:         tcpip.AddrFrom16(ipHdr.Src.As16()),
-		Dst:         tcpip.AddrFrom16(ipHdr.Dst.As16()),
-		PayloadCsum: payloadSum,
-		PayloadLen:  len(payload),
-	}))
-
-	packet := make([]byte, wire.IP6HeaderLength+len(reply))
-	copy(packet[wire.IP6HeaderLength:], reply)
-	if err := ipHdr.Marshal(packet); err != nil {
-		return nil, err
-	}
-	return packet, nil
+	logeif(e(err))("icmp: responder: inject %d to tun (n: %d; sz: %d); err? %v", proto, n, sz, err)
 }
