@@ -193,8 +193,9 @@ func (r *icmpResponder) inject(proto tcpip.NetworkProtocolNumber, packet []byte)
 	var list stack.PacketBufferList
 	list.PushBack(pkt)
 
+	sz := pkt.Size()
 	n, err := r.ep.WritePackets(list)
-	logeif(e(err))("icmp: responder: inject to tun (sz: %d); err? %v", n, err)
+	logeif(e(err))("icmp: responder: inject to tun (n: %d; sz: %d); err? %v", n, sz, err)
 }
 
 func buildICMPv4Reply(p *wire.Parsed, req []byte) ([]byte, error) {

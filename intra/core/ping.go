@@ -123,7 +123,7 @@ func Echo(pc net.PacketConn, pkt []byte, dst net.Addr, v4 bool) (reply []byte, f
 	}
 
 	n, err = pc.WriteTo(pkt, dst)
-	log.D("core: icmp: egress: write(=> %v) ping; done %d/%d; err? %v",
+	logev(err)("core: icmp: egress: write(=> %v) ping; done %d/%d; err? %v",
 		dst, n, len(pkt), err)
 	if err != nil {
 		// TODO: unreachable reply?
@@ -134,7 +134,7 @@ func Echo(pc net.PacketConn, pkt []byte, dst net.Addr, v4 bool) (reply []byte, f
 	n, from, err = pc.ReadFrom(pkt)
 	reply = pkt[:n] // trunc
 
-	log.D("core: icmp: ingress: read(<= %v / %v) ping done; done %d; err? %v",
+	logev(err)("core: icmp: ingress: read(<= %v / %v) ping done; done %d; err? %v",
 		dst, from, n, err)
 	// TODO: on err, unreachable reply?
 	return

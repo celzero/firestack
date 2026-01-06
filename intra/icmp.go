@@ -125,7 +125,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	rx = len(reply)
 	rtt = time.Since(rttstart)
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	log.D("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); err? %v",
+	logev(err)("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); err? %v",
 		source, from, dst, tx, rx, core.FmtPeriod(rtt), err)
 
 	return true // echoed; even if err != nil
