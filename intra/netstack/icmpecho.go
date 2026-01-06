@@ -153,39 +153,39 @@ func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip
 
 	pinged := h.Ping(icmpMsg, src, dst)
 
-	resp, proto, err := r.makeReply(pkt, payload, pinged)
+	resp, proto, err := r.echoReply(pkt, payload, pinged)
 	if err != nil || len(resp) == 0 {
 		log.W("icmp: responder: reply %s <= %s (sz: %d); ping? %t; err? %v",
 			src, dst, len(resp), pinged, err)
 		return
 	}
 
-	// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/netstack/netstack.go#L1201-L1212
 	r.inject(proto, resp)
 }
 
-func (r *icmpResponder) makeReply(pkt *wire.Parsed, payload []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, error) {
+func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, error) {
+	// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/netstack/netstack.go#L1201-L1212
 	switch pkt.IPVersion {
 	case 4:
 		ipHdr := pkt.IP4Header()
-		ipHdr.ToResponse()
 		if !ok {
+			ipHdr.ToResponse()
 			icmpHdr := wire.ICMP4Header{IP4Header: ipHdr, Type: wire.ICMP4Unreachable, Code: wire.ICMP4HostUnreachable}
-			return wire.Generate(icmpHdr, payload), header.IPv4ProtocolNumber, nil
+			return wire.Generate(icmpHdr, d), header.IPv4ProtocolNumber, nil
 		}
 		icmpHdr := wire.ICMP4Header{IP4Header: ipHdr}
 		icmpHdr.ToResponse()
-		return wire.Generate(icmpHdr, payload), header.IPv4ProtocolNumber, nil
+		return wire.Generate(icmpHdr, d), header.IPv4ProtocolNumber, nil
 	case 6:
 		ipHdr := pkt.IP6Header()
-		ipHdr.ToResponse()
 		if !ok {
+			ipHdr.ToResponse()
 			icmpHdr := wire.ICMP6Header{IP6Header: ipHdr, Type: wire.ICMP6Unreachable, Code: wire.ICMP6NoRoute}
-			return wire.Generate(icmpHdr, payload), header.IPv6ProtocolNumber, nil
+			return wire.Generate(icmpHdr, d), header.IPv6ProtocolNumber, nil
 		}
 		icmpHdr := wire.ICMP6Header{IP6Header: ipHdr}
 		icmpHdr.ToResponse()
-		return wire.Generate(icmpHdr, payload), header.IPv6ProtocolNumber, nil
+		return wire.Generate(icmpHdr, d), header.IPv6ProtocolNumber, nil
 	default:
 		return nil, 0, fmt.Errorf("unsupported ip version: %d", pkt.IPVersion)
 	}
