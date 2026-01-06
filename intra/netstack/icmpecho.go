@@ -59,7 +59,7 @@ func (r *icmpResponder) ok() bool {
 
 // handle returns true if the packet is ICMP and is handled (or dropped) by the
 // bypass path.
-func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
+func (r *icmpResponder) handle(nic tcpip.NICID, b buffer.Buffer) (handled bool) {
 	if !r.ok() {
 		return
 	}
@@ -132,7 +132,7 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 
 	// Process asynchronously to avoid blocking the dispatcher loop.
 	core.Go("icmp.responder", func() {
-		r.process(h, parsed, src, dst)
+		r.process(h, nic, parsed, src, dst)
 	})
 
 	return true
@@ -140,7 +140,7 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 
 // process handles the ICMP echo request and injects the reply back into the TUN.
 // The parsed packet is released back to the pool after processing.
-func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip.AddrPort) {
+func (r *icmpResponder) process(h GICMPHandler, nic tcpip.NICID, pkt *wire.Parsed, src, dst netip.AddrPort) {
 	defer wire.Pool.Put(pkt)
 
 	icmpMsg := pkt.Transport()
@@ -170,7 +170,7 @@ func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip
 		return
 	}
 
-	r.inject(proto, resp)
+	r.inject(nic, proto, resp)
 }
 
 func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, string, error) {
@@ -200,7 +200,7 @@ func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, 
 	}
 }
 
-func (r *icmpResponder) inject(proto tcpip.NetworkProtocolNumber, packet []byte) {
+func (r *icmpResponder) inject(nic tcpip.NICID, proto tcpip.NetworkProtocolNumber, packet []byte) {
 	ep := r.ep
 	if ep == nil || !r.ok() {
 		return
@@ -209,6 +209,7 @@ func (r *icmpResponder) inject(proto tcpip.NetworkProtocolNumber, packet []byte)
 	pkt := stack.NewPacketBuffer(stack.PacketBufferOptions{
 		Payload: buffer.MakeWithData(packet),
 	})
+	pkt.NICID = nic
 	defer pkt.DecRef()
 
 	pkt.NetworkProtocolNumber = proto
@@ -216,6 +217,6 @@ func (r *icmpResponder) inject(proto tcpip.NetworkProtocolNumber, packet []byte)
 	list.PushBack(pkt)
 
 	sz := pkt.Size()
-	n, err := r.ep.WritePackets(list)
+	n, err := ep.WritePackets(list)
 	logeif(e(err))("icmp: responder: inject %d to tun (n: %d; sz: %d); err? %v", proto, n, sz, err)
 }
