@@ -143,13 +143,11 @@ func (r *icmpResponder) handle(b buffer.Buffer) (handled bool) {
 func (r *icmpResponder) process(h GICMPHandler, pkt *wire.Parsed, src, dst netip.AddrPort) {
 	defer wire.Pool.Put(pkt)
 
-	payload, ok := pkt.Payload()
-	if !ok {
-		return
-	}
-
 	icmpMsg := pkt.Transport()
-	if len(icmpMsg) == 0 {
+	payload, truncated := pkt.Payload()
+	if truncated || len(icmpMsg) <= 0 {
+		log.E("icmp: responder: truncated? %t or missing? %t ICMPv%d; %s => %s; h: %s; sz: %d",
+			truncated, len(icmpMsg) <= 0, pkt.IPVersion, src, dst, pkt.ICMPHeaderString(), len(payload))
 		return
 	}
 
