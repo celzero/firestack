@@ -159,14 +159,19 @@ func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, 
 	pkt.IncRef()
 	defer pkt.DecRef()
 
-	var id stack.TransportEndpointID
 	// local is dst / remote is src; see: netstack/icmp/icmp.go:func (h *icmpForwarder) reply4
 	// and netstack/icmp/icmp.go:func (h *icmpForwarder) reply6
-	id.LocalAddress = tcpip.AddrFrom16Slice(dst.Addr().AsSlice())
-	id.RemoteAddress = tcpip.AddrFrom16Slice(src.Addr().AsSlice())
+	local := dst.Addr().AsSlice()
+	remote := src.Addr().AsSlice()
+	if len(local) == 0 || len(remote) == 0 {
+		log.W("icmp: responder: forward: (sz: %d) empty addr; %s => %s", pkt.Size(), src, dst)
+		return false
+	}
+
+	var id stack.TransportEndpointID
+	id.LocalAddress = tcpip.AddrFromSlice(local)
+	id.RemoteAddress = tcpip.AddrFromSlice(remote)
 	// ICMP does not use ports, so they remain zero.
-	id.LocalPort = 0
-	id.RemotePort = 0
 
 	switch pkt.NetworkProtocolNumber {
 	case header.IPv4ProtocolNumber:
