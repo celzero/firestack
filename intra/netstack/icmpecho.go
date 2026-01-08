@@ -18,13 +18,14 @@ import (
 const minICMPPacketSize = header.ICMPv4MinimumSize + header.IPv4MinimumSize
 const typicalICMPEchoPayloadSize = 64 // or 56
 const expectedICMPPacketSize = header.IPv6MinimumSize + header.ICMPv6MinimumSize + typicalICMPEchoPayloadSize
+const useIcmpForwarder = true
 
 // TODO: get rid of the global in favor of passing the handler via the responder.
 // hdlEcho stores the ICMP handler used by the dispatcher-level ICMP
 // interception path.
-var hdlEcho = core.NewZeroVolatile[GICMPHandler]()
+var hdlEcho = core.NewZeroVolatile[*icmpForwarder]()
 
-func setICMPEchoHandler(h GICMPHandler) {
+func setICMPEchoHandler(h *icmpForwarder) {
 	hdlEcho.Store(h)
 }
 
@@ -57,20 +58,30 @@ func (r *icmpResponder) ok() bool {
 	return r != nil && r.open.Load() && r.ep != nil
 }
 
+func (r *icmpResponder) respond(pkt *stack.PacketBuffer) (handled bool) {
+	if !r.ok() {
+		return
+	}
+	defer pkt.DecRef()
+
+	return r.handle(pkt.NICID, pkt.IncRef())
+}
+
 // handle returns true if the packet is ICMP and is handled (or dropped) by the
 // bypass path.
-func (r *icmpResponder) handle(nic tcpip.NICID, b buffer.Buffer) (handled bool) {
+func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handled bool) {
 	if !r.ok() {
 		return
 	}
 
-	inSize := b.Size()
+	inSize := pkt.Size()
 	if inSize <= minICMPPacketSize {
 		// too verbose: log.VV("icmp: responder: packet too small: %d", inSize)
 		// Too small to be a valid ICMP echo request.
 		return
 	}
 
+	b := pkt.ToBuffer()
 	h := hdlEcho.Load()
 	var w core.ByteWriter
 	defer w.Close()
@@ -79,13 +90,14 @@ func (r *icmpResponder) handle(nic tcpip.NICID, b buffer.Buffer) (handled bool) 
 	n, err := b.ReadToWriter(&w, expectedICMPPacketSize)
 
 	if settings.Debug {
-		logeif(err)("icmp: responder: read to writer (sz: %d / %d / %d); h? %t, err? %v", n, w.Len(), inSize, h != nil, err)
+		logeif(err)("icmp: responder: read to writer (sz: %d / %d / %d); h? %t / fwd? %t, err? %v",
+			n, w.Len(), inSize, h != nil, useIcmpForwarder, err)
 	}
 	if err != nil || n == 0 || h == nil || w.Len() == 0 {
 		return
 	}
 
-	truncated := inSize > int64(w.Len())
+	truncated := inSize > w.Len()
 	parsed := wire.Pool.Get()
 	parsed.DecodeTrunc(w.Copy(), truncated)
 
@@ -117,7 +129,7 @@ func (r *icmpResponder) handle(nic tcpip.NICID, b buffer.Buffer) (handled bool) 
 		// There is more data beyond the minimum ICMP echo request.
 		// Reconstruct the full packet.
 		w.Reset()
-		b.ReadToWriter(&w, inSize)
+		b.ReadToWriter(&w, int64(inSize))
 		parsed.Decode(w.Copy())
 	}
 
@@ -130,17 +142,47 @@ func (r *icmpResponder) handle(nic tcpip.NICID, b buffer.Buffer) (handled bool) 
 		return
 	}
 
-	// Process asynchronously to avoid blocking the dispatcher loop.
-	core.Go("icmp.responder", func() {
-		r.process(h, nic, parsed, src, dst)
-	})
+	if useIcmpForwarder {
+		wire.Pool.Put(parsed)
+		return r.forward(h, pkt, src, dst)
+	} else {
+		// Process asynchronously to avoid blocking the dispatcher loop.
+		core.Go("icmp.responder", func() {
+			r.process(h, nic, parsed, src, dst)
+		})
+	}
 
 	return true
 }
 
+func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, dst netip.AddrPort) bool {
+	pkt.IncRef()
+	defer pkt.DecRef()
+
+	var id stack.TransportEndpointID
+	// local is dst / remote is src; see: netstack/icmp/icmp.go:func (h *icmpForwarder) reply4
+	// and netstack/icmp/icmp.go:func (h *icmpForwarder) reply6
+	id.LocalAddress = tcpip.AddrFrom16Slice(dst.Addr().AsSlice())
+	id.RemoteAddress = tcpip.AddrFrom16Slice(src.Addr().AsSlice())
+	// ICMP does not use ports, so they remain zero.
+	id.LocalPort = 0
+	id.RemotePort = 0
+
+	switch pkt.NetworkProtocolNumber {
+	case header.IPv4ProtocolNumber:
+		return h.reply4(id, pkt)
+	case header.IPv6ProtocolNumber:
+		return h.reply6(id, pkt)
+	}
+
+	log.W("icmp: responder: unsupported proto: %d; %s => %s",
+		pkt.NetworkProtocolNumber, src, dst)
+	return false
+}
+
 // process handles the ICMP echo request and injects the reply back into the TUN.
 // The parsed packet is released back to the pool after processing.
-func (r *icmpResponder) process(h GICMPHandler, nic tcpip.NICID, pkt *wire.Parsed, src, dst netip.AddrPort) {
+func (r *icmpResponder) process(h *icmpForwarder, nic tcpip.NICID, pkt *wire.Parsed, src, dst netip.AddrPort) {
 	defer wire.Pool.Put(pkt)
 
 	icmpMsg := pkt.Transport()
@@ -156,7 +198,7 @@ func (r *icmpResponder) process(h GICMPHandler, nic tcpip.NICID, pkt *wire.Parse
 		return
 	}
 
-	pinged := h.Ping(icmpMsg, src, dst)
+	pinged := h.h.Ping(icmpMsg, src, dst)
 
 	resp, proto, tag, err := r.echoReply(pkt, payload, pinged)
 	notok = err != nil || len(resp) == 0

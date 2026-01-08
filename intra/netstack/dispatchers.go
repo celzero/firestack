@@ -320,8 +320,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 	defer pkt.DecRef()
 
 	if d.icmp.ok() {
-		p := pkt.Data()
-		if d.icmp.handle(pkt.NICID, p.ToBuffer()) {
+		if d.icmp.respond(pkt) {
 			return cont, nil
 		}
 	}
