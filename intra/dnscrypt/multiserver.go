@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -481,6 +482,7 @@ func (proxy *DcMulti) Stop() error {
 // refreshRoutes re-adds relay routes to all live/tracked servers.
 // Must be called from a goroutine.
 func (proxy *DcMulti) refreshRoutes() {
+	debug.SetPanicOnFault(true)
 	defer core.Recover(core.Exit11, "dcmulti.refreshRoutes")
 
 	udp, tcp := route(proxy)

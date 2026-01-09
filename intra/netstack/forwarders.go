@@ -247,7 +247,7 @@ func (m *supervisor) start() {
 	}
 	for i := range m.processors {
 		p := &m.processors[i]
-		go p.start(&m.wg)
+		core.Gx1("ns.forwarder.start", p.start, &m.wg)
 	}
 }
 

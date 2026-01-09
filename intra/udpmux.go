@@ -139,8 +139,8 @@ func newMuxer(cid, pid, uid string, conn net.PacketConn, vnd vendor, f core.Fina
 		cb:       f,
 		vnd:      vnd,
 	}
-	go x.readers()
-	go x.awaiters()
+	core.Gx("udpmux.read."+x.pid+x.cid, x.readers)
+	core.Gx("udpmux.await."+x.pid+x.cid, x.awaiters)
 	return x
 }
 
@@ -205,7 +205,6 @@ func (x *muxer) drain() {
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) readers() {
 	// todo: recover must call "recycle()" if it wasn't.
-	defer core.Recover(core.Exit11, "udpmux.read."+x.pid+x.cid)
 	defer func() {
 		_ = x.stop() // stop muxer
 	}()

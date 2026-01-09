@@ -9,6 +9,7 @@ package core
 import (
 	"context"
 	"errors"
+	"runtime/debug"
 	"strconv"
 	"time"
 )
@@ -16,6 +17,7 @@ import (
 // Go runs f in a goroutine and recovers from any panics.
 func Go(who string, f func()) {
 	go func() {
+		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
 
 		f()
@@ -25,6 +27,7 @@ func Go(who string, f func()) {
 // Go1 runs f(arg) in a goroutine and recovers from any panics.
 func Go1[T any](who string, f func(T), arg T) {
 	go func() {
+		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
 
 		f(arg)
@@ -34,6 +37,7 @@ func Go1[T any](who string, f func(T), arg T) {
 // Go2 runs f(arg0,arg1) in a goroutine and recovers from any panics.
 func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
 	go func() {
+		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
 
 		f(a0, a1)
@@ -44,6 +48,7 @@ func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
 // then calls cb in a separate goroutine, and recovers from any panics.
 func Gg(who string, f func(), cb func()) {
 	go func() {
+		debug.SetPanicOnFault(true)
 		defer RecoverFn(who, cb)
 
 		f()
@@ -53,9 +58,20 @@ func Gg(who string, f func(), cb func()) {
 // Gx runs f in a goroutine and exits the process if f panics.
 func Gx(who string, f func()) {
 	go func() {
+		debug.SetPanicOnFault(true)
 		defer Recover(Exit11, who)
 
 		f()
+	}()
+}
+
+// Gx1 runs f in a goroutine and exits the process if f panics.
+func Gx1[T any](who string, f func(T), arg T) {
+	go func() {
+		debug.SetPanicOnFault(true)
+		defer Recover(Exit11, who)
+
+		f(arg)
 	}()
 }
 
@@ -75,6 +91,7 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 
 	// go.dev/play/p/VtWYJrxhXz6
 	go func() {
+		debug.SetPanicOnFault(true)
 		defer Recover(Exit11, who)
 		defer close(ch)
 
@@ -88,6 +105,16 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 	case <-ctx.Done(): // timeout
 	}
 	return zz, false
+}
+
+// Gxe runs f in a goroutine, ignores returned error, and exits on panics.
+func Gxe(who string, f func() error) {
+	go func() {
+		debug.SetPanicOnFault(true)
+		defer Recover(Exit11, who)
+
+		_ = f()
+	}()
 }
 
 // errPanic returns an error indicating that the function at index i panicked.
@@ -154,7 +181,7 @@ loop:
 func First[T any](who string, overallTimeout time.Duration, fs ...WorkCtx[T]) (zz T, idx int) {
 	timeoutPerFn := overallTimeout / time.Duration(len(fs))
 	for i, f := range fs {
-		i, f := i, f
+		// unneeded in go1.23+ i, f := i, f
 		fid := who + ".all." + strconv.Itoa(i)
 		if x, ok := Grx(fid, f, timeoutPerFn); ok {
 			return x, i
@@ -176,7 +203,7 @@ func All[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) ([]T, []err
 	defer cancel()
 
 	for i, f := range fs {
-		i, f := i, f
+		//unneeded in go1.23+ i, f := i, f
 		fid := who + ".all." + strconv.Itoa(i)
 		Gg(fid, func() {
 			out, err := f(ctx)

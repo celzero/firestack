@@ -120,7 +120,7 @@ func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyP
 		nat:         newTCPNat(),
 	}
 
-	go h.processSummaries()
+	core.Gx("tcp.ps", h.processSummaries)
 
 	log.I("tcp: new handler created")
 	return h

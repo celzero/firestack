@@ -365,7 +365,7 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 			log.I("plus: add %s@%s: already present", newt.ID(), newt.GetAddr())
 			return true
 		}
-		go oldt.Stop()
+		core.Gxe("plus.stop."+oldt.ID().V(), oldt.Stop)
 		oldTransportStopped = true
 	}
 
@@ -420,7 +420,7 @@ func (t *plus) refresh() {
 func (t *plus) Refresh() (*x.Gostr, error) {
 	// dialers.Clear in transport.go already clears the cache
 	// that holds ips <> doh hostnames mapping.
-	go t.refresh()
+	core.Gx("plus.refresh", t.refresh)
 	return t.LiveTransports(), nil
 }
 

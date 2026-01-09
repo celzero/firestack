@@ -204,7 +204,6 @@ func mkcachekey(q *dns.Msg) (string, uint8, bool) {
 // scrubCache deletes expired entries from the cache.
 // Must be called from a goroutine.
 func (cb *cache) scrubCache() {
-	defer core.Recover(core.Exit11, "c.scrubCache")
 	// must unlock from deferred since panics are recovered above
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -281,7 +280,7 @@ func (cb *cache) put(key string, cc *cres) (ok bool) {
 	defer cb.mu.Unlock()
 
 	if rand33pc() { // 33% of the time
-		go cb.scrubCache()
+		core.Gx("c.scrubCache", cb.scrubCache)
 	}
 
 	if len(cb.c) >= cb.size {

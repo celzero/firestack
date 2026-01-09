@@ -32,6 +32,7 @@ package netstack
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -340,7 +341,7 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 		log.I("ns: tun(%d): attach: detach dispatcher (and inbound? %t)", fd, pipe)
 		allLoopersExited := true
 		if rx != nil {
-			go rx.stop() // avoid mutex
+			core.Gx("ns.stop", rx.stop) // avoid mutex
 			fds.stop()
 
 			allLoopersExited = e.wait(waitttl) // on all inboundDispatcher w/ mutex locked?
@@ -532,6 +533,7 @@ func (e *endpoint) notifyRestart() {
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
 // them to the network stack (linkDispatcher). Must be run as a goroutine.
 func dispatchLoop(inbound linkDispatcher, f *fds, wg *core.RollingWaitGroup) tcpip.Error {
+	debug.SetPanicOnFault(true)
 	// defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
 	defer core.Recover(core.Exit11, "ns.e.dispatch")
 

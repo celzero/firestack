@@ -395,7 +395,7 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 	t.updateHttpClientsFor(p, &client, client3)
 
 	// check if other proxies need to be purged
-	go t.purgeProxyClients()
+	core.Gx("doh.purgepx", t.purgeProxyClients)
 
 	return client3, &client
 }

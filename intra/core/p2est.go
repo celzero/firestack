@@ -66,7 +66,7 @@ func NewP2QuantileEstimator(ctx context.Context, samples int64, probability floa
 		count: 0,
 		addc:  make(chan float64, samples),
 	}
-	go p.run()
+	Gx("p2.est", p.run)
 	return p
 }
 

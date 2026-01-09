@@ -152,9 +152,13 @@ func addrport(ip string, port string) (ipp netip.AddrPort, err error) {
 }
 
 const (
+	// Use among encrypted dns transports wrapped by dnsx.Plus
 	PlusFilterSafest = iota
+	// Use dns transports randomly wrapped by dnsx.Plus
 	PlusOrderRandom
+	// Prefer faster (p50 latency) dns transports wrapped by dnsx.Plus
 	PlusOrderFastest
+	// Prefer working dns transports wrapped by dnsx.Plus
 	PlusOrderRobust
 )
 

@@ -48,7 +48,7 @@ func NewExpiringMapLifetime[P comparable, Q any](ctx context.Context, min time.D
 		lastreap: time.Now(),
 		minlife:  min,
 	}
-	go m.reaper(ctx)
+	Gx1("expm.reaper", m.reaper, ctx)
 	// test: go.dev/play/p/EYq_STKvugb
 	return m
 }

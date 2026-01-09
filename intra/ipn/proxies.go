@@ -809,7 +809,7 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 
 	if idstr(oldViaPx) == idstr(viaPx) {
 		if !dryrun {
-			go origPx.Refresh()
+			core.Gxe("pxr.hop.refresh."+idstr(origPx), origPx.Refresh)
 		}
 		log.I("proxy: hop: %s => %s (no change)", origin, via)
 		return nil // no change
@@ -899,7 +899,7 @@ func (px *proxifier) refreshHopOriginsIfAny(hop Proxy, why string) (n int) {
 	for _, origin := range origins {
 		if p := px.p[origin]; p != nil {
 			n++
-			go p.Refresh()
+			core.Gxe("pxr.hop.refresh."+idstr(p), p.Refresh)
 		}
 	}
 	px.RUnlock()

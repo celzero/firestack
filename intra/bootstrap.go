@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dns53"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/doh"
@@ -233,7 +234,7 @@ func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider) error {
 	}
 
 	if prev := b.tr; prev != nil {
-		go stopTransport(prev) // stop after new transport is ready
+		core.Gx1("dns.bootstrap.stop", stopTransport, prev) // stop after new transport is ready
 		log.I("dns: default: removing %s %s[%s]; using %s %s",
 			b.typ, b.hostname, b.IPPorts(), typstr(tr), ippstr(tr))
 	}

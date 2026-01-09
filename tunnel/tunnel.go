@@ -214,7 +214,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		once:   sync.Once{},
 	}
 
-	go t.waitForEndpoint(ctx)
+	core.Go1("tun.awaiter", t.waitForEndpoint, ctx)
 
 	return
 }

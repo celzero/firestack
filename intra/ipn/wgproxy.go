@@ -1312,7 +1312,7 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 			return
 		}
 		if err == nil {
-			go h.Refresh() // reconnect
+			core.Gxe("wg.hop.refresh."+h.id, h.Refresh) // reconnect
 		}
 	}()
 
@@ -1407,7 +1407,7 @@ func (h *wgproxy) Resume() (resumed bool) {
 	if resumed {
 		h.wgep.Resume()
 	}
-	go h.Refresh() // refresh unconditionally
+	core.Gxe("wg.resume.refresh."+h.id, h.Refresh) // refresh unconditionally
 
 	log.I("wg: %s resumed? %t", h.tag(), resumed)
 

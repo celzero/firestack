@@ -1020,7 +1020,7 @@ func (t *dnsgateway) qs(t2 Transport, uid, network string, msg *dns.Msg, t1res <
 	t2res := make(chan secans, 1)
 	msg = msg.Copy() // to avoid racing against changes made by caller
 
-	go func() {
+	core.Gx("alg.qs."+xdns.QName(msg), func() {
 		defer close(t2res)
 
 		qname := xdns.QName(msg)
@@ -1036,7 +1036,7 @@ func (t *dnsgateway) qs(t2 Transport, uid, network string, msg *dns.Msg, t1res <
 		r.initIfNeeded() // r may be nil value on Grx:timeout
 
 		t2res <- r // may be zero secans
-	}()
+	})
 	return t2res
 }
 

@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -439,6 +440,7 @@ func (h *baseHandler) End() {
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
+	debug.SetPanicOnFault(true)
 	defer core.Recover(core.Exit11, "c.upload."+id)
 	defer core.CloseOp(local, core.CopR)
 	defer core.CloseOp(remote, core.CopW)

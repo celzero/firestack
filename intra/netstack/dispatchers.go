@@ -206,8 +206,6 @@ func (d *readVDispatcher) prepare(f *fds) {
 
 // stop stops the dispatcher once. Safe to call multiple times.
 func (d *readVDispatcher) stop() {
-	defer core.Recover(core.Exit11, "ns.d.stop")
-
 	d.once.Do(func() {
 		d.closed.Store(true)
 		d.mgr.stop()

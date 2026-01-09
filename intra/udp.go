@@ -82,7 +82,7 @@ func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyP
 		mux:         newMuxTable(),
 	}
 
-	go h.processSummaries()
+	core.Gx("udp.ps", h.processSummaries)
 
 	log.I("udp: new handler created")
 	return h

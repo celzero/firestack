@@ -133,8 +133,9 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 		return nil, errAddProxy
 	}
 
+	who := "postAddRpnProxy." + proxyid
 	// TODO: setup hop from mainCountryCode to forked rpn proxies
-	go pxr.refreshHopOriginsIfAny(p, "postAddRpnProxy."+proxyid)
+	core.Gx(who, func() { pxr.refreshHopOriginsIfAny(p, who) })
 
 	return pxr.postAddRpnProxy(p, acc)
 }
@@ -165,7 +166,7 @@ func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) 
 		log.I("proxy: rpn: add: post: registered %s as rpn proxy for %s", proxyid, provider)
 	} else if idstr(p) == idstr(rp) {
 		log.I("proxy: rpn: add: post: %s already registered for %s; emplacing...", proxyid, provider)
-		go rp.Emplace(p) // may fail
+		core.Gx("emplace."+idstr(p), func() { rp.Emplace(p) }) // may fail
 	}
 
 	return p, nil
@@ -182,7 +183,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 
 	defer func() {
 		if err != nil {
-			go pxr.refreshHopOriginsIfAny(p, "addProxy."+id)
+			core.Gx("addProxy.refreshHop"+id, func() { pxr.refreshHopOriginsIfAny(p, "addProxy."+id) })
 		}
 	}()
 
@@ -666,13 +667,13 @@ func healthy(p Proxy) error {
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
 	if lastOKNeverOK || lastOKBeyondThres {
-		go p.onNotOK() // not ok for too long
+		core.Gx("healthy.notOK."+pid, func() { p.onNotOK() }) // not ok for too long
 		return fmt.Errorf("proxy: %s not ok; lastOK: zz? %t / thres? %t",
 			pid, lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
-		go p.onNotOK()
+		core.Gx("healthy.timeout."+pid, func() { p.onNotOK() })
 	} else if p.Status() != TOK {
-		go p.Ping()
+		core.Gx("healthy.TOK."+pid, func() { p.Ping() })
 	}
 
 	return nil // ok

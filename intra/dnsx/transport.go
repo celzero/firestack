@@ -1002,8 +1002,8 @@ func (r *resolver) refreshAll() (string, error) {
 
 	log.I("dns: refresh transports")
 
-	go r.refresh()
-	go dialers.Clear()
+	core.Gx("r.refresh", r.refresh)
+	core.Gx("r.refresh.clearcache", dialers.Clear)
 	s := tr2csv(r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {

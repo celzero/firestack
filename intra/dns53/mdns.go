@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -548,6 +549,7 @@ func (c *client) recv(conn net.PacketConn) {
 		return
 	}
 
+	debug.SetPanicOnFault(true)
 	defer core.Recover(core.DontExit, "mdns.recv")
 
 	bptr := core.Alloc()

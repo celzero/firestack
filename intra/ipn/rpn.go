@@ -491,7 +491,7 @@ func (r *rpnp) flattenKids() (ccs []string) {
 func (r *rpnp) Update() (newState *x.Gobyte, err error) {
 	newState, err = r.RpnAcc.Update()
 	if err == nil {
-		go r.forkAll() // may error
+		core.Gx("rpn.fork."+r.ProviderID(), r.forkAll)
 	}
 	return
 }

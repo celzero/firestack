@@ -67,7 +67,7 @@ func NewFlowFor[T any](ctx context.Context, v *Volatile[T]) *Flow[T] {
 		c:   make(chan T),
 		ctx: ctx,
 	}
-	go f.stream()
+	Gx("core.flow", f.stream)
 	return f
 }
 
@@ -78,7 +78,7 @@ func (f *Flow[T]) stream() {
 		case <-f.ctx.Done():
 			return
 		case v := <-f.c:
-			go func() {
+			Gx("flow.stream", func() {
 				notflowing := make(map[FlowOn[T]]struct{}, 0)
 				for _, o := range f.observers() {
 					if ok := o.flow(v); !ok {
@@ -86,9 +86,9 @@ func (f *Flow[T]) stream() {
 					}
 				}
 				f.removeFinallys(notflowing)
-			}()
+			})
 		case <-time.Tick(3 * time.Hour):
-			go func() {
+			Gx("flow.stream.tick", func() {
 				notflowing := make(map[FlowOn[T]]struct{})
 				for _, o := range f.observers() {
 					if o.obsolete() {
@@ -96,7 +96,7 @@ func (f *Flow[T]) stream() {
 					}
 				}
 				f.removeFinallys(notflowing)
-			}()
+			})
 		}
 	}
 }
@@ -151,7 +151,7 @@ func (f *Flow[T]) On(until context.Context, o FlowFunc[T]) {
 	defer f.fmu.Unlock()
 	on := FlowOn[T]{until, &o}
 	f.o = append(f.o, on)
-	go on.flow(f.v.Load())
+	Gx("flow.on", func() { on.flow(f.v.Load()) })
 }
 
 func (f *Flow[T]) Store(v T) {

@@ -33,7 +33,7 @@ func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.Proxy
 		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, listener),
 	}
 
-	go h.processSummaries()
+	core.Gx("icmp.ps", h.processSummaries)
 
 	log.I("icmp: new handler created")
 	return h
