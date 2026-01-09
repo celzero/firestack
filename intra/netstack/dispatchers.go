@@ -188,7 +188,7 @@ func newReadVDispatcher(f *fds, e *endpoint) (linkDispatcher, error) {
 	d := &readVDispatcher{
 		e:   e,
 		buf: newIovecBuffer(bufcfg),
-		mgr: newSupervisor(e, icmp, f.tun()),
+		mgr: newSupervisor(e, f.tun()),
 	}
 	d.mgr.start()
 
@@ -210,7 +210,6 @@ func (d *readVDispatcher) stop() {
 
 	d.once.Do(func() {
 		d.closed.Store(true)
-		d.icmp.stop()
 		d.mgr.stop()
 		log.I("ns: dispatch: closed!")
 	})
