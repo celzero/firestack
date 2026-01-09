@@ -241,6 +241,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           VCSVER: ${{ steps.runmeta.outputs.vcsver }}
         run: |
+          echo "::notice::Publishing version ${VCSVER} to GitHub Packages"
           # uploaded at:
           # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
           # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
@@ -282,6 +283,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.OSSRH_CELZERO_GPG_PASSPHRASE }}
           VCSVER: ${{ steps.runmeta.outputs.vcsver }}
         run: |
+          echo "::notice::Publishing version ${VCSVER} to Maven Central"
           mvn -f ${POM_OSSRH} versions:set -DnewVersion=${VCSVER} -DgenerateBackupPoms=false
           # central.sonatype.org/publish/publish-portal-ossrh-staging-api/#getting-started-for-maven-api-like-plugins
           # github.com/videolan/vlc-android/blob/c393dd0699/buildsystem/maven/deploy-to-mavencentral.sh#L119
