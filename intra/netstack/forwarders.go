@@ -179,8 +179,8 @@ func (p *processor) deliverPackets() {
 		if pkt != nil {
 			if !p.icmp.respond(pkt) {
 				p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
-				pkt.DecRef()
 			}
+			pkt.DecRef()
 		}
 		p.mu.Lock()
 	}
