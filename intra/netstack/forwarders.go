@@ -177,11 +177,10 @@ func (p *processor) deliverPackets() {
 		pkt := p.pkts.PopFront()
 		p.mu.Unlock()
 		if pkt != nil {
-			if p.icmp.respond(pkt) {
-				return
+			if !p.icmp.respond(pkt) {
+				p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
+				pkt.DecRef()
 			}
-			p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
-			pkt.DecRef()
 		}
 		p.mu.Lock()
 	}
