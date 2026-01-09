@@ -27,6 +27,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -142,6 +143,7 @@ type processor struct {
 
 // start starts the processor goroutine; thread-safe.
 func (p *processor) start(wg *sync.WaitGroup) {
+	debug.SetPanicOnFault(true)
 	// defer core.RecoverFn("ns.forwaders.start", p.e.notifyRestart)
 	defer core.Recover(core.Exit11, "ns.forwarder.start")
 
@@ -169,6 +171,7 @@ func (p *processor) deliverPackets() {
 		code = core.DontExit
 	}
 
+	debug.SetPanicOnFault(true)
 	defer core.Recover(code, "ns.forwarder.deliverPackets")
 
 	p.mu.Lock()
