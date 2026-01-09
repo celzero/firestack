@@ -134,6 +134,7 @@ type processor struct {
 	pkts stack.PacketBufferList
 
 	e           stack.InjectableLinkEndpoint
+	icmp        *icmpResponder
 	sleeper     sleep.Sleeper
 	packetWaker sleep.Waker
 	closeWaker  sleep.Waker
@@ -176,6 +177,9 @@ func (p *processor) deliverPackets() {
 		pkt := p.pkts.PopFront()
 		p.mu.Unlock()
 		if pkt != nil {
+			if p.icmp.respond(pkt) {
+				return
+			}
 			p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
 			pkt.DecRef()
 		}
@@ -191,6 +195,7 @@ func (p *processor) deliverPackets() {
 // goroutines.
 type supervisor struct {
 	processors []processor
+	icmp       *icmpResponder
 	seed       uint32
 	wg         sync.WaitGroup
 	sid        *core.Volatile[int] // tun fd for diagnostics
@@ -199,21 +204,24 @@ type supervisor struct {
 
 // newSupervisor creates a new supervisor for the processors of endpoint e.
 func newSupervisor(e stack.InjectableLinkEndpoint, sid int) *supervisor {
+	icmp := newICMPResponder(e)
+
 	m := &supervisor{
 		seed:       rand.Uint32(),
 		sid:        core.NewVolatile(sid),
 		ready:      make([]bool, maxForwarders),
 		processors: make([]processor, maxForwarders),
+		icmp:       &icmp,
 		wg:         sync.WaitGroup{},
 	}
 
 	m.wg.Add(maxForwarders)
-
 	for i := range m.processors {
 		p := &m.processors[i]
 		p.sleeper.AddWaker(&p.packetWaker)
 		p.sleeper.AddWaker(&p.closeWaker)
 		p.e = e
+		p.icmp = &icmp
 	}
 
 	return m
@@ -314,6 +322,7 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 
 // stop stops all processor goroutines.
 func (m *supervisor) stop() {
+	m.icmp.stop()
 	sid := m.tunid()
 	start := time.Now()
 	log.D("ns: tun(%d): forwarder: stopping %d procs", sid, len(m.processors))

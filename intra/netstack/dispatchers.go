@@ -178,7 +178,6 @@ type readVDispatcher struct {
 	closed atomic.Bool  // closed is set to true when fd is closed.
 	once   sync.Once    // Ensures stop() is called only once.
 	mgr    *supervisor
-	icmp   icmpResponder
 }
 
 var _ linkDispatcher = (*readVDispatcher)(nil)
@@ -187,10 +186,9 @@ var _ linkDispatcher = (*readVDispatcher)(nil)
 // fd and dispatches them to endpoint e. It assumes ownership of fd but not of e.
 func newReadVDispatcher(f *fds, e *endpoint) (linkDispatcher, error) {
 	d := &readVDispatcher{
-		e:    e,
-		buf:  newIovecBuffer(bufcfg),
-		mgr:  newSupervisor(e, f.tun()),
-		icmp: newICMPResponder(e),
+		e:   e,
+		buf: newIovecBuffer(bufcfg),
+		mgr: newSupervisor(e, icmp, f.tun()),
 	}
 	d.mgr.start()
 
@@ -318,12 +316,6 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 		Payload: b,
 	})
 	defer pkt.DecRef()
-
-	if d.icmp.ok() {
-		if d.icmp.respond(pkt) {
-			return cont, nil
-		}
-	}
 
 	var iseth = d.e.hdrSize > 0 // hdrSize always zero; unused
 	if iseth {

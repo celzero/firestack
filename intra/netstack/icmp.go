@@ -44,6 +44,7 @@ func OutboundICMP(id string, s *stack.Stack, hdl GICMPHandler) {
 	forwarder := newIcmpForwarder(id, s, hdl)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber4, forwarder.reply4)
 	s.SetTransportProtocolHandler(icmp.ProtocolNumber6, forwarder.reply6)
+	// TODO: the handler must only be set for the "main" netstack
 	setICMPEchoHandler(forwarder)
 }
 

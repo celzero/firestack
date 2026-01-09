@@ -36,17 +36,16 @@ func setICMPEchoHandler(h *icmpForwarder) {
 // ICMP implementation) to forward the ping and then injects the response back
 // into the TUN device.
 type icmpResponder struct {
-	ep   *endpoint
+	ep   stack.LinkEndpoint
 	open atomic.Bool
 }
 
 func (r *icmpResponder) stop() {
-	r.ep = nil
 	r.open.Store(false)
 }
 
-func newICMPResponder(ep *endpoint) (r icmpResponder) {
-	if ep == nil {
+func newICMPResponder(ep stack.LinkEndpoint) (r icmpResponder) {
+	if ep == nil || core.IsNil(ep) {
 		return
 	}
 	r.ep = ep
@@ -55,7 +54,7 @@ func newICMPResponder(ep *endpoint) (r icmpResponder) {
 }
 
 func (r *icmpResponder) ok() bool {
-	return r != nil && r.open.Load() && r.ep != nil
+	return r != nil && r.open.Load()
 }
 
 func (r *icmpResponder) respond(pkt *stack.PacketBuffer) (handled bool) {
