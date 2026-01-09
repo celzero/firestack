@@ -146,7 +146,7 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 		return r.forward(h, pkt, src, dst)
 	} else {
 		// Process asynchronously to avoid blocking the dispatcher loop.
-		core.Go("icmp.responder", func() {
+		core.Gx("icmp.responder", func() {
 			r.process(h, nic, parsed, src, dst)
 		})
 	}
