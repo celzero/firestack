@@ -276,6 +276,21 @@ func Await(f func(), until time.Duration) (awaited bool) {
 	}
 }
 
+func Await1[T any](f func() T, until time.Duration) (v T, gotV bool) {
+	done := make(chan struct{})
+	Go("await", func() {
+		defer close(done)
+		v = f()
+	})
+
+	select {
+	case <-time.After(until):
+		return v, false
+	case <-done:
+		return v, true
+	}
+}
+
 func EitherOr(either <-chan struct{}, or Callback, until time.Duration) (esc bool) {
 	select {
 	case <-time.Tick(until):

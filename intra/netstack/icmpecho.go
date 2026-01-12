@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sync/atomic"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/core/wire"
@@ -164,7 +165,7 @@ func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, 
 	remote := src.Addr().AsSlice()
 
 	notok := len(local) == 0 || len(remote) == 0
-	logwv(notok)("icmp: responder: forward: (sz: %d) empty addr; %s => %s", pkt.Size(), src, dst)
+	logwv(notok)("icmp: responder: forward: (sz: %d) empty addr? %s => %s", pkt.Size(), src, dst)
 	if notok {
 		return false
 	}
@@ -176,11 +177,11 @@ func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, 
 
 	switch pkt.NetworkProtocolNumber {
 	case header.IPv4ProtocolNumber:
-		core.Gx("icmpecho.reply4", func() { h.reply4(id, pkt) })
-		return true
+		v, got := core.Await1(func() bool { defer pkt.DecRef(); return h.reply4(id, pkt.IncRef()) }, 3*time.Second)
+		return got && v
 	case header.IPv6ProtocolNumber:
-		core.Gx("icmpecho.reply6", func() { h.reply6(id, pkt) })
-		return true
+		v, got := core.Await1(func() bool { defer pkt.DecRef(); return h.reply6(id, pkt.IncRef()) }, 3*time.Second)
+		return got && v
 	}
 
 	log.W("icmp: responder: unsupported proto: %d; %s => %s",

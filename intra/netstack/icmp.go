@@ -62,23 +62,29 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		log.VV("icmp: v4: %s: packet? %v", f.o, pkt)
 	}
 
-	if pkt == nil {
-		log.E("icmp: v4: %s: nil packet", f.o)
+	if pkt == nil || pkt.Size() <= 0 {
+		log.E("icmp: v4: %s: nil packet (%t) or size 0", f.o, pkt == nil)
 		return // not handled
 	}
 
 	src := remoteAddrPort(id)
 	dst := localAddrPort(id)
 
+	l4hdr := pkt.TransportHeader().Slice()
+	l3hdr := pkt.NetworkHeader().Slice()
+	if len(l4hdr) < header.ICMPv4MinimumSize || len(l3hdr) < header.IPv4MinimumSize {
+		log.E("icmp: v4: %s: invalid packet size; l4hdr: %d / l3hdr:  %d", f.o, len(l4hdr), len(l3hdr))
+		return // not handled
+	}
+
 	// ref: github.com/google/gvisor/blob/acf460d0d735/pkg/tcpip/stack/conntrack.go#L933
-	hdr := header.ICMPv4(pkt.TransportHeader().Slice())
+	hdr := header.ICMPv4(l4hdr)
 	if hdr.Type() != header.ICMPv4Echo {
 		// netstack handles other msgs except echo / ping
 		log.D("icmp: v4: %s: type %v passthrough", f.o, hdr.Type())
 		return // not handled
 	}
-	ipHdr := header.IPv4(pkt.NetworkHeader().Slice())
-
+	ipHdr := header.IPv4(l3hdr)
 	replyData := stack.PayloadSince(pkt.TransportHeader())
 	localAddressBroadcast := pkt.NetworkPacketInfo.LocalAddressBroadcast
 
@@ -93,8 +99,9 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 
 	l3 := pkt.Network() // same as ipHdr; l3.Dst == id.LocalAddr and l3.Src == id.RemoteAddr
 	route, err := f.s.FindRoute(pkt.NICID, localAddr, l3.SourceAddress(), pkt.NetworkProtocolNumber, false /* multicastLoop */)
-	if err != nil {
-		log.W("icmp: v4: %s: no route on %v to %s <= %s", f.o, pkt.NICID, l3.DestinationAddress(), l3.SourceAddress())
+	if err != nil || replyData.Size() <= 0 {
+		log.W("icmp: v4: %s: no route on %v to %s <= %s; sz: (l3hdr: %d / l4hdr: %d / payload: %d)",
+			f.o, pkt.NICID, l3.DestinationAddress(), l3.SourceAddress(), len(l3hdr), len(l4hdr), replyData.Size())
 		return // not handled
 	}
 
@@ -165,7 +172,13 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		return // not handled
 	}
 
-	hdr := header.ICMPv6(pkt.TransportHeader().Slice())
+	l4hdr := pkt.TransportHeader().Slice()
+	if len(l4hdr) < header.ICMPv6MinimumSize {
+		log.E("icmp: v6: %s: invalid packet size; l4hdr: %d", f.o, len(l4hdr))
+		return // not handled
+	}
+
+	hdr := header.ICMPv6(l4hdr)
 	if hdr.Type() != header.ICMPv6EchoRequest {
 		log.D("icmp: v6: %s: type %v/%v passthrough", f.o, hdr.Type(), hdr.Code())
 		return // netstack to handle other msgs except echo / ping
@@ -182,14 +195,14 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 	dst := localAddrPort(id)
 	// github.com/google/gvisor/blob/9b4a7aa00/pkg/tcpip/network/ipv6/icmp.go#L1180
 	data, derr := l4l7(pkt, route.MTU())
-	if derr != nil {
-		log.E("icmp: v6: %s: err getting payload: %v", f.o, derr)
+	if derr != nil || len(data) <= 0 {
+		log.E("icmp: v6: %s: payload (sz: %d) err: %v", f.o, len(data), derr)
 		return // not handled
 	}
 
 	if settings.Debug {
-		log.D("icmp: v6: %s: type %v/%v sz[%d] from src(%v) => dst(%v)",
-			f.o, hdr.Type(), hdr.Code(), len(data), src, dst)
+		log.D("icmp: v6: %s: type %v/%v sz[l4: %d / payload: %d] from src(%v) => dst(%v)",
+			f.o, hdr.Type(), hdr.Code(), len(l4hdr), len(data), src, dst)
 	}
 
 	// always forward in a goroutine to avoid blocking netstack
