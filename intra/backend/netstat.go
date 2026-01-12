@@ -228,6 +228,10 @@ type GoStat struct {
 	NumGoroutine int64 // number of goroutines
 	NumCgo       int64 // number of cgo calls
 	NumCPU       int64 // number of CPUs
+
+	Pers string // personality
+	Args string // command line arguments
+	Env  string // environment variables
 }
 
 // NetStat is a collection of network engine statistics.

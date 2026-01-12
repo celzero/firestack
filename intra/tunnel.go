@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -516,6 +517,10 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.GOSt.NumGoroutine = int64(runtime.NumGoroutine())
 	out.GOSt.NumCgo = int64(runtime.NumCgoCall())
 	out.GOSt.NumCPU = int64(runtime.NumCPU())
+
+	out.GOSt.Args = strings.Join(os.Args, ";")
+	out.GOSt.Env = strings.Join(os.Environ(), ";")
+	out.GOSt.Pers, _ = os.Executable()
 
 	if r := t.resolver; r != nil {
 		out.RDNSIn.DNSPreferred = fetchDNSInfo(r, x.Preferred)
