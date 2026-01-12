@@ -117,7 +117,9 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	h.conntracker.Track(cid, uid, pidstr(px), uc)
 	defer h.conntracker.Untrack(cid)
 
-	h.listener.PostFlow(smm.postMark())
+	awaited := core.Await(func() {
+		h.listener.PostFlow(smm.postMark())
+	}, onFlowTimeout)
 
 	tx = len(msg)
 	// todo: construct ICMP header? github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L717
@@ -125,8 +127,9 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	rx = len(reply)
 	rtt = time.Since(rttstart)
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	logev(err)("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); err? %v",
-		source, from, dst, tx, rx, core.FmtPeriod(rtt), err)
+	logev(err)("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); postflow? %t; err? %v",
+		source, from, dst, tx, rx, core.FmtPeriod(rtt), awaited, err)
 
-	return true // echoed; even if err != nil
+	// TODO: on timeout errs, return false?
+	return true // echoed
 }
