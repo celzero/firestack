@@ -162,8 +162,10 @@ func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, 
 	// and netstack/icmp/icmp.go:func (h *icmpForwarder) reply6
 	local := dst.Addr().AsSlice()
 	remote := src.Addr().AsSlice()
-	if len(local) == 0 || len(remote) == 0 {
-		log.W("icmp: responder: forward: (sz: %d) empty addr; %s => %s", pkt.Size(), src, dst)
+
+	notok := len(local) == 0 || len(remote) == 0
+	logwv(notok)("icmp: responder: forward: (sz: %d) empty addr; %s => %s", pkt.Size(), src, dst)
+	if notok {
 		return false
 	}
 
@@ -174,9 +176,11 @@ func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, 
 
 	switch pkt.NetworkProtocolNumber {
 	case header.IPv4ProtocolNumber:
-		return h.reply4(id, pkt)
+		core.Gx("icmpecho.reply4", func() { h.reply4(id, pkt) })
+		return true
 	case header.IPv6ProtocolNumber:
-		return h.reply6(id, pkt)
+		core.Gx("icmpecho.reply6", func() { h.reply6(id, pkt) })
+		return true
 	}
 
 	log.W("icmp: responder: unsupported proto: %d; %s => %s",

@@ -27,7 +27,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
-	"runtime/debug"
 	"sync"
 	"time"
 
@@ -143,10 +142,6 @@ type processor struct {
 
 // start starts the processor goroutine; thread-safe.
 func (p *processor) start(wg *sync.WaitGroup) {
-	debug.SetPanicOnFault(true)
-	// defer core.RecoverFn("ns.forwaders.start", p.e.notifyRestart)
-	defer core.Recover(core.Exit11, "ns.forwarder.start")
-
 	defer wg.Done()
 	defer p.sleeper.Done()
 	for {
@@ -166,13 +161,9 @@ func (p *processor) start(wg *sync.WaitGroup) {
 // deliverPackets delivers packets to the endpoint; thread-safe.
 func (p *processor) deliverPackets() {
 	testpanic := settings.PanicAtRandom.Load() && rand10pc()
-	code := core.Exit11
 	if testpanic {
-		code = core.DontExit
+		defer core.Recover(core.DontExit, "ns.forwarder.deliverPackets")
 	}
-
-	debug.SetPanicOnFault(true)
-	defer core.Recover(code, "ns.forwarder.deliverPackets")
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -317,9 +308,8 @@ func (m *supervisor) queuePacket(pkt *stack.PacketBuffer, hasEthHeader bool) {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	pkt.IncRef()
-	p.pkts.PushBack(pkt) // enqueue.
-	m.ready[pIdx] = true // ready to deliver enqueued packets.
+	p.pkts.PushBack(pkt.IncRef()) // enqueue.
+	m.ready[pIdx] = true          // ready to deliver enqueued packets.
 }
 
 // stop stops all processor goroutines.
