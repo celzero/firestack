@@ -17,9 +17,10 @@ import (
 )
 
 const minICMPPacketSize = header.ICMPv4MinimumSize + header.IPv4MinimumSize
-const typicalICMPEchoPayloadSize = 64 // or 56
-const expectedICMPPacketSize = header.IPv6MinimumSize + header.ICMPv6MinimumSize + typicalICMPEchoPayloadSize
 const useIcmpForwarder = true
+
+// const typicalICMPEchoPayloadSize = 64 // or 56
+// const expectedICMPPacketSize = header.IPv6MinimumSize + header.ICMPv6MinimumSize + typicalICMPEchoPayloadSize
 
 // TODO: get rid of the global in favor of passing the handler via the responder.
 // hdlEcho stores the ICMP handler used by the dispatcher-level ICMP
