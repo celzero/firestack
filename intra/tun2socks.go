@@ -118,18 +118,15 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	// github.com/golang/go/blob/fed3b0a298/src/runtime/runtime1.go#L586
 	// gomobile builds a c-shared gojnilib:
 	// github.com/golang/mobile/blob/2553ed8ce2/cmd/gomobile/bind_androidapp.go#L393
-	prevtraceback := os.Getenv("GOTRACEBACK")
+	envtraceback := os.Getenv("GOTRACEBACK")
 	if settings.Debug {
-		os.Setenv("GOTRACEBACK", sys.s())
 		debug.SetTraceback(sys.s())
 	} else {
-		os.Setenv("GOTRACEBACK", usr.s())
 		debug.SetTraceback(usr.s())
 	}
-	curtraceback := os.Getenv("GOTRACEBACK")
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s",
-		dlvl, clvl, dbg, prevtraceback, curtraceback)
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s",
+		dlvl, clvl, dbg, envtraceback)
 }
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,
