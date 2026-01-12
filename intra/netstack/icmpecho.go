@@ -17,7 +17,6 @@ import (
 )
 
 const minICMPPacketSize = header.ICMPv4MinimumSize + header.IPv4MinimumSize
-const useIcmpForwarder = true
 
 // const typicalICMPEchoPayloadSize = 64 // or 56
 // const expectedICMPPacketSize = header.IPv6MinimumSize + header.ICMPv6MinimumSize + typicalICMPEchoPayloadSize
@@ -84,6 +83,8 @@ func (r *icmpResponder) handle(h *icmpForwarder, nic tcpip.NICID, pkt *stack.Pac
 		// Too small to be a valid ICMP echo request.
 		return
 	}
+
+	useIcmpForwarder := settings.ExperimentalWireGuard.Load()
 
 	c := pkt.Clone()
 	defer c.DecRef()
