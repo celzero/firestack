@@ -6,7 +6,10 @@
 
 package core
 
-import _ "unsafe" // required for go:linkname
+import (
+	"syscall"
+	_ "unsafe"
+) // required for go:linkname
 
 //go:linkname runtimeGoTraceback gotraceback
 func runtimeGoTraceback() (level int32, all, crash bool)
@@ -16,13 +19,10 @@ func GoTraceback() (level int32, all, crash bool) {
 	return runtimeGoTraceback()
 }
 
-//go:linkname runtimeEnviron runtime.environ
-func runtimeEnviron() []string
-
 // RuntimeEnviron returns the Go runtime's cached environment slice.
 //
 // Warning: building with this file enabled requires disabling the linker's
 // linkname checks: `-ldflags=-checklinkname=0`.
 func RuntimeEnviron() []string {
-	return runtimeEnviron()
+	return syscall.Environ()
 }
