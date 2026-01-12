@@ -62,14 +62,14 @@ func (r *icmpResponder) respond(pkt *stack.PacketBuffer) (handled bool) {
 	if !r.ok() {
 		return
 	}
-	defer pkt.DecRef()
-
-	return r.handle(pkt.NICID, pkt.IncRef())
+	return r.handle(pkt.NICID, pkt.Clone())
 }
 
 // handle returns true if the packet is ICMP and is handled (or dropped) by the
 // bypass path.
 func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handled bool) {
+	defer pkt.DecRef()
+
 	if !r.ok() {
 		return
 	}
@@ -81,25 +81,23 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 		return
 	}
 
-	b := pkt.ToBuffer()
+	v := pkt.ToView()
+	b := v.ToSlice()
 	h := hdlEcho.Load()
-	var w core.ByteWriter
-	defer w.Close()
-	// lightweight determine if b is ICMP echo request
-	// flatten is expensive, so we avoid it if possible
-	n, err := b.ReadToWriter(&w, expectedICMPPacketSize)
+	n := len(b)
 
-	if settings.Debug {
-		logeif(err)("icmp: responder: read to writer (sz: %d / %d / %d); h? %t / fwd? %t, err? %v",
-			n, w.Len(), inSize, h != nil, useIcmpForwarder, err)
+	notok := n <= 0 || h == nil
+	if settings.Debug || notok {
+		logwv(notok)("icmp: responder: read to writer (sz: %d / %d / %d); h? %t / fwd? %t",
+			n, v.Size(), inSize, h != nil, useIcmpForwarder)
 	}
-	if err != nil || n == 0 || h == nil || w.Len() == 0 {
+	if notok {
 		return
 	}
 
-	truncated := inSize > w.Len()
+	truncated := false
 	parsed := wire.Pool.Get()
-	parsed.DecodeTrunc(w.Copy(), truncated)
+	parsed.DecodeTrunc(b, truncated)
 
 	// Only echo requests are handled; other ICMP packets are dropped to avoid
 	// feeding them back into netstack.
@@ -123,14 +121,6 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 	if !has {
 		wire.Pool.Put(parsed)
 		return
-	}
-
-	if truncated {
-		// There is more data beyond the minimum ICMP echo request.
-		// Reconstruct the full packet.
-		w.Reset()
-		b.ReadToWriter(&w, int64(inSize))
-		parsed.Decode(w.Copy())
 	}
 
 	if !parsed.IsEchoRequest() {
