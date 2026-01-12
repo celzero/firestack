@@ -63,14 +63,12 @@ func (r *icmpResponder) respond(pkt *stack.PacketBuffer) (handled bool) {
 	if !r.ok() {
 		return
 	}
-	return r.handle(pkt.NICID, pkt.Clone())
+	return r.handle(pkt.NICID, pkt)
 }
 
 // handle returns true if the packet is ICMP and is handled (or dropped) by the
 // bypass path.
 func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handled bool) {
-	defer pkt.DecRef()
-
 	if !r.ok() {
 		return
 	}
@@ -82,7 +80,10 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 		return
 	}
 
-	v := pkt.ToView()
+	c := pkt.Clone()
+	defer c.DecRef()
+
+	v := c.ToView()
 	b := v.ToSlice()
 	h := hdlEcho.Load()
 	n := len(b)
@@ -96,9 +97,8 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 		return
 	}
 
-	truncated := false
 	parsed := wire.Pool.Get()
-	parsed.DecodeTrunc(b, truncated)
+	parsed.Decode(b)
 
 	// Only echo requests are handled; other ICMP packets are dropped to avoid
 	// feeding them back into netstack.
@@ -116,8 +116,8 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 	dst := parsed.Dst
 	has := parsed.HasTransportData()
 
-	logwv(!has)("icmp: responder: request ipv%d; %s => %s; h: %s; trunc? %t, ok? %t",
-		parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), truncated, has)
+	logwv(!has)("icmp: responder: request ipv%d; %s => %s; h: %s; ok? %t",
+		parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), has)
 
 	if !has {
 		wire.Pool.Put(parsed)
@@ -126,8 +126,8 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 
 	if !parsed.IsEchoRequest() {
 		if settings.Debug {
-			log.VV("icmp: responder: not echo request ipv%d (trunc? %t); %s => %s; h: %s; %x",
-				parsed.IPVersion, truncated, src, dst, parsed.ICMPHeaderString(), parsed.Buffer())
+			log.VV("icmp: responder: not echo request ipv%d; %s => %s; h: %s; %x",
+				parsed.IPVersion, src, dst, parsed.ICMPHeaderString(), parsed.Buffer())
 		}
 		wire.Pool.Put(parsed)
 		return
@@ -147,7 +147,7 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 }
 
 func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, dst netip.AddrPort) bool {
-	pkt.IncRef()
+	pkt = pkt.Clone()
 	defer pkt.DecRef()
 
 	// local is dst / remote is src; see: netstack/icmp/icmp.go:func (h *icmpForwarder) reply4
