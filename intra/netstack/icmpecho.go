@@ -68,16 +68,6 @@ func (r *icmpResponder) respond(pkt *stack.PacketBuffer) (handled bool) {
 		log.E("icmp: responder: no handler")
 		return
 	}
-	if useIcmpForwarder {
-		var id stack.TransportEndpointID
-		id.LocalAddress = pkt.Network().SourceAddress()
-		id.RemoteAddress = pkt.Network().DestinationAddress()
-		if settings.Debug {
-			log.VV("icmp: responder: forward (sz: %d); src %s => dst %s",
-				pkt.Size(), id.RemoteAddress, id.LocalAddress)
-		}
-		return icmpForward2(h, pkt, id)
-	}
 	return r.handle(h, pkt.NICID, pkt)
 }
 
@@ -217,7 +207,7 @@ func (r *icmpResponder) process(h *icmpForwarder, nic tcpip.NICID, pkt *wire.Par
 
 	pinged := h.h.Ping(icmpMsg, src, dst)
 
-	resp, proto, tag, err := r.echoReply(pkt, payload, pinged)
+	resp, proto, l4proto, tag, err := r.echoReply(pkt, payload, pinged)
 	notok = err != nil || len(resp) == 0
 
 	if notok || settings.Debug {
@@ -229,10 +219,10 @@ func (r *icmpResponder) process(h *icmpForwarder, nic tcpip.NICID, pkt *wire.Par
 		return
 	}
 
-	r.inject(nic, proto, resp)
+	r.inject(nic, proto, l4proto, resp)
 }
 
-func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, string, error) {
+func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, tcpip.NetworkProtocolNumber, tcpip.TransportProtocolNumber, string, error) {
 	// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/netstack/netstack.go#L1201-L1212
 	switch pkt.IPVersion {
 	case 4:
@@ -243,7 +233,7 @@ func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, 
 			(&icmpHdr).Code = wire.ICMP4HostUnreachable
 		}
 		tag := icmpHdr.Stringer()
-		return wire.Generate(&icmpHdr, d), header.IPv4ProtocolNumber, tag, nil
+		return wire.Generate(&icmpHdr, d), header.IPv4ProtocolNumber, header.ICMPv4ProtocolNumber, tag, nil
 	case 6:
 		icmpHdr := pkt.ICMP6Header()
 		(&icmpHdr).ToResponse()
@@ -253,13 +243,13 @@ func (r *icmpResponder) echoReply(pkt *wire.Parsed, d []byte, ok bool) ([]byte, 
 		}
 		tag := icmpHdr.Stringer()
 		// github.com/tailscale/tailscale/blob/7de1b0b33082cc/wgengine/userspace.go#L577
-		return wire.Generate(&icmpHdr, d), header.IPv6ProtocolNumber, tag, nil
+		return wire.Generate(&icmpHdr, d), header.IPv6ProtocolNumber, header.ICMPv6ProtocolNumber, tag, nil
 	default:
-		return nil, 0, "<nil>", fmt.Errorf("unsupported ip version: %d", pkt.IPVersion)
+		return nil, 0, 0, "<nil>", fmt.Errorf("unsupported ip version: %d", pkt.IPVersion)
 	}
 }
 
-func (r *icmpResponder) inject(nic tcpip.NICID, proto tcpip.NetworkProtocolNumber, packet []byte) {
+func (r *icmpResponder) inject(nic tcpip.NICID, proto tcpip.NetworkProtocolNumber, l4proto tcpip.TransportProtocolNumber, packet []byte) {
 	ep := r.ep
 	if ep == nil || !r.ok() {
 		return
@@ -269,11 +259,12 @@ func (r *icmpResponder) inject(nic tcpip.NICID, proto tcpip.NetworkProtocolNumbe
 		Payload: buffer.MakeWithData(packet),
 	})
 	pkt.NICID = nic
-	defer pkt.DecRef()
-
 	pkt.NetworkProtocolNumber = proto
+	pkt.TransportProtocolNumber = l4proto
+
 	var list stack.PacketBufferList
 	list.PushBack(pkt)
+	defer list.DecRef()
 
 	sz := pkt.Size()
 	n, err := ep.WritePackets(list)

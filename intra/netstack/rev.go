@@ -73,13 +73,13 @@ func NewReverseGConnHandler(pctx context.Context, to *stack.Stack, of tcpip.NICI
 		udp:  newReverseUDP(id, to, of, ifaddrs, via.UDP()),
 		icmp: newReverseICMP(id, to, ep, via.ICMP()),
 	}
-	log.I("rev: %s: newReverseGConnHandler %d @ %d on %s", id, of, core.Loc(to), ifaddrs)
+	log.I("rev: %s: newReverseGConnHandler %d @ %d on %v", id, of, core.Loc(to), ifaddrs)
 	context.AfterFunc(pctx, h.end)
 	return h
 }
 
 func newReverseTCP(id string, s *stack.Stack, nic tcpip.NICID, ifaddrs revip, h GTCPConnHandler) *revtcp {
-	log.I("rev: %s: nic %d newReverseTCP %s", id, nic, ifaddrs)
+	log.I("rev: %s: nic %d newReverseTCP %v", id, nic, ifaddrs)
 	return &revtcp{
 		revbase:  &revbase[*GTCPConn]{o: id},
 		revip:    ifaddrs,
@@ -89,7 +89,7 @@ func newReverseTCP(id string, s *stack.Stack, nic tcpip.NICID, ifaddrs revip, h 
 }
 
 func newReverseUDP(id string, s *stack.Stack, nic tcpip.NICID, ifaddrs revip, h GUDPConnHandler) *revudp {
-	log.I("rev: %s: nic %d newReverseUDP %s", id, nic, ifaddrs)
+	log.I("rev: %s: nic %d newReverseUDP %v", id, nic, ifaddrs)
 	return &revudp{
 		revbase:  &revbase[*GUDPConn]{o: id},
 		revip:    ifaddrs,
