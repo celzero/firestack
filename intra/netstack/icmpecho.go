@@ -63,12 +63,27 @@ func (r *icmpResponder) respond(pkt *stack.PacketBuffer) (handled bool) {
 	if !r.ok() {
 		return
 	}
-	return r.handle(pkt.NICID, pkt)
+	h := hdlEcho.Load()
+	if h == nil {
+		log.E("icmp: responder: no handler")
+		return
+	}
+	if useIcmpForwarder {
+		var id stack.TransportEndpointID
+		id.LocalAddress = pkt.Network().SourceAddress()
+		id.RemoteAddress = pkt.Network().DestinationAddress()
+		if settings.Debug {
+			log.VV("icmp: responder: forward (sz: %d); src %s => dst %s",
+				pkt.Size(), id.RemoteAddress, id.LocalAddress)
+		}
+		return icmpForward2(h, pkt, id)
+	}
+	return r.handle(h, pkt.NICID, pkt)
 }
 
 // handle returns true if the packet is ICMP and is handled (or dropped) by the
 // bypass path.
-func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handled bool) {
+func (r *icmpResponder) handle(h *icmpForwarder, nic tcpip.NICID, pkt *stack.PacketBuffer) (handled bool) {
 	if !r.ok() {
 		return
 	}
@@ -85,7 +100,6 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 
 	v := c.ToView()
 	b := v.ToSlice()
-	h := hdlEcho.Load()
 	n := len(b)
 
 	notok := n <= 0 || h == nil
@@ -111,7 +125,6 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 		return
 	}
 
-	// Capture fields before spawning the goroutine.
 	src := parsed.Src
 	dst := parsed.Dst
 	has := parsed.HasTransportData()
@@ -135,7 +148,7 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 
 	if useIcmpForwarder {
 		wire.Pool.Put(parsed)
-		return r.forward(h, pkt, src, dst)
+		return icmpForward(h, pkt, src, dst)
 	} else {
 		// Process asynchronously to avoid blocking the dispatcher loop.
 		core.Gx("icmp.responder", func() {
@@ -146,10 +159,7 @@ func (r *icmpResponder) handle(nic tcpip.NICID, pkt *stack.PacketBuffer) (handle
 	return true
 }
 
-func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, dst netip.AddrPort) bool {
-	pkt = pkt.Clone()
-	defer pkt.DecRef()
-
+func icmpForward(h *icmpForwarder, pkt *stack.PacketBuffer, src, dst netip.AddrPort) bool {
 	// local is dst / remote is src; see: netstack/icmp/icmp.go:func (h *icmpForwarder) reply4
 	// and netstack/icmp/icmp.go:func (h *icmpForwarder) reply6
 	local := dst.Addr().AsSlice()
@@ -166,17 +176,24 @@ func (r *icmpResponder) forward(h *icmpForwarder, pkt *stack.PacketBuffer, src, 
 	id.RemoteAddress = tcpip.AddrFromSlice(remote)
 	// ICMP does not use ports, so they remain zero.
 
+	return icmpForward2(h, pkt, id)
+}
+
+func icmpForward2(h *icmpForwarder, pkt *stack.PacketBuffer, id stack.TransportEndpointID) bool {
+	pkt = pkt.Clone()
+	defer pkt.DecRef()
+
 	switch pkt.NetworkProtocolNumber {
 	case header.IPv4ProtocolNumber:
-		v, got := core.Await1(func() bool { defer pkt.DecRef(); return h.reply4(id, pkt.IncRef()) }, 3*time.Second)
+		v, got := core.Await1(func() bool { defer pkt.DecRef(); return h.reply4(id, pkt.IncRef()) }, 5*time.Second)
 		return got && v
 	case header.IPv6ProtocolNumber:
-		v, got := core.Await1(func() bool { defer pkt.DecRef(); return h.reply6(id, pkt.IncRef()) }, 3*time.Second)
+		v, got := core.Await1(func() bool { defer pkt.DecRef(); return h.reply6(id, pkt.IncRef()) }, 5*time.Second)
 		return got && v
 	}
 
 	log.W("icmp: responder: unsupported proto: %d; %s => %s",
-		pkt.NetworkProtocolNumber, src, dst)
+		pkt.NetworkProtocolNumber, id.RemoteAddress, id.LocalAddress)
 	return false
 }
 

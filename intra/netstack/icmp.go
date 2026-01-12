@@ -73,7 +73,7 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 	l4hdr := pkt.TransportHeader().Slice()
 	l3hdr := pkt.NetworkHeader().Slice()
 	if len(l4hdr) < header.ICMPv4MinimumSize || len(l3hdr) < header.IPv4MinimumSize {
-		log.E("icmp: v4: %s: invalid packet size; l4hdr: %d / l3hdr:  %d", f.o, len(l4hdr), len(l3hdr))
+		log.E("icmp: v4: %s: invalid packet size %d; l4hdr: %d / l3hdr:  %d", f.o, pkt.Size(), len(l4hdr), len(l3hdr))
 		return // not handled
 	}
 
@@ -167,14 +167,14 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 		log.VV("icmp: v6: %s: packet? %v", f.o, pkt)
 	}
 
-	if pkt == nil {
-		log.E("icmp: v6: %s: nil packet", f.o)
+	if pkt == nil || pkt.Size() <= 0 {
+		log.E("icmp: v6: %s: nil packet (%t) or sz <= 0", f.o, pkt == nil)
 		return // not handled
 	}
 
 	l4hdr := pkt.TransportHeader().Slice()
 	if len(l4hdr) < header.ICMPv6MinimumSize {
-		log.E("icmp: v6: %s: invalid packet size; l4hdr: %d", f.o, len(l4hdr))
+		log.E("icmp: v6: %s: invalid packet size %d; l4hdr: %d", f.o, pkt.Size(), len(l4hdr))
 		return // not handled
 	}
 
