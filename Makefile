@@ -10,7 +10,7 @@ XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 # github.com/xjasonlyu/tun2socks/blob/bf745d0e0/Makefile#L14
 LDFLAGS_DEBUG='-buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 LDFLAGS='-w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
-CGO_LDFLAGS="$(CGO_LDFLAGS) -s -w -Wl,-z,max-page-size=16384"
+CGO_LDFLAGS="$(CGO_LDFLAGS) -checklinkname=0 -s -w -Wl,-z,max-page-size=16384"
 
 # github.com/golang/mobile/blob/a1d90793fc/cmd/gomobile/bind.go#L36
 GOBIND=bind -trimpath -v -x -a -javapkg com.celzero.firestack
