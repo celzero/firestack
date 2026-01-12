@@ -114,6 +114,10 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	log.SetConsoleLevel(clvl)
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	settings.Debug = dbg
+	// traceback is always set to "crash" for c-shared / c-archive buildmodes
+	// github.com/golang/go/blob/fed3b0a298/src/runtime/runtime1.go#L586
+	// gomobile builds a c-shared gojnilib:
+	// github.com/golang/mobile/blob/2553ed8ce2/cmd/gomobile/bind_androidapp.go#L393
 	prevtraceback := os.Getenv("GOTRACEBACK")
 	if settings.Debug {
 		os.Setenv("GOTRACEBACK", sys.s())
