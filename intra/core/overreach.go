@@ -8,7 +8,7 @@ package core
 
 import _ "unsafe" // required for go:linkname
 
-//go:linkname runtimeGoTraceback runtime.gotraceback
+//go:linkname runtimeGoTraceback gotraceback
 func runtimeGoTraceback() (level int32, all, crash bool)
 
 // GoTraceback returns the Go runtime's current traceback settings.
