@@ -221,7 +221,8 @@ const similarTraceThreshold = 8
 const similarUsrMsgThreshold = 3
 
 // charsPerLine is max no. of characters per log line.
-const charsPerLine = 600
+// less than 1024: github.com/golang/mobile/blob/2553ed8ce2/internal/mobileinit/mobileinit_android.go#L52
+const charsPerLine = 800
 
 // spamMsgThreshold is the min. no. of spammy msgs to report.
 var spammsgThreshold = [NONE + 1]uint32{
