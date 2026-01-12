@@ -518,8 +518,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.GOSt.NumCgo = int64(runtime.NumCgoCall())
 	out.GOSt.NumCPU = int64(runtime.NumCPU())
 
-	level, all, crash := core.GoTraceback()
-	out.GOSt.Args = fmt.Sprintf("%d;%t;%t", level, all, crash)
+	out.GOSt.Args = strings.Join(os.Args, ";")
 	out.GOSt.Env = strings.Join(core.RuntimeEnviron(), ";")
 	out.GOSt.Pers, _ = os.Executable()
 
