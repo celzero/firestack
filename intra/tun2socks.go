@@ -114,6 +114,7 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	log.SetConsoleLevel(clvl)
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	settings.Debug = dbg
+	prevtraceback := os.Getenv("GOTRACEBACK")
 	if settings.Debug {
 		os.Setenv("GOTRACEBACK", sys.s())
 		debug.SetTraceback(sys.s())
@@ -121,9 +122,10 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 		os.Setenv("GOTRACEBACK", usr.s())
 		debug.SetTraceback(usr.s())
 	}
+	curtraceback := os.Getenv("GOTRACEBACK")
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t",
-		dlvl, clvl, dbg)
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s",
+		dlvl, clvl, dbg, prevtraceback, curtraceback)
 }
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,
