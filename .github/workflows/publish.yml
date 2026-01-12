@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "Workflow run id that produced build artifacts"
+        description: "Workflow URL or Run ID that produced build artifacts"
         required: true
         type: string
       verify_attestation:
@@ -87,10 +87,24 @@ jobs:
       - name: 📀 Metadata
         id: runmeta
         env:
+          RUN_ID_OG: ${{ env.RUN_ID }}
           RUN_ID: ${{ env.RUN_ID }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Allow RUN_ID to be passed as a full GitHub Actions run URL.
+          # Example: https://github.com/celzero/firestack/actions/runs/20923345284
+          RUN_ID="${RUN_ID%%\?*}"   # strip query
+          RUN_ID="${RUN_ID%%\#*}"   # strip fragment
+          RUN_ID="${RUN_ID%/}"      # strip trailing slash
+          case "$RUN_ID" in
+            *github.com/*/actions/runs/*)
+              RUN_ID="${RUN_ID##*/}"
+              ;;
+          esac
+          echo "::notice::Using Run ID: $RUN_ID (in: $RUN_ID_OG)"
+          # Export normalized run id for later steps.
+          printf 'run_id=%s\n' "$RUN_ID" >> "$GITHUB_OUTPUT"
           if [ -n "${VCSVER_INPUT:-}" ]; then
             printf 'vcsver=%s\n' "${VCSVER_INPUT}" >> "$GITHUB_OUTPUT"
             exit 0
@@ -111,7 +125,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: ${{ env.ARTIFACT_PATTERN }}
-          run-id: ${{ env.RUN_ID }}
+          run-id: ${{ steps.runmeta.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ env.DIST_DIR }}
 
@@ -120,7 +134,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: ${{ env.SBOM_PATTERN }}
-          run-id: ${{ env.RUN_ID }}
+          run-id: ${{ steps.runmeta.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ env.DIST_DIR }}
 
