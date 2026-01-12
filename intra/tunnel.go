@@ -34,6 +34,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -518,7 +519,9 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.GOSt.NumCgo = int64(runtime.NumCgoCall())
 	out.GOSt.NumCPU = int64(runtime.NumCPU())
 
-	out.GOSt.Args = strings.Join(os.Args, ";")
+	uid := fmt.Sprintf("uid=%d", syscall.Getuid())
+	pid := fmt.Sprintf("pid=%d", syscall.Getpid())
+	out.GOSt.Args = strings.Join(append(os.Args, uid, pid), ";")
 	out.GOSt.Env = strings.Join(core.RuntimeEnviron(), ";")
 	out.GOSt.Pers, _ = os.Executable()
 
