@@ -115,9 +115,11 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	settings.Debug = dbg
 	if settings.Debug {
-		debug.SetTraceback(usr.s())
+		os.Setenv("GOTRACEBACK", sys.s())
+		debug.SetTraceback(sys.s())
 	} else {
-		debug.SetTraceback(one.s())
+		os.Setenv("GOTRACEBACK", usr.s())
+		debug.SetTraceback(usr.s())
 	}
 
 	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t",
