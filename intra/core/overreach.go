@@ -7,6 +7,7 @@
 package core
 
 import (
+	"runtime/debug"
 	"syscall"
 	_ "unsafe" // for go:linkname
 )
@@ -17,7 +18,6 @@ func RuntimeEnviron() []string {
 }
 
 // github.com/golang/go/issues/69868
-// RuntimeSecureMode reports whether the Go runtime is in secure mode.
 // Unfortunately, Android apps have AT_SECURE set
 // (read bytes in /proc/self/auxv on non-rooted Androids).
 // This means, on Go runtime fatal / throws and a few kinds of panics,
@@ -28,16 +28,37 @@ func RuntimeEnviron() []string {
 // Perhaps, there's security benefits to the Go runtime being this rigid
 // about GOTRACEBACK, but for goos.IsAndroid (and for apps with uid > 10000),
 // using AT_SECURE to determine "setuid-like" protections appears pointless.
-func RuntimeSecureMode() bool {
-	return runtime_iss()
+func init() {
+	// override runtime.secureMode
+	// to make GOTRACEBACK work as expected on Android
+	debug.SetTraceback("all")
+	secureMode = false
 }
 
-//go:linkname runtime_iss runtime.isSecureMode
-func runtime_iss() bool
+func SecureMode(new bool) (prev bool) {
+	prev = secureMode
+	secureMode = new
+	return prev
+}
+
+// RuntimeSecureMode reports whether the Go runtime is in secure mode.
+func RuntimeSecureMode() (them, us bool) {
+	return runtime_isSecureMode(), secureMode
+}
+
+func RuntimeGotraceback() (l int32, all, crash bool) {
+	return runtime_gotraceback()
+}
+
+//go:linkname runtime_isSecureMode runtime.isSecureMode
+func runtime_isSecureMode() bool
+
+//go:linkname runtime_gotraceback runtime.gotraceback
+func runtime_gotraceback() (int32, bool, bool)
 
 // pushing func symbols does not work on go1.24+
 // but pushing vars apparently still works provided
 // -ldflags="checklinkname=0"
 
-//go:linkname iss runtime.secureMode
-var iss bool
+//go:linkname secureMode runtime.secureMode
+var secureMode bool

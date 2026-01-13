@@ -114,6 +114,7 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	log.SetConsoleLevel(clvl)
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	settings.Debug = dbg
+	prevsm := core.SecureMode(false /*off*/)
 	// traceback is always set to "crash" for c-shared / c-archive buildmodes
 	// github.com/golang/go/blob/fed3b0a298/src/runtime/runtime1.go#L586
 	// gomobile builds a c-shared gojnilib:
@@ -125,8 +126,8 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 		debug.SetTraceback(usr.s())
 	}
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s",
-		dlvl, clvl, dbg, envtraceback)
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s; sm? %t",
+		dlvl, clvl, dbg, envtraceback, prevsm)
 }
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,

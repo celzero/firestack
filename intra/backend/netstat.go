@@ -229,6 +229,7 @@ type GoStat struct {
 	NumCgo       int64 // number of cgo calls
 	NumCPU       int64 // number of CPUs
 
+	Trac string // gotraceback
 	Pers string // personality
 	Args string // command line arguments
 	Env  string // environment variables
