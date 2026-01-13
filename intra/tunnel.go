@@ -521,7 +521,8 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 
 	uid := fmt.Sprintf("uid=%d", syscall.Getuid())
 	pid := fmt.Sprintf("pid=%d", syscall.Getpid())
-	out.GOSt.Args = strings.Join(append(os.Args, uid, pid), ";")
+	sec := fmt.Sprintf("sec=%t", core.RuntimeSecureMode())
+	out.GOSt.Args = strings.Join(append(os.Args, uid, pid, sec), ";")
 	out.GOSt.Env = strings.Join(core.RuntimeEnviron(), ";")
 	out.GOSt.Pers, _ = os.Executable()
 
