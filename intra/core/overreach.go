@@ -8,6 +8,7 @@ package core
 
 import (
 	"syscall"
+	_ "unsafe" // for go:linkname
 )
 
 // RuntimeEnviron returns the Go runtime's cached environment slice.
