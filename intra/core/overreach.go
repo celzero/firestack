@@ -29,9 +29,9 @@ func RuntimeEnviron() []string {
 // about GOTRACEBACK, but for goos.IsAndroid (and for apps with uid > 10000),
 // using AT_SECURE to determine "setuid-like" protections appears pointless.
 func init() {
-	// override runtime.secureMode
 	// to make GOTRACEBACK work as expected on Android
 	debug.SetTraceback("all")
+	syscall.Setenv("GOTRACEBACK", "all")
 	secureMode = false
 }
 
