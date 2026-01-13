@@ -42,13 +42,26 @@ func SecureMode(new bool) (prev bool) {
 }
 
 // RuntimeSecureMode reports whether the Go runtime is in secure mode.
+// github.com/golang/go/blob/e2fef50def98/src/runtime/os_linux.go#L296
 func RuntimeSecureMode() (them, us bool) {
 	return runtime_isSecureMode(), secureMode
 }
 
+// RuntimeGotraceback returns the current GOTRACEBACK settings.
+// github.com/golang/go/blob/e2fef50def98/src/runtime/runtime1.go#L38
 func RuntimeGotraceback() (l int32, all, crash bool) {
 	return runtime_gotraceback()
 }
+
+// RuntimeFinishDebugVarsSetup resets internal runtime debug variables
+// by re-reading GODEBUG & GOTRACEBACK env vars.
+// github.com/golang/go/blob/e2fef50def98/src/runtime/runtime1.go#L462
+func RuntimeFinishDebugVarsSetup() {
+	runtime_finishDebugVarsSetup()
+}
+
+//go:linkname runtime_finishDebugVarsSetup runtime.finishDebugVarsSetup
+func runtime_finishDebugVarsSetup()
 
 //go:linkname runtime_isSecureMode runtime.isSecureMode
 func runtime_isSecureMode() bool
