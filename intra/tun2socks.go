@@ -120,15 +120,15 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	// github.com/golang/go/blob/fed3b0a298/src/runtime/runtime1.go#L586
 	// gomobile builds a c-shared gojnilib:
 	// github.com/golang/mobile/blob/2553ed8ce2/cmd/gomobile/bind_androidapp.go#L393
-	prevtraceback := os.Getenv("GOTRACEBACK")
+	prevtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
 	if settings.Debug {
-		os.Setenv("GOTRACEBACK", sys.s())
+		core.SetRuntimeEnviron("GOTRACEBACK", sys.s())
 		debug.SetTraceback(sys.s())
 	} else {
-		os.Setenv("GOTRACEBACK", usr.s())
+		core.SetRuntimeEnviron("GOTRACEBACK", usr.s())
 		debug.SetTraceback(usr.s())
 	}
-	curtraceback := os.Getenv("GOTRACEBACK")
+	curtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
 	core.RuntimeFinishDebugVarsSetup()
 	gotracelevel, gotraceall, gotracecrash := core.RuntimeGotraceback()
 

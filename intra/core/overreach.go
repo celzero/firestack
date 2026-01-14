@@ -7,15 +7,11 @@
 package core
 
 import (
+	"os"
 	"runtime/debug"
 	"syscall"
 	_ "unsafe" // for go:linkname
 )
-
-// RuntimeEnviron returns the Go runtime's cached environment slice.
-func RuntimeEnviron() []string {
-	return syscall.Environ()
-}
 
 // github.com/golang/go/issues/69868
 // Unfortunately, Android apps have AT_SECURE set
@@ -59,6 +55,46 @@ func RuntimeGotraceback() (l int32, all, crash bool) {
 func RuntimeFinishDebugVarsSetup() {
 	runtime_finishDebugVarsSetup()
 }
+
+// RuntimeEnviron returns the Go runtime's cached environment vars.
+// github.com/golang/go/blob/e2fef50def98/src/runtime/runtime1.go#L98
+func RuntimeEnviron() []string {
+	return runtime_environ()
+}
+
+// SetRuntimeEnviron sets / adds a key-value pair in the Go runtime's
+// cached environment vars.
+func SetRuntimeEnviron(key, val string) (found bool, err error) {
+	envs := runtime_environ()
+	kv := key + "="
+	for i, e := range envs {
+		if len(e) >= len(kv) && e[:len(kv)] == kv {
+			envs[i] = kv + val
+			found = true
+			break
+		}
+	}
+	if !found {
+		envs = append(envs, kv+val)
+	}
+	return found, os.Setenv(key, val)
+}
+
+// GetRuntimeEnviron gets a value from the Go runtime's cached
+// environment vars.
+func GetRuntimeEnviron(key string) (val string, found bool) {
+	envs := runtime_environ()
+	kv := key + "="
+	for _, e := range envs {
+		if len(e) >= len(kv) && e[:len(kv)] == kv {
+			return e[len(kv):], true
+		}
+	}
+	return
+}
+
+//go:linkname runtime_environ runtime.environ
+func runtime_environ() []string
 
 //go:linkname runtime_finishDebugVarsSetup runtime.finishDebugVarsSetup
 func runtime_finishDebugVarsSetup()
