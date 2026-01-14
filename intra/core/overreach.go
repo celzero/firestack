@@ -70,14 +70,12 @@ func SetRuntimeEnviron(key, val string) (found bool, err error) {
 	for i, e := range envs {
 		if len(e) >= len(kv) && e[:len(kv)] == kv {
 			envs[i] = kv + val
+			err = os.Setenv(key, val)
 			found = true
 			break
 		}
 	}
-	if !found {
-		envs = append(envs, kv+val)
-	}
-	return found, os.Setenv(key, val)
+	return
 }
 
 // GetRuntimeEnviron gets a value from the Go runtime's cached
