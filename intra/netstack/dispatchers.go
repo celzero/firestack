@@ -341,3 +341,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 func rand10pc() bool {
 	return rand.Intn(999999) < 99999
 }
+
+func rand1pc() bool {
+	return rand.Intn(999999) < 9999
+}

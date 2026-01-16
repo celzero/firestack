@@ -183,14 +183,11 @@ func (p *processor) deliverPackets() {
 
 	if testpanic {
 		panic("ns: tun: forwarder: deliverPackets rand10pc")
-	}
-	if !p.testcrash && settings.FatalAtRandom.Load() {
+	} else if !p.testcrash && settings.FatalAtRandom.Load() && rand1pc() {
 		p.testcrash = true
 		core.RuntimeWtf("ns: tun: forwarder: test fatal\n")
-		if rand10pc() {
-			var mu sync.Mutex
-			mu.Unlock() // ka-boom
-		}
+		var mu sync.Mutex
+		mu.Unlock() // ka-boom
 	}
 }
 
