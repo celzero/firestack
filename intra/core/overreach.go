@@ -29,6 +29,12 @@ func init() {
 	debug.SetTraceback("all")
 	syscall.Setenv("GOTRACEBACK", "all")
 	secureMode = false
+
+	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L13
+	// actual writeHeader = []byte{6 /* ANDROID_LOG_ERROR */, 'G', 'o', 0}
+	// Change level to assert in the hope that Android's DropBoxManager picks it up.
+	// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
+	writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'g', 'o', 'l', 'o', 'g', 0}
 }
 
 func SecureMode(new bool) (prev bool) {
@@ -109,3 +115,6 @@ func runtime_gotraceback() (int32, bool, bool)
 
 //go:linkname secureMode runtime.secureMode
 var secureMode bool
+
+//go:linkname writeHeader runtime.writeHeader
+var writeHeader []byte
