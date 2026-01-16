@@ -1544,7 +1544,10 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 
 	existingSess := existingConf.Session
 	existingCreds := existingConf.Creds
-	if existingCreds == nil || existingSess == nil || len(existingSess.SessionToken) <= 0 {
+	noExistingCreds := existingCreds == nil
+	noExistingSess := existingSess == nil || len(existingSess.SessionToken) <= 0
+	if noExistingCreds || noExistingSess {
+		log.W("ws: make: no existing creds? %t; no existing sess? %t; getting new ws wg", noExistingCreds, noExistingSess)
 		ws, err = makeWsWg(h, existingEnt)
 		refreshedSess = true
 		return
