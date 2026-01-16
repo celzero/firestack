@@ -35,6 +35,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -54,6 +55,12 @@ type Logmsg = string
 type Console interface {
 	// Log logs a multi-line msg.
 	Log(level LogLevel, msg Logmsg)
+}
+
+type FilebasedConsole interface {
+	Console
+	io.Closer
+	File() *os.File
 }
 
 type conMsg struct {
@@ -86,29 +93,23 @@ func SetConsole(consoleCtx context.Context, c Console) {
 	})
 }
 
-// NewFileReader sets a pipe-backed console and returns the read end.
+// NewFilebased sets a pipe-backed console and returns reader and writer.
 // Caller is expected to hand off the read fd and read until EOF.
-func NewFileReader(consoleCtx context.Context) (*os.File, error) {
-	r, w, err := os.Pipe() // r is owned by us
+// Caller owns the reader and write and must close both.
+func NewFilebased() (reader *os.File, writer FilebasedConsole, err error) {
+	var r, w *os.File
+	r, w, err = os.Pipe() // r is owned by us
 	if err != nil {
-		return nil, err
+		return
 	}
-	if err := setNonblock(w); err != nil {
+	if err = setNonblock(w); err != nil {
 		_ = r.Close()
 		_ = w.Close()
-		return nil, err
+		return
 	}
 
 	p := newfconsole(w) // p takes ownership of w
-	Glogger.SetConsole(p)
-
-	context.AfterFunc(consoleCtx, func() {
-		Glogger.SetConsole(nil)
-		_ = p.Close()
-		_ = r.Close()
-	})
-
-	return r, nil // caller must dup r
+	return r, p, nil    // caller must dup r
 }
 
 func Of(tag string, l LogFn2) LogFn {

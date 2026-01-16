@@ -749,6 +749,14 @@ func logev(err error) log.LogFn {
 	return f
 }
 
+func logei(err error) log.LogFn {
+	f := log.E
+	if err == nil {
+		f = log.I
+	}
+	return f
+}
+
 func logwif(cond bool) log.LogFn {
 	if cond {
 		return log.W

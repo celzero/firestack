@@ -13,7 +13,7 @@ type fconsole struct {
 	w *os.File
 }
 
-var _ Console = (*fconsole)(nil)
+var _ FilebasedConsole = (*fconsole)(nil)
 
 func newfconsole(w *os.File) *fconsole {
 	return &fconsole{w: w}
@@ -25,6 +25,16 @@ func (p *fconsole) Close() error {
 		p.w = nil
 	}
 	return nil
+}
+
+// File returns the underlying os.File. Caller
+// must dup() if it intends to use it beyond
+// the lifetime of the console.
+func (p *fconsole) File() *os.File {
+	if p == nil {
+		return nil
+	}
+	return p.w
 }
 
 func (p *fconsole) Log(_ LogLevel, msg Logmsg) {

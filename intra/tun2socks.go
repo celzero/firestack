@@ -26,7 +26,6 @@ package intra
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -112,9 +111,11 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	clvl := log.LevelOf(consolelogLevel)
 	log.SetLevel(dlvl)
 	log.SetConsoleLevel(clvl)
+
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	verbose := dlvl <= log.VERBOSE || clvl <= log.VERBOSE
 	settings.Debug = dbg
+
 	// turn off runtime's internal "secure mode" to enable tracebacks
 	prevsm := core.SecureMode(false /*off*/)
 	// traceback is always set to "crash" for c-shared / c-archive buildmodes
@@ -122,7 +123,6 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	// gomobile builds a c-shared gojnilib:
 	// github.com/golang/mobile/blob/2553ed8ce2/cmd/gomobile/bind_androidapp.go#L393
 	prevtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
-
 	newtraceback := one.s()
 	if verbose {
 		newtraceback = sys.s()
@@ -131,10 +131,10 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	}
 	core.SetRuntimeEnviron("GOTRACEBACK", newtraceback)
 	debug.SetTraceback(newtraceback)
-
 	curtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
 
 	core.RuntimeFinishDebugVarsSetup()
+
 	gotracelevel, gotraceall, gotracecrash := core.RuntimeGotraceback()
 
 	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s => %s (l: %d / a? %t / c? %t); sm? %t",
@@ -254,21 +254,10 @@ func FatalAtRandom(y bool) {
 	log.I("tun: fatal at random? %t", y)
 }
 
-// SetCrashFd sets output file to go runtime crashes to.
-func SetCrashFd(fp string) (ok bool) {
-	if len(fp) > 0 {
-		f, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
-		defer core.CloseFile(f)
-
-		if err == nil {
-			err = debug.SetCrashOutput(f, debug.CrashOptions{})
-		}
-		note := log.I
-		if err != nil {
-			note = log.E
-		}
-		note("tun: crash file %s, err? %v", fp, err)
-		return err == nil
-	}
-	return false
+// setCrashFd sets dup(f) as output file to write go runtime crashes in to.
+func setCrashFd(f *os.File) (ok bool) {
+	// f is dup()ed by debug.SetCrashOutput before use
+	err := debug.SetCrashOutput(f, debug.CrashOptions{})
+	logei(err)("tun: crash output file %s, err? %v", f.Name(), err)
+	return err == nil
 }
