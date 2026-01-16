@@ -113,6 +113,7 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	log.SetLevel(dlvl)
 	log.SetConsoleLevel(clvl)
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
+	verbose := dlvl <= log.VERBOSE || clvl <= log.VERBOSE
 	settings.Debug = dbg
 	// turn off runtime's internal "secure mode" to enable tracebacks
 	prevsm := core.SecureMode(false /*off*/)
@@ -121,19 +122,23 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	// gomobile builds a c-shared gojnilib:
 	// github.com/golang/mobile/blob/2553ed8ce2/cmd/gomobile/bind_androidapp.go#L393
 	prevtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
-	if settings.Debug {
-		core.SetRuntimeEnviron("GOTRACEBACK", sys.s())
-		debug.SetTraceback(sys.s())
-	} else {
-		core.SetRuntimeEnviron("GOTRACEBACK", usr.s())
-		debug.SetTraceback(usr.s())
+
+	newtraceback := one.s()
+	if verbose {
+		newtraceback = sys.s()
+	} else if dbg {
+		newtraceback = usr.s()
 	}
+	core.SetRuntimeEnviron("GOTRACEBACK", newtraceback)
+	debug.SetTraceback(newtraceback)
+
 	curtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
+
 	core.RuntimeFinishDebugVarsSetup()
 	gotracelevel, gotraceall, gotracecrash := core.RuntimeGotraceback()
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s (l: %d / a? %t / c? %t); sm? %t",
-		dlvl, clvl, dbg, prevtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, prevsm)
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s => %s (l: %d / a? %t / c? %t); sm? %t",
+		dlvl, clvl, dbg, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, prevsm)
 }
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,
