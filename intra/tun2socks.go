@@ -254,6 +254,20 @@ func FatalAtRandom(y bool) {
 	log.I("tun: fatal at random? %t", y)
 }
 
+func pipeCrashOutput(bdg Bridge) (ok bool) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		log.E("tun: err crash output pipe: %v", err)
+		return false
+	}
+	if setCrashFd(w) && bdg.CrashFD(int(r.Fd())) {
+		return true
+	}
+	core.Close(r)
+	core.Close(w)
+	return false
+}
+
 // setCrashFd sets dup(f) as output file to write go runtime crashes in to.
 func setCrashFd(f *os.File) (ok bool) {
 	// f is dup()ed by debug.SetCrashOutput before use

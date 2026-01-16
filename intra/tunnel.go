@@ -187,7 +187,6 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 	const dualstack = settings.IP46
 
 	logfd := false
-	crashfd := false
 	if r, c, err := log.NewFilebased(); err == nil {
 		closeall := func() {
 			core.Close(c)
@@ -195,7 +194,6 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 		}
 		if logfd = bdg.LogFD(int(r.Fd())); logfd {
 			log.SetConsole(ctx, c)
-			crashfd = setCrashFd(c.File())
 			context.AfterFunc(ctx, closeall)
 		} else {
 			closeall()
@@ -204,6 +202,8 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 	if !logfd {
 		log.SetConsole(ctx, &clogAdapter{bdg})
 	}
+
+	crashfd := pipeCrashOutput(bdg)
 
 	natpt := x64.NewNatPt2(ctx)
 	proxies := ipn.NewProxifier(ctx, dualstack, linkmtu, bdg, bdg)

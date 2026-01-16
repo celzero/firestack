@@ -3,7 +3,6 @@ package log
 import (
 	"io"
 	"os"
-	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -51,32 +50,11 @@ func setNonblock(f *os.File) error {
 	return syscall.SetNonblock(int(f.Fd()), true)
 }
 
-func (f *fconsole) write(msg Logmsg) {
-	if len(msg) == 0 {
-		return
+func (f *fconsole) write(m Logmsg) error {
+	if len(m) == 0 {
+		return nil
 	}
-	for msgline := range strings.SplitSeq(msg, "\n") {
-		if len(msgline) <= 0 {
-			continue
-		}
-		if len(msgline) <= charsPerLine {
-			f.doWrite(msgline)
-		}
 
-		for len(msgline) > 0 {
-			m := msgline
-			if len(m) > charsPerLine {
-				m = m[:charsPerLine]
-			}
-			if err := f.doWrite(m); err != nil {
-				return
-			}
-			msgline = msgline[len(m):]
-		}
-	}
-}
-
-func (f *fconsole) doWrite(m string) error {
 	w := f.w
 	if w == nil {
 		return io.ErrClosedPipe
