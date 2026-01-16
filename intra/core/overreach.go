@@ -8,33 +8,28 @@ package core
 
 import (
 	"os"
-	"runtime/debug"
-	"syscall"
 	_ "unsafe" // for go:linkname
 )
 
-// github.com/golang/go/issues/69868
-// Unfortunately, Android apps have AT_SECURE set
-// (read bytes in /proc/self/auxv on non-rooted Androids).
-// This means, on Go runtime fatal / throws and a few kinds of panics,
-// only one line is output to logcat (Android's stderr) which makes it
-// hard to tell just what went wrong. Android, does use unwinder for
-// native apps, and the Android RunTime has its own unwinder;
-// both of which traceback seemingly oblivious to AT_SECURE.
-// Perhaps, there's security benefits to the Go runtime being this rigid
-// about GOTRACEBACK, but for goos.IsAndroid (and for apps with uid > 10000),
-// using AT_SECURE to determine "setuid-like" protections appears pointless.
 func init() {
-	// to make GOTRACEBACK work as expected on Android
-	debug.SetTraceback("all")
-	syscall.Setenv("GOTRACEBACK", "all")
+	// github.com/golang/go/issues/69868
+	// Unfortunately, Android apps have AT_SECURE set
+	// (read bytes in /proc/self/auxv on non-rooted Androids).
+	// This means, on Go runtime fatal / throws and a few kinds of panics,
+	// only one line is output to logcat (Android's stderr) which makes it
+	// hard to tell just what went wrong. Android, does use unwinder for
+	// native apps, and the Android RunTime has its own unwinder;
+	// both of which traceback seemingly oblivious to AT_SECURE.
+	// Perhaps, there's security benefits to the Go runtime being this rigid
+	// about GOTRACEBACK, but for goos.IsAndroid (and for apps with uid > 10000),
+	// using AT_SECURE to determine "setuid-like" protections appears pointless.
 	secureMode = false
 
 	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L13
 	// actual writeHeader = []byte{6 /* ANDROID_LOG_ERROR */, 'G', 'o', 0}
 	// Change level to assert in the hope that Android's DropBoxManager picks it up.
 	// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
-	writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'g', 'o', 'l', 'o', 'g', 0}
+	writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'G', 'o', 'E', 'r', 'r', 0}
 }
 
 func SecureMode(new bool) (prev bool) {
