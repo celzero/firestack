@@ -70,14 +70,14 @@ func RuntimeEnviron() []string {
 
 // SetRuntimeEnviron sets / adds a key-value pair in the Go runtime's
 // cached environment vars.
-func SetRuntimeEnviron(key, val string) (found bool, err error) {
+func SetRuntimeEnviron(key, val string) (updated bool, err error) {
 	envs := runtime_environ()
 	kv := key + "="
 	for i, e := range envs {
 		if len(e) >= len(kv) && e[:len(kv)] == kv {
 			envs[i] = kv + val
 			err = os.Setenv(key, val)
-			found = true
+			updated = true
 			break
 		}
 	}
