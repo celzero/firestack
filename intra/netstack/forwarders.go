@@ -161,7 +161,6 @@ func (p *processor) start(wg *sync.WaitGroup) {
 // deliverPackets delivers packets to the endpoint; thread-safe.
 func (p *processor) deliverPackets() {
 	testpanic := settings.PanicAtRandom.Load() && rand10pc()
-	testfatal := settings.FatalAtRandom.Load() && rand10pc()
 	if testpanic {
 		defer core.Recover(core.DontExit, "ns.forwarder.deliverPackets")
 	}
@@ -183,8 +182,12 @@ func (p *processor) deliverPackets() {
 	if testpanic {
 		panic("ns: tun: forwarder: deliverPackets rand10pc")
 	}
-	if testfatal {
+	if settings.FatalAtRandom.Load() {
 		core.RuntimeWtf("ns: tun: forwarder: test fatal")
+		if rand10pc() {
+			var mu sync.Mutex
+			mu.Unlock() // ka-boom
+		}
 	}
 }
 
