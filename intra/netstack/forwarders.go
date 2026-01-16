@@ -138,6 +138,8 @@ type processor struct {
 	sleeper     sleep.Sleeper
 	packetWaker sleep.Waker
 	closeWaker  sleep.Waker
+
+	testcrash bool
 }
 
 // start starts the processor goroutine; thread-safe.
@@ -160,7 +162,7 @@ func (p *processor) start(wg *sync.WaitGroup) {
 
 // deliverPackets delivers packets to the endpoint; thread-safe.
 func (p *processor) deliverPackets() {
-	testpanic := settings.PanicAtRandom.Load() && rand10pc()
+	testpanic := !p.testcrash && settings.PanicAtRandom.Load() && rand10pc()
 	if testpanic {
 		defer core.Recover(core.DontExit, "ns.forwarder.deliverPackets")
 	}
@@ -182,8 +184,9 @@ func (p *processor) deliverPackets() {
 	if testpanic {
 		panic("ns: tun: forwarder: deliverPackets rand10pc")
 	}
-	if settings.FatalAtRandom.Load() {
-		core.RuntimeWtf("ns: tun: forwarder: test fatal")
+	if !p.testcrash && settings.FatalAtRandom.Load() {
+		p.testcrash = true
+		core.RuntimeWtf("ns: tun: forwarder: test fatal\n")
 		if rand10pc() {
 			var mu sync.Mutex
 			mu.Unlock() // ka-boom
