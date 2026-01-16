@@ -97,6 +97,10 @@ func GetRuntimeEnviron(key string) (val string, found bool) {
 	return
 }
 
+func RuntimeWtf(s string) {
+	runtime_wtf([]byte(s))
+}
+
 //go:linkname runtime_environ runtime.environ
 func runtime_environ() []string
 
@@ -108,6 +112,9 @@ func runtime_isSecureMode() bool
 
 //go:linkname runtime_gotraceback runtime.gotraceback
 func runtime_gotraceback() (int32, bool, bool)
+
+//go:linkname runtime_wtf runtime.writeErr
+func runtime_wtf(b []byte)
 
 // pushing func symbols does not work on go1.24+
 // but pushing vars apparently still works provided

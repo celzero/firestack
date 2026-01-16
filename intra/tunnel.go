@@ -469,6 +469,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.PortForward = settings.PortForward.Load()
 	out.RDNSIn.Transparency = settings.EndpointIndependentFiltering.Load()
 	out.RDNSIn.PanicTest = settings.PanicAtRandom.Load()
+	out.RDNSIn.FatalTest = settings.FatalAtRandom.Load()
 	out.RDNSIn.SetUserAgent = settings.SetUserAgent.Load()
 	out.RDNSIn.SystemDNSForUndelegated = settings.SystemDNSForUndelegatedDomains.Load()
 	out.RDNSIn.Dialer4 = dialers.Use4()

@@ -156,6 +156,7 @@ type RDNSInfo struct {
 	Transparency            bool
 	HappyEyeballs           bool
 	PanicTest               bool
+	FatalTest               bool
 	SystemDNSForUndelegated bool
 	SetUserAgent            bool
 	OwnTunFd                bool
