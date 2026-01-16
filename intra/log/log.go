@@ -35,6 +35,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 )
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
@@ -83,6 +84,31 @@ func SetConsole(consoleCtx context.Context, c Console) {
 	context.AfterFunc(consoleCtx, func() {
 		Glogger.SetConsole(nil)
 	})
+}
+
+// NewFileReader sets a pipe-backed console and returns the read end.
+// Caller is expected to hand off the read fd and read until EOF.
+func NewFileReader(consoleCtx context.Context) (*os.File, error) {
+	r, w, err := os.Pipe() // r is owned by us
+	if err != nil {
+		return nil, err
+	}
+	if err := setNonblock(w); err != nil {
+		_ = r.Close()
+		_ = w.Close()
+		return nil, err
+	}
+
+	p := newfconsole(w) // p takes ownership of w
+	Glogger.SetConsole(p)
+
+	context.AfterFunc(consoleCtx, func() {
+		Glogger.SetConsole(nil)
+		_ = p.Close()
+		_ = r.Close()
+	})
+
+	return r, nil // caller must dup r
 }
 
 func Of(tag string, l LogFn2) LogFn {

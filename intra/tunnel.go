@@ -186,7 +186,14 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 
 	const dualstack = settings.IP46
 
-	log.SetConsole(ctx, &clogAdapter{bdg})
+	logfd := false
+	if r, err := log.NewFileReader(ctx); err == nil {
+		logfd = bdg.LogFD(int(r.Fd()))
+	}
+	if !logfd {
+		log.SetConsole(ctx, &clogAdapter{bdg})
+	}
+
 	natpt := x64.NewNatPt2(ctx)
 	proxies := ipn.NewProxifier(ctx, dualstack, linkmtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
@@ -201,7 +208,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 		return nil, err
 	}
 
-	log.D("tun: <<< new >>>; proxies, svcs, bootstrap: ok")
+	log.D("tun: <<< new >>>; proxies, svcs, bootstrap: ok; log w/ fd? ", logfd)
 
 	resolver := dnsx.NewResolver(ctx, fakedns, dtr, bdg, natpt)
 	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed

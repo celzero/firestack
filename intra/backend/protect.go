@@ -14,6 +14,7 @@ const ( // see protect/protect.go
 
 type Console interface {
 	Log(int32, *Gostr)
+	LogFD(readAfterDup int) bool
 }
 
 // Controller provides a way to bind and protect socket file descriptors.
