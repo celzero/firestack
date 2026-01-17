@@ -7,9 +7,13 @@
 package core
 
 import (
+	"encoding/binary"
 	"os"
+	"syscall"
 	_ "unsafe" // for go:linkname
 )
+
+var pid int
 
 func init() {
 	// github.com/golang/go/issues/69868
@@ -30,6 +34,8 @@ func init() {
 	// Change level to assert in the hope that Android's DropBoxManager picks it up.
 	// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
 	writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'G', 'o', 'E', 'r', 'r', 0}
+
+	pid = syscall.Getpid()
 }
 
 func SecureMode(new bool) (prev bool) {
@@ -92,6 +98,8 @@ func GetRuntimeEnviron(key string) (val string, found bool) {
 	return
 }
 
+// RuntimeWtf uses runtime.writeHeader and emits s to logd.
+// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L39
 func RuntimeWtf(s string) {
 	runtime_wtf([]byte(s))
 }
@@ -111,7 +119,39 @@ func runtime_gotraceback() (int32, bool, bool)
 //go:linkname runtime_wtf runtime.writeErr
 func runtime_wtf(b []byte)
 
-// pushing func symbols does not work on go1.24+
+//go:linkname runtime_timenow runtime.time_now
+func runtime_timenow() (sec int64, nsec int32, mono int64)
+
+// pushing func symbols does not work on go1.24+?
+
+// writeLogdHeader prints crash logs to main buffer; the change here
+// redirects it to crash buffer instead, which among other things, is
+// retained for longer & gets picked up by Android Vitals (via DropBoxManager).
+// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L19
+
+//go:linkname runtime.writeLogdHeader
+func writeLogdHeader() int {
+	hdr := writeBuf[:11]
+
+	// The first 11 bytes of the header corresponds to android_log_header_t
+	// as defined in system/core/include/private/android_logger.h
+	//   hdr[0] log type id (unsigned char), defined in <log/log.h>
+	//   hdr[1:2] tid (uint16_t)
+	//   hdr[3:11] log_time defined in <log/log_read.h>
+	//      hdr[3:7] sec unsigned uint32, little endian.
+	//      hdr[7:11] nsec unsigned uint32, little endian.
+	// cs.android.com/android/platform/superproject/main/+/main:system/logging/liblog/include/android/log.h;drc=90ddfb0bd41fbb41d045f04e02476ddce200d535;l=163
+	hdr[0] = 4 // LOG_ID_CRASH
+	sec, nsec, _ := runtime_timenow()
+	binary.LittleEndian.PutUint32(hdr[3:7], uint32(sec))
+	binary.LittleEndian.PutUint32(hdr[7:11], uint32(nsec))
+	// gettid is not signal safe; use pid (mainthread) instead
+	// man7.org/linux/man-pages/man7/signal-safety.7.html
+	binary.LittleEndian.PutUint16(hdr[1:2], uint16(pid))
+
+	return 11 + len(writeHeader)
+}
+
 // but pushing vars apparently still works provided
 // -ldflags="checklinkname=0"
 
@@ -120,3 +160,6 @@ var secureMode bool
 
 //go:linkname writeHeader runtime.writeHeader
 var writeHeader []byte
+
+//go:linkname writeBuf runtime.writeBuf
+var writeBuf [1024]byte
