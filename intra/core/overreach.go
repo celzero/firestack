@@ -139,7 +139,12 @@ func runtime_gotraceback() (int32, bool, bool)
 //go:linkname runtime_wtf runtime.writeErr
 func runtime_wtf(b []byte)
 
-//go:linkname runtime_timenow runtime.time_now
+// ld.lld: error: relocation R_X86_64_PC32 cannot be used against symbol 'runtime.time_now'; recompile with -fPIC
+// runtime.time_now => time.now
+// ref: github.com/ulule/limiter/blob/f0ada6cb8fa4dc55a734de737c7b4a3f35c86ae1/internal/fasttime/fasttime.go#L12
+
+//go:noescape
+//go:linkname runtime_timenow time.now
 func runtime_timenow() (sec int64, nsec int32, mono int64)
 
 //go:linkname runtime_initLogd runtime.initLogd
