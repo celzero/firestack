@@ -9,10 +9,10 @@ package core
 import (
 	"encoding/binary"
 	"os"
-	_ "runtime" // for go:linkname
-	"syscall"
 	_ "unsafe" // for go:linkname
 )
+
+const logdHdrLen = 11
 
 var pid int
 
@@ -30,13 +30,25 @@ func init() {
 	// using AT_SECURE to determine "setuid-like" protections appears pointless.
 	secureMode = false
 
+	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L69-L74
+	// disable runtime's internal Android logd initialization routines
+	// explicitly enabled with RuntimeInitLogd()
+	logger = 100
+
 	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L13
 	// actual writeHeader = []byte{6 /* ANDROID_LOG_ERROR */, 'G', 'o', 0}
 	// Change level to assert in the hope that Android's DropBoxManager picks it up.
 	// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
 	writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'G', 'o', 'E', 'r', 'r', 0}
 
-	pid = syscall.Getpid()
+	RuntimeInitLogd()
+
+	// Since runtime's internal logd initialization is disabled, init writeBuf's writePos
+	// to the end of our modified writeHeader. See: writeErr impl
+	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L76-L89
+	writePos = prepCrashLogHeader()
+
+	pid = os.Getpid()
 }
 
 func SecureMode(new bool) (prev bool) {
@@ -105,6 +117,13 @@ func RuntimeWtf(s string) {
 	runtime_wtf([]byte(s))
 }
 
+// RuntimeInitLogd instructs the runtime to grab a fd to speak with logdw to
+// write err/crash logs to.
+// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L111
+func RuntimeInitLogd() {
+	runtime_initLogd()
+}
+
 //go:linkname runtime_environ runtime.environ
 func runtime_environ() []string
 
@@ -123,16 +142,16 @@ func runtime_wtf(b []byte)
 //go:linkname runtime_timenow runtime.time_now
 func runtime_timenow() (sec int64, nsec int32, mono int64)
 
-// pushing func symbols does not work on go1.24+?
+//go:linkname runtime_initLogd runtime.initLogd
+func runtime_initLogd()
 
 // writeLogdHeader prints crash logs to main buffer; the change here
 // redirects it to crash buffer instead, which among other things, is
 // retained for longer & gets picked up by Android Vitals (via DropBoxManager).
 // github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L19
 
-//go:linkname runtime.writeLogdHeader
-func writeLogdHeader() int {
-	hdr := writeBuf[:11]
+func prepCrashLogHeader() int {
+	hdr := writeBuf[:logdHdrLen]
 
 	// The first 11 bytes of the header corresponds to android_log_header_t
 	// as defined in system/core/include/private/android_logger.h
@@ -150,10 +169,10 @@ func writeLogdHeader() int {
 	// man7.org/linux/man-pages/man7/signal-safety.7.html
 	binary.LittleEndian.PutUint16(hdr[1:2], uint16(pid))
 
-	return 11 + len(writeHeader)
+	return logdHdrLen + len(writeHeader)
 }
 
-// but pushing vars apparently still works provided
+// pushing / pulling symbols work provided
 // -ldflags="checklinkname=0"
 
 //go:linkname secureMode runtime.secureMode
@@ -164,3 +183,9 @@ var writeHeader []byte
 
 //go:linkname writeBuf runtime.writeBuf
 var writeBuf [1024]byte
+
+//go:linkname logger runtime.logger
+var logger int32
+
+//go:linkname writePos runtime.writePos
+var writePos int
