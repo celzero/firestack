@@ -18,6 +18,12 @@ CGO_LDFLAGS="$(CGO_LDFLAGS) -s -w -Wl,-z,max-page-size=16384"
 GOBIND=bind -trimpath -v -x -a -javapkg com.celzero.firestack
 # -work: keep the temporary directory for debugging
 ANDROID23=-androidapi 23 -target=android -tags='android' -work
+# -tags debuglog to enable runtime crash logging output with "<< begin log" prefix
+# example debug log: github.com/golang/go/issues/69629#issuecomment-2389297820
+# build-time tags may be required in somecases
+# github.com/golang/go/blob/e2fef50def98/src/runtime/HACKING.md?plain=1#L524
+# github.com/golang/go/blob/e2fef50def98/src/runtime/debuglog.go#L63-L64
+ANDROID23_DEBUG=-androidapi 23 -target=android -tags='android,debuglog' -work
 
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
@@ -27,7 +33,7 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
 				-ldflags $(LDFLAGS) -gcflags='-trimpath'
 # built without stripping dwarf/symbols
-ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
+ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23_DEBUG) \
 				-ldflags $(LDFLAGS_DEBUG)
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/settings
@@ -41,6 +47,7 @@ $(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE)
 	$(ANDROID_DEBUG_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
 $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE)
+	env NDK_DEBUG=1
 	mkdir -p $(BUILDDIR)/android
 	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks
 
