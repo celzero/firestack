@@ -9,6 +9,7 @@ package core
 import (
 	"encoding/binary"
 	"os"
+	_ "runtime" // for go:linkname
 	"syscall"
 	_ "unsafe" // for go:linkname
 )
