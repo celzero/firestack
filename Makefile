@@ -2,6 +2,7 @@ BUILDDIR=$(CURDIR)/build
 TOOLSDIR=$(CURDIR)/tools
 GOBIN=$(CURDIR)/bin
 GOMOBILE=$(GOBIN)/gomobile
+GOPATCHOVERLAY=$(GOBIN)/go-patch-overlay
 IMPORT_PATH=github.com/celzero/firestack
 ELECTRON_PATH=$(IMPORT_PATH)/outline/electron
 XGO=$(GOBIN)/xgo
@@ -58,7 +59,7 @@ $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE) $(BUILD_OVERLAY)
 $(BUILD_OVERLAY): $(TOOLSDIR)/runtime_write_err_android.patch
 	env GOBIN=$(GOBIN) go install github.com/felixge/go-patch-overlay
 	mkdir -p $(BUILDDIR)
-	env PATH=$(GOBIN):$(PATH) go-patch-overlay -overlay $(BUILDDIR) $(TOOLSDIR)/runtime_write_err_android.patch
+	env PATH=$(GOBIN):$(PATH) $(GOPATCHOVERLAY) -overlay $(BUILDDIR) $(TOOLSDIR)/runtime_write_err_android.patch
 
 $(LINUX_BUILDDIR)/tun2socks: $(XGO)
 	$(XGO) -ldflags $(XGO_LDFLAGS) --targets=linux/amd64 -dest $(LINUX_BUILDDIR) $(ELECTRON_PATH)
