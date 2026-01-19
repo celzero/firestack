@@ -46,6 +46,7 @@ $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE) $(GEN_OVERLAY)
 	$(ANDROID_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
 $(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE) $(GEN_OVERLAY)
+	env NDK_DEBUG=1
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_DEBUG_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
