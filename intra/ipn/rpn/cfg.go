@@ -53,7 +53,7 @@ var (
 
 type RpnAcc interface {
 	x.RpnAcc
-	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz
+	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz, x.RpnWin
 	MultiCountry() bool
 	Conf(key string) (string, error)
 }

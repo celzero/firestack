@@ -458,7 +458,7 @@ func (r *rpnp) get(cc string) (x.Proxy, error) {
 	r.mu.RUnlock()
 
 	if rpnid+cc == idstr(main) {
-		// FIXME: r.Proxy needs to be got after r.mu.RLock()
+		// return r as-is; r.p is always got after r.mu.RLock()
 		return r, nil
 	}
 	if !gotCC {

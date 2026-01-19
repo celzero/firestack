@@ -101,6 +101,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 		cc = noCountryForOldMen
 	}
 
+	// cc may be typcc;city (ref struct RpnServer.Key)
 	cc, _ = strings.CutPrefix(cc, typ)
 
 	txt, err := acc.Conf(cc)
