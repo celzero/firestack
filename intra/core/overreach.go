@@ -10,11 +10,34 @@ import (
 	"encoding/binary"
 	"os"
 	_ "unsafe" // for go:linkname
+
+	"github.com/celzero/firestack/intra/log"
 )
 
 const logdHdrLen = 11
 
 var pid int
+
+// pushing / pulling symbols work provided
+// -ldflags="checklinkname=0"
+
+//go:linkname secureMode runtime.secureMode
+var secureMode bool
+
+//go:linkname writeHeader runtime.writeHeader
+var writeHeader []byte
+
+//go:linkname writeBuf runtime.writeBuf
+var writeBuf [1024]byte
+
+//go:linkname logger runtime.logger
+var logger int32
+
+//go:linkname writePos runtime.writePos
+var writePos int
+
+//go:linkname writeFD runtime.writeFD
+var writeFD uintptr
 
 func init() {
 	// github.com/golang/go/issues/69868
@@ -35,20 +58,26 @@ func init() {
 	// explicitly enabled with RuntimeInitLogd()
 	logger = 100
 
+	pid = os.Getpid()
+
 	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L13
 	// actual writeHeader = []byte{6 /* ANDROID_LOG_ERROR */, 'G', 'o', 0}
 	// Change level to assert in the hope that Android's DropBoxManager picks it up.
 	// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
 	writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'G', 'o', 'E', 'r', 'r', 0}
 
+	log.D("over: logd init start(%d) %d %d %s", writeFD, len(writeHeader), len(writeBuf), string(writeHeader))
+
 	RuntimeInitLogd()
+
+	log.D("over: logd init done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
 
 	// Since runtime's internal logd initialization is disabled, init writeBuf's writePos
 	// to the end of our modified writeHeader. See: writeErr impl
 	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L76-L89
 	writePos = prepCrashLogHeader()
 
-	pid = os.Getpid()
+	log.D("over: logd prep done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
 }
 
 func SecureMode(new bool) (prev bool) {
@@ -176,21 +205,3 @@ func prepCrashLogHeader() int {
 
 	return logdHdrLen + len(writeHeader)
 }
-
-// pushing / pulling symbols work provided
-// -ldflags="checklinkname=0"
-
-//go:linkname secureMode runtime.secureMode
-var secureMode bool
-
-//go:linkname writeHeader runtime.writeHeader
-var writeHeader []byte
-
-//go:linkname writeBuf runtime.writeBuf
-var writeBuf [1024]byte
-
-//go:linkname logger runtime.logger
-var logger int32
-
-//go:linkname writePos runtime.writePos
-var writePos int
