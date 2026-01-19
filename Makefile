@@ -41,23 +41,24 @@ ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROI
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/settings
 
-$(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE) $(GEN_OVERLAY)
+$(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE) $(BUILD_OVERLAY)
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
-$(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE) $(GEN_OVERLAY)
+$(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE) $(BUILD_OVERLAY)
 	env NDK_DEBUG=1
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_DEBUG_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
-$(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE) $(GEN_OVERLAY)
+$(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE) $(BUILD_OVERLAY)
 	env NDK_DEBUG=1
 	mkdir -p $(BUILDDIR)/android
 	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks
 
-$(GEN_OVERLAY): $(TOOLSDIR)/runtime_write_err_android.go.patch
+$(BUILD_OVERLAY): $(TOOLSDIR)/runtime_write_err_android.patch
+	env GOBIN=$(GOBIN) go install github.com/felixge/go-patch-overlay
 	mkdir -p $(BUILDDIR)
-	env PATH=$(GOBIN):$(PATH) go-patch-overlay -overlay $(BUILDDIR) $(TOOLSDIR)/runtime_write_err_android.go.patch
+	env PATH=$(GOBIN):$(PATH) go-patch-overlay -overlay $(BUILDDIR) $(TOOLSDIR)/runtime_write_err_android.patch
 
 $(LINUX_BUILDDIR)/tun2socks: $(XGO)
 	$(XGO) -ldflags $(XGO_LDFLAGS) --targets=linux/amd64 -dest $(LINUX_BUILDDIR) $(ELECTRON_PATH)
@@ -76,7 +77,6 @@ go.mod: tools/tools.go
 	touch go.mod
 
 $(GOMOBILE): go.mod
-	env GOBIN=$(GOBIN) go install github.com/felixge/go-patch-overlay
 	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile
 	env PATH=$(GOBIN):$(PATH) $(GOMOBILE) init
 
