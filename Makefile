@@ -1,4 +1,5 @@
 BUILDDIR=$(CURDIR)/build
+TOOLSDIR=$(CURDIR)/tools
 GOBIN=$(CURDIR)/bin
 GOMOBILE=$(GOBIN)/gomobile
 IMPORT_PATH=github.com/celzero/firestack
@@ -13,6 +14,8 @@ LDFLAGS_DEBUG='-checklinkname=0 -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DA
 # github.com/golang/go/issues/69868
 LDFLAGS='-checklinkname=0 -w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 CGO_LDFLAGS="$(CGO_LDFLAGS) -s -w -Wl,-z,max-page-size=16384"
+# build overlay json via recipe
+BUILD_OVERLAY=$(BUILDDIR)/overlay.json
 
 # github.com/golang/mobile/blob/a1d90793fc/cmd/gomobile/bind.go#L36
 GOBIND=bind -trimpath -v -x -a -javapkg com.celzero.firestack
@@ -31,25 +34,29 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 # stack traces are not affected by ldflags -s -w: github.com/golang/go/issues/25035#issuecomment-495004689
 # trimpath: github.com/skycoin/skycoin/issues/719
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
-				-ldflags $(LDFLAGS) -gcflags='-trimpath'
+				-overlay=$(BUILD_OVERLAY) -ldflags $(LDFLAGS) -gcflags='-trimpath'
 # built without stripping dwarf/symbols
 ANDROID_DEBUG_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23_DEBUG) \
-				-ldflags $(LDFLAGS_DEBUG)
+				-overlay=$(BUILD_OVERLAY) -ldflags $(LDFLAGS_DEBUG)
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/settings
 
-$(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE)
+$(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE) $(GEN_OVERLAY)
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
-$(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE)
+$(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE) $(GEN_OVERLAY)
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_DEBUG_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
-$(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE)
+$(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE) $(GEN_OVERLAY)
 	env NDK_DEBUG=1
 	mkdir -p $(BUILDDIR)/android
 	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks
+
+$(GEN_OVERLAY): $(TOOLSDIR)/runtime_write_err_android.go.patch
+	mkdir -p $(BUILDDIR)
+	env PATH=$(GOBIN):$(PATH) go-patch-overlay -overlay $(BUILDDIR) $(TOOLSDIR)/runtime_write_err_android.go.patch
 
 $(LINUX_BUILDDIR)/tun2socks: $(XGO)
 	$(XGO) -ldflags $(XGO_LDFLAGS) --targets=linux/amd64 -dest $(LINUX_BUILDDIR) $(ELECTRON_PATH)
@@ -68,6 +75,7 @@ go.mod: tools/tools.go
 	touch go.mod
 
 $(GOMOBILE): go.mod
+	env GOBIN=$(GOBIN) go install github.com/felixge/go-patch-overlay
 	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile
 	env PATH=$(GOBIN):$(PATH) $(GOMOBILE) init
 

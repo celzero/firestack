@@ -16,6 +16,9 @@ import (
 
 const logdHdrLen = 11
 
+// use -overlay flag to patch Go runtime behaviour
+const useBuildOverlay = true
+
 var pid int
 
 // pushing / pulling symbols work provided
@@ -53,31 +56,33 @@ func init() {
 	// using AT_SECURE to determine "setuid-like" protections appears pointless.
 	secureMode = false
 
-	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L69-L74
-	// disable runtime's internal Android logd initialization routines
-	// explicitly enabled with RuntimeInitLogd()
-	logger = 100
-
 	pid = os.Getpid()
 
-	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L13
-	// actual writeHeader = []byte{6 /* ANDROID_LOG_ERROR */, 'G', 'o', 0}
-	// Change level to assert in the hope that Android's DropBoxManager picks it up.
-	// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
-	writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'G', 'o', 'E', 'r', 'r', 0}
+	if useBuildOverlay {
+		// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L69-L74
+		// disable runtime's internal Android logd initialization routines
+		// explicitly enabled with RuntimeInitLogd()
+		logger = 100
 
-	log.D("over: logd init start(%d) %d %d %s", writeFD, len(writeHeader), len(writeBuf), string(writeHeader))
+		// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L13
+		// actual writeHeader = []byte{6 /* ANDROID_LOG_ERROR */, 'G', 'o', 0}
+		// Change level to assert in the hope that Android's DropBoxManager picks it up.
+		// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
+		writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'G', 'o', 'E', 'r', 'r', 0}
 
-	RuntimeInitLogd()
+		log.D("over: logd init start(%d) %d %d %s", writeFD, len(writeHeader), len(writeBuf), string(writeHeader))
 
-	log.D("over: logd init done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
+		RuntimeInitLogd()
 
-	// Since runtime's internal logd initialization is disabled, init writeBuf's writePos
-	// to the end of our modified writeHeader. See: writeErr impl
-	// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L76-L89
-	writePos = prepCrashLogHeader()
+		log.D("over: logd init done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
 
-	log.D("over: logd prep done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
+		// Since runtime's internal logd initialization is disabled, init writeBuf's writePos
+		// to the end of our modified writeHeader. See: writeErr impl
+		// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L76-L89
+		writePos = prepCrashLogHeader()
+
+		log.D("over: logd prep done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
+	}
 }
 
 func SecureMode(new bool) (prev bool) {
@@ -150,7 +155,9 @@ func RuntimeWtf(s string) {
 // write err/crash logs to.
 // github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L111
 func RuntimeInitLogd() {
-	runtime_initLogd()
+	if !useBuildOverlay {
+		runtime_initLogd()
+	}
 }
 
 //go:linkname runtime_environ runtime.environ
@@ -185,6 +192,10 @@ func runtime_initLogd()
 // github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L19
 
 func prepCrashLogHeader() int {
+	if !useBuildOverlay {
+		return 0
+	}
+
 	hdr := writeBuf[:logdHdrLen]
 
 	// The first 11 bytes of the header corresponds to android_log_header_t

@@ -34,7 +34,6 @@ SDKVER="${SDKVER:-36}"
 ARG1="${1:-go}"
 ARG2="${2:-debug}"
 
-
 # debug
 printenv
 
