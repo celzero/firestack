@@ -36,6 +36,7 @@ require (
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
 	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/felixge/go-patch-overlay v0.0.0-20250623154806-ec286d1fd9dc // indirect
 	github.com/google/btree v1.1.2 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
@@ -45,7 +46,6 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.7.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
-	golang.org/x/tools/go/packages/packagestest v0.1.1-deprecated // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )
 
