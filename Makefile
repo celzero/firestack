@@ -57,7 +57,6 @@ $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE) $(BUILD_OVERLAY)
 	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks
 
 $(BUILD_OVERLAY): $(TOOLSDIR)/runtime_write_err_android.patch
-	env GOBIN=$(GOBIN) go install github.com/felixge/go-patch-overlay
 	mkdir -p $(BUILDDIR)
 	env PATH=$(GOBIN):$(PATH) $(GOPATCHOVERLAY) -overlay $(BUILDDIR) $(TOOLSDIR)/runtime_write_err_android.patch
 
@@ -79,6 +78,7 @@ go.mod: tools/tools.go
 
 $(GOMOBILE): go.mod
 	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile
+	env GOBIN=$(GOBIN) go install github.com/felixge/go-patch-overlay@latest
 	env PATH=$(GOBIN):$(PATH) $(GOMOBILE) init
 
 $(XGO): go.mod
