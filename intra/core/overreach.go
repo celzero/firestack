@@ -11,8 +11,6 @@ import (
 	_ "unsafe" // for go:linkname
 )
 
-var pid int
-
 // pushing / pulling symbols work provided
 // -ldflags="checklinkname=0"
 
@@ -32,8 +30,6 @@ func init() {
 	// about GOTRACEBACK, but for goos.IsAndroid (and for apps with uid > 10000),
 	// using AT_SECURE to determine "setuid-like" protections appears pointless.
 	secureMode = false
-
-	pid = os.Getpid()
 }
 
 func SecureMode(new bool) (prev bool) {
