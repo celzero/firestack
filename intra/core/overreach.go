@@ -7,17 +7,9 @@
 package core
 
 import (
-	"encoding/binary"
 	"os"
 	_ "unsafe" // for go:linkname
-
-	"github.com/celzero/firestack/intra/log"
 )
-
-const logdHdrLen = 11
-
-// use -overlay flag to patch Go runtime behaviour
-const useBuildOverlay = true
 
 var pid int
 
@@ -26,21 +18,6 @@ var pid int
 
 //go:linkname secureMode runtime.secureMode
 var secureMode bool
-
-//go:linkname writeHeader runtime.writeHeader
-var writeHeader []byte
-
-//go:linkname writeBuf runtime.writeBuf
-var writeBuf [1024]byte
-
-//go:linkname logger runtime.logger
-var logger int32
-
-//go:linkname writePos runtime.writePos
-var writePos int
-
-//go:linkname writeFD runtime.writeFD
-var writeFD uintptr
 
 func init() {
 	// github.com/golang/go/issues/69868
@@ -57,32 +34,6 @@ func init() {
 	secureMode = false
 
 	pid = os.Getpid()
-
-	if useBuildOverlay {
-		// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L69-L74
-		// disable runtime's internal Android logd initialization routines
-		// explicitly enabled with RuntimeInitLogd()
-		logger = 100
-
-		// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L13
-		// actual writeHeader = []byte{6 /* ANDROID_LOG_ERROR */, 'G', 'o', 0}
-		// Change level to assert in the hope that Android's DropBoxManager picks it up.
-		// github.com/golang/go/issues/25035 / developer.android.com/reference/kotlin/android/util/Log#ASSERT:kotlin.Int
-		writeHeader = []byte{7 /* ANDROID_LOG_ASSERT */, 'G', 'o', 'E', 'r', 'r', 0}
-
-		log.D("over: logd init start(%d) %d %d %s", writeFD, len(writeHeader), len(writeBuf), string(writeHeader))
-
-		RuntimeInitLogd()
-
-		log.D("over: logd init done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
-
-		// Since runtime's internal logd initialization is disabled, init writeBuf's writePos
-		// to the end of our modified writeHeader. See: writeErr impl
-		// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L76-L89
-		writePos = prepCrashLogHeader()
-
-		log.D("over: logd prep done(%d) %d %d %d %d", writeFD, len(writeHeader), len(writeBuf), writePos, logger)
-	}
 }
 
 func SecureMode(new bool) (prev bool) {
@@ -151,15 +102,6 @@ func RuntimeWtf(s string) {
 	runtime_wtf([]byte(s))
 }
 
-// RuntimeInitLogd instructs the runtime to grab a fd to speak with logdw to
-// write err/crash logs to.
-// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L111
-func RuntimeInitLogd() {
-	if !useBuildOverlay {
-		runtime_initLogd()
-	}
-}
-
 //go:linkname runtime_environ runtime.environ
 func runtime_environ() []string
 
@@ -178,41 +120,3 @@ func runtime_wtf(b []byte)
 // ld.lld: error: relocation R_X86_64_PC32 cannot be used against symbol 'runtime.time_now'; recompile with -fPIC
 // runtime.time_now => time.now
 // ref: github.com/ulule/limiter/blob/f0ada6cb8fa4dc55a734de737c7b4a3f35c86ae1/internal/fasttime/fasttime.go#L12
-
-//go:noescape
-//go:linkname runtime_timenow time.now
-func runtime_timenow() (sec int64, nsec int32, mono int64)
-
-//go:linkname runtime_initLogd runtime.initLogd
-func runtime_initLogd()
-
-// writeLogdHeader prints crash logs to main buffer; the change here
-// redirects it to crash buffer instead, which among other things, is
-// retained for longer & gets picked up by Android Vitals (via DropBoxManager).
-// github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L19
-
-func prepCrashLogHeader() int {
-	if !useBuildOverlay {
-		return 0
-	}
-
-	hdr := writeBuf[:logdHdrLen]
-
-	// The first 11 bytes of the header corresponds to android_log_header_t
-	// as defined in system/core/include/private/android_logger.h
-	//   hdr[0] log type id (unsigned char), defined in <log/log.h>
-	//   hdr[1:2] tid (uint16_t)
-	//   hdr[3:11] log_time defined in <log/log_read.h>
-	//      hdr[3:7] sec unsigned uint32, little endian.
-	//      hdr[7:11] nsec unsigned uint32, little endian.
-	// cs.android.com/android/platform/superproject/main/+/main:system/logging/liblog/include/android/log.h;drc=90ddfb0bd41fbb41d045f04e02476ddce200d535;l=163
-	hdr[0] = 4 // LOG_ID_CRASH
-	sec, nsec, _ := runtime_timenow()
-	binary.LittleEndian.PutUint32(hdr[3:7], uint32(sec))
-	binary.LittleEndian.PutUint32(hdr[7:11], uint32(nsec))
-	// gettid is not signal safe; use pid (mainthread) instead
-	// man7.org/linux/man-pages/man7/signal-safety.7.html
-	binary.LittleEndian.PutUint16(hdr[1:2], uint16(pid))
-
-	return logdHdrLen + len(writeHeader)
-}
