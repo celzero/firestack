@@ -494,6 +494,15 @@ func makeAnyAddrPort(origipp netip.AddrPort) netip.AddrPort {
 func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool, cap int) []netip.AddrPort {
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
+	orig4 := origipp.Addr().Is4()
+	orig6 := origipp.Addr().Is6()
+
+	if use4 && use6 {
+		// happy-eyeballs from clients should take care of dialing both
+		// families when both v4 and v6 routes are available.
+		use4 = orig4
+		use6 = orig6
+	}
 
 	if cap <= 0 || cap > len(ips) {
 		cap = len(ips)
