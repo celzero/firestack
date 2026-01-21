@@ -22,7 +22,7 @@ require (
 	github.com/tailscale/depaware v0.0.0-20251001183927-9c2ad255ef3f
 	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
-	golang.org/x/mobile v0.0.0-20250506005352-78cd7a343bde
+	golang.org/x/mobile v0.0.0-20260120165949-40bd9ace6ce4
 	golang.org/x/net v0.49.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	gvisor.dev/gvisor v0.0.0-20250816201027-ba3b9ca85f20
