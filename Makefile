@@ -77,7 +77,7 @@ go.mod: tools/tools.go
 	touch go.mod
 
 $(GOMOBILE): go.mod
-	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile
+	env GOBIN=$(GOBIN) go install golang.org/x/mobile/cmd/gomobile@latest
 	env GOBIN=$(GOBIN) go install github.com/felixge/go-patch-overlay@latest
 	env PATH=$(GOBIN):$(PATH) $(GOMOBILE) init
 
