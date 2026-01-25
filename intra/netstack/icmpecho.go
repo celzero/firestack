@@ -54,8 +54,9 @@ func newICMPResponder(ep stack.LinkEndpoint) (r icmpResponder) {
 	return
 }
 
+// returns true if the responder is enabled and debug mode is on.
 func (r *icmpResponder) ok() bool {
-	return r != nil && r.open.Load()
+	return settings.Debug && r != nil && r.open.Load()
 }
 
 func (r *icmpResponder) respond(pkt *stack.PacketBuffer) (handled bool) {
