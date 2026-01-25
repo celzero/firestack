@@ -299,6 +299,8 @@ type RpnServer struct {
 	Link int32
 	// Number of active servers in this CC+City.
 	Count int32
+	// Premium
+	Premium bool
 }
 
 type IPMetadata struct {

@@ -109,7 +109,9 @@ const (
 const (
 	confKeySep = ";"
 
-	onlyPremiumServers = true
+	// onlyPremiumServers removes non-premium servers from the server list,
+	// which may reduce its count substantially.
+	onlyPremiumServers = false
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/res/raw/port_map.txt#L76
@@ -822,12 +824,13 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 		}
 		if !visited[rc.Name] {
 			s = append(s, x.RpnServer{
-				CC:    rc.CC,
-				City:  rc.City,
-				Name:  rc.Name,
-				Load:  rc.Load,
-				Link:  rc.Link,
-				Count: rc.Count,
+				CC:      rc.CC,
+				City:    rc.City,
+				Name:    rc.Name,
+				Load:    rc.Load,
+				Link:    rc.Link,
+				Count:   rc.Count,
+				Premium: rc.Premium,
 				// cc is always suffixed; see proxy.go:proxifier.postAddRpnProxy
 				Key:   strings.Join([]string{rc.City, rc.CC}, confKeySep),
 				Addrs: strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
@@ -1143,6 +1146,7 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 				Load:             int32(group.Health),
 				Link:             int32(linkspeed),
 				Count:            int32(len(group.Nodes)),
+				Premium:          server.PremiumOnly == 1,
 				ClientAddr4:      reservation.Config.Address,
 				ClientPrivKey:    id.PrivateKey,
 				ClientPubKey:     id.PublicKey,
