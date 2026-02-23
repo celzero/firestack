@@ -58,12 +58,14 @@ func TestUn(tst *testing.T) {
 	trie := NewRadixTree()
 	trie.Add(StrOf("fritz.box")) // exact domain
 	trie.Add(StrOf(".lan"))      // subdomain ending with .lan
+	trie.Add(StrOf(".sub.tld")) // subdomain ending with .sub.tld
 
 	noma1 := trie.HasAny(StrOf("test.fritz.box")) // no subdomain matches
 	yma1 := trie.HasAny(StrOf("fritz.box"))       // exact match for fritz.box
 	yma2 := trie.HasAny(StrOf("test.lan"))        // subdomain match for .lan
+	yma3 := trie.HasAny(StrOf("mu.st.sub.tld"))  // subdomain match for sub.tld
 
-	ll.V("no: %t, yes: [%t %t]", noma1, yma1, yma2)
+	ll.V("no: %t, yes: [%t %t %t]", noma1, yma1, yma2, yma3)
 }
 
 func ko(tst *testing.T, err error) {
