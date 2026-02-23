@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.25
+go 1.26
 
 require (
 	github.com/celzero/gotrie v0.0.0-20250314130138-a2756ab2f6bd
@@ -25,7 +25,7 @@ require (
 	golang.org/x/mobile v0.0.0-20260120165949-40bd9ace6ce4
 	golang.org/x/net v0.49.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
-	gvisor.dev/gvisor v0.0.0-20250816201027-ba3b9ca85f20
+	gvisor.dev/gvisor v0.0.0-20260220231412-fe30adbe8e25
 )
 
 require (
@@ -36,17 +36,23 @@ require (
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
 	github.com/cisco/go-tls-syntax v0.0.0-20200617162716-46b0cfb76b9b // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/elazarl/goproxy/ext v0.0.0-20190711103511-473e67f1d7d2 // indirect
 	github.com/felixge/go-patch-overlay v0.0.0-20250623154806-ec286d1fd9dc // indirect
 	github.com/google/btree v1.1.2 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/stretchr/testify v1.6.1 // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
+	golang.org/x/exp v0.0.0-20241004190924-225e2abe05e6 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
-	golang.org/x/time v0.7.0 // indirect
+	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 // TODO: remove all replaces
