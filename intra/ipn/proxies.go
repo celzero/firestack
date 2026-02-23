@@ -702,12 +702,13 @@ func (px *proxifier) clearpins() (int, int) {
 // ProxyFor implements Proxies.
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	p, err := px.proxyFor(id)
-	if errors.Is(err, errProxyNotFound) {
-		log.W("proxy: for: %s; not found; waiting for %ds...", maxWaitPeriodSec, id)
-		time.Sleep(maxWaitPeriodSec)
+	if !errors.Is(err, errProxyNotFound) {
+		return p, err
 	}
-	p, err = px.proxyFor(id)
-	return p, err
+
+	log.W("proxy: for: %s; not found; waiting for %ds...", id, maxWaitPeriodSec)
+	time.Sleep(time.Duration(maxWaitPeriodSec) * time.Second)
+	return px.proxyFor(id)
 }
 
 func (px *proxifier) proxyFor(id string) (Proxy, error) {
