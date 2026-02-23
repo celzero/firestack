@@ -35,10 +35,10 @@ jobs:
     - name: 🥏 Checkout code
       uses: actions/checkout@v6
 
-    - name: 🐼 Setup go1.25+
+    - name: 🐼 Setup go1.26+
       uses: actions/setup-go@v6
       with:
-        go-version: '>=1.25.5'
+        go-version: '>=1.26'
         check-latest: true
 
     - name: 🏗️ Make
@@ -454,7 +454,7 @@ jobs:
       - name: 🐼 Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '>=1.25'
+          go-version: '>=1.26'
           cache: false
       # github.com/tailscale/tailscale/blob/93324cc7b/.github/workflows/depaware.yml
       # consolidated in: github.com/tailscale/tailscale/commit/4022796484
