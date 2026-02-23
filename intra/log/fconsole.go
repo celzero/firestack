@@ -1,11 +1,14 @@
 package log
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"syscall"
 	"unsafe"
 )
+
+var newline = []byte{'\n'}
 
 type fconsole struct {
 	// takes ownership of w
@@ -65,6 +68,10 @@ func (f *fconsole) write(m Logmsg) error {
 	p := unsafe.StringData(m)
 	b := unsafe.Slice(p, len(m))
 	n, err := w.Write(b)
+	// go.dev/play/p/NbJimcpoS0o
+	if !bytes.HasSuffix(b, newline) {
+		w.Write(newline)
+	}
 	if err != nil {
 		if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
 			// non-blocking write would block; drop the log
