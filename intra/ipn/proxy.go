@@ -193,7 +193,7 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		pxr.Lock()
 		lp := pxr.lp
 		pxr.Unlock()
-		if p, _ = pxr.ProxyFor(id); p != nil {
+		if p, _ = pxr.proxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {

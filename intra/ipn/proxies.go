@@ -138,8 +138,7 @@ var (
 const (
 	udptimeoutsec         = 5 * 60                    // 5m
 	tcptimeoutsec         = (2 * 60 * 60) + (40 * 60) // 2h40m
-	getproxytimeout       = 5 * time.Second
-	tlsHandshakeTimeout   = 30 * time.Second // some proxies take a long time to handshake
+	tlsHandshakeTimeout   = 30 * time.Second          // some proxies take a long time to handshake
 	responseHeaderTimeout = 60 * time.Second
 	tzzTimeout            = 2 * time.Minute  // time between new connections before proxies transition to idle
 	lastOKThreshold       = 10 * time.Minute // time between last OK and now before pinging & un-pinning
@@ -147,6 +146,8 @@ const (
 	alwaysPin             = true             // always pin to a proxy no matter the errors
 	maxFailingPinTrackTTl = 30 * time.Second // max period to track a failing to-be-pinned proxy
 	maxStallPeriodSec     = 10               // max duration to stall a failing proxy
+	maxWaitPeriodSec      = 5                // max duration to wait for a missing proxy to be added
+	getproxytimeout       = 5 * time.Second
 )
 
 // type checks
@@ -449,6 +450,8 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 // May return both a Proxy and an error, in which case, the error
 // denotes that while the Proxy is not healthy, it is still registered.
 func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (theone Proxy, err error) {
+	waitedForMissingProxy := false
+
 	ippstr := ipp.String()
 	e := func(err error) error {
 		return fmt.Errorf("%v for %s to %s among %v", err, uid, ippstr, pids)
@@ -463,13 +466,23 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 	stalledSec := uint32(0)
 
 	if len(pids) == 1 { // there's no other pid to choose from
+	retryPin:
 		p, err := px.pinID(uid, ipp, pids[0]) // repin
 		if err != nil || p == nil {
 			err = core.OneErr(err, errProxyNotFound)
-			stalledSec = px.stall(uid + ippstr)
+			if !waitedForMissingProxy {
+				// wait for the missing proxy to be added before returning error
+				waitedForMissingProxy = true
+				stalledSec = px.stall(uid + ippstr)
+				if stalledSec < maxWaitPeriodSec {
+					time.Sleep(time.Duration(maxWaitPeriodSec-stalledSec) * time.Second)
+					stalledSec = maxWaitPeriodSec
+				}
+				goto retryPin
+			}
 		}
-		logev(err)("proxy: pin: %s+%s; pin pid0: %s (stalled? %ds); err? %v",
-			uid, ippstr, pids[0], stalledSec, err)
+		logev(err)("proxy: pin: %s+%s; pin pid0: %s (stalled? %ds / waited? %t); err? %v",
+			uid, ippstr, pids[0], stalledSec, waitedForMissingProxy, err)
 		if p != nil {
 			if !hasroute(p, ippstr) {
 				px.delpin(uid, ipp)
@@ -486,7 +499,6 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 	}
 
 	var lopinned string
-	var notok []Proxy
 
 	pinnedpid, pinok := px.getpin(uid, ipp)
 	chosen := has(pids, pinnedpid)
@@ -516,6 +528,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 		px.delpin(uid, ipp)
 	}
 
+	var notok []Proxy
 	notokproxies := make([]string, 0)
 	endproxies := make([]string, 0)
 	pausedproxies := make([]string, 0)
@@ -531,6 +544,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 			uid, ipp, idstr(theone), stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies)
 	}()
 
+retrySearch:
 	for _, pid := range pids {
 		if pinok && pid == pinnedpid { // already tried above
 			continue
@@ -540,8 +554,9 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 			continue // process later
 		}
 
-		p, err := px.ProxyFor(pid)
+		p, err := px.proxyFor(pid)
 		if err != nil || p == nil { // proxy 404
+			// TODO: errors.Is(err, errProxyNotFound)?
 			missproxies = append(missproxies, pid)
 			continue
 		}
@@ -592,7 +607,20 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 		missproxies = append(missproxies, pid)
 	}
 
-	stalledSec = px.stall(uid + ippstr)
+	if len(missproxies) > 0 && !waitedForMissingProxy {
+		// wait for the missing proxy to be added before returning error
+		waitedForMissingProxy = true
+		stalledSec = px.stall(uid + ippstr)
+		if stalledSec < maxWaitPeriodSec {
+			time.Sleep(time.Duration(maxWaitPeriodSec-stalledSec) * time.Second)
+			stalledSec = maxWaitPeriodSec
+		}
+		log.W("proxy: pin: %s+%s; missing: %v; notok: %v; noroute: %v; paused: %v; ended: %v; waited: %ds",
+			uid, ippstr, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, stalledSec)
+		pids = missproxies
+		missproxies = make([]string, 0)
+		goto retrySearch
+	}
 
 	if len(notokproxies) > 0 {
 		return nil, e(errNoProxyHealthy)
@@ -624,7 +652,7 @@ func (px *proxifier) stall(k string) (secs uint32) {
 }
 
 func (px *proxifier) pinID(uid string, ipp netip.AddrPort, id string) (Proxy, error) {
-	p, err := px.ProxyFor(id)
+	p, err := px.proxyFor(id)
 	if err != nil || p == nil {
 		err = core.OneErr(err, errProxyNotFound)
 		return p, fmt.Errorf("proxy: pin: id %s; err: %v", id, err)
@@ -673,10 +701,20 @@ func (px *proxifier) clearpins() (int, int) {
 // As a special case, if it takes longer than getproxytimeout, it returns an error.
 // ProxyFor implements Proxies.
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
-	defer core.Recover(core.Exit11, "pxr.ProxyFor."+id)
+	p, err := px.proxyFor(id)
+	if errors.Is(err, errProxyNotFound) {
+		log.W("proxy: for: %s; not found; waiting for %ds...", maxWaitPeriodSec, id)
+		time.Sleep(maxWaitPeriodSec)
+	}
+	p, err = px.proxyFor(id)
+	return p, err
+}
+
+func (px *proxifier) proxyFor(id string) (Proxy, error) {
+	defer core.Recover(core.Exit11, "pxr.proxyFor."+id)
 
 	if len(id) <= 0 {
-		return nil, errProxyNotFound
+		return nil, errMissingProxyID
 	}
 
 	if immutable(id) { // fast path for immutable proxies
