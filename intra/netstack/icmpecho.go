@@ -110,8 +110,8 @@ func (r *icmpResponder) handle(h *icmpForwarder, nic tcpip.NICID, pkt *stack.Pac
 	// feeding them back into netstack.
 	if parsed.IPProto != wire.ICMPv4 && parsed.IPProto != wire.ICMPv6 {
 		if settings.Debug {
-			log.VV("icmp: responder: unsupported proto: %d / echo: %t @ %d; h: %s; content: %x",
-				parsed.IPProto, parsed.IsEchoRequest(), parsed.EchoIDSeq(), parsed.ICMPHeaderString(), parsed.Buffer())
+			log.VV("icmp: responder: unsupported proto: %d / echo: %t @ %d; h: %s; content: %s",
+				parsed.IPProto, parsed.IsEchoRequest(), parsed.EchoIDSeq(), parsed.ICMPHeaderString(), trunc(parsed.Buffer(), 8))
 		}
 		wire.Pool.Put(parsed)
 		return
@@ -271,4 +271,11 @@ func (r *icmpResponder) inject(nic tcpip.NICID, proto tcpip.NetworkProtocolNumbe
 	sz := pkt.Size()
 	n, err := ep.WritePackets(list)
 	logeif(e(err))("icmp: responder: inject %d to tun (n: %d; sz: %d); err? %v", proto, n, sz, err)
+}
+
+func trunc(b []byte, n int) string {
+	if len(b) <= n {
+		return fmt.Sprintf("%x", b)
+	}
+	return fmt.Sprintf("%x...%x", b[:n], b[len(b)-n:])
 }
