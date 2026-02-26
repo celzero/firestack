@@ -175,10 +175,6 @@ func newFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 		caps |= stack.CapabilitySaveRestore
 	}
 
-	if opts.DisconnectOk {
-		caps |= stack.CapabilityDisconnectOk
-	}
-
 	if len(opts.FDs) == 0 {
 		return nil, fmt.Errorf("opts.FD is empty, at least one FD must be specified")
 	}
