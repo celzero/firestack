@@ -192,6 +192,13 @@ func UndelegatedDomains(useSystemDNS bool) {
 	log.I("tun: resolve undelegated with system DNS? %t / ok? %t", useSystemDNS, ok)
 }
 
+// DefaultDNSAsFallback allows using the Default transport as a fallback when
+// the Preferred transport is missing or paused or ended.
+func DefaultDNSAsFallback(y bool) {
+	ok := settings.DefaultDNSAsFallback.CompareAndSwap(!y, y)
+	log.I("tun: allow default DNS as fallback? %t / ok? %t", y, ok)
+}
+
 // Transparency enables/disables endpoint-independent mapping/filtering.
 // Currently applies only for UDP (RFC 4787).
 func Transparency(eim, eif bool) {

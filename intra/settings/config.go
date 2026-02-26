@@ -54,6 +54,10 @@ var EndpointIndependentFiltering = atomic.Bool{}
 // for undelegated domains.
 var SystemDNSForUndelegatedDomains = atomic.Bool{}
 
+// DefaultDNSAsFallback is a global flag to allow using the Default transport
+// as a fallback when the Preferred transport is missing or paused or ended.
+var DefaultDNSAsFallback = atomic.Bool{}
+
 // SetUserAgent is a global flag to set User-Agent for DoH requests
 // to "Intra" and for HTTP "Reaches" checks to the Android default.
 var SetUserAgent = atomic.Bool{}

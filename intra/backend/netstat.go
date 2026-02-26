@@ -158,6 +158,7 @@ type RDNSInfo struct {
 	PanicTest               bool
 	FatalTest               bool
 	SystemDNSForUndelegated bool
+	DefaultDNSAsFallback    bool
 	SetUserAgent            bool
 	OwnTunFd                bool
 	PortForward             bool

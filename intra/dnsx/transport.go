@@ -791,11 +791,12 @@ func (r *resolver) determineTransport(id string) Transport {
 	tf = r.transports[Default]
 	r.RUnlock()
 
-	if t0 != nil && activeTransport(t0) {
+	mayusedefault := canUseDefaultDNS(id0)
+	if t0 != nil && (t1 == nil || !mayusedefault || activeTransport(t0)) {
 		return t0
-	} else if t1 != nil {
+	} else if t1 != nil && (!mayusedefault || activeTransport(t1)) {
 		return t1
-	} else if canUseDefaultDNS(id0) {
+	} else if tf != nil && mayusedefault {
 		log.W("dns: fwd: %s is missing; using default", id0)
 		return tf // todo: assert tf != nil?
 	}
@@ -1309,9 +1310,9 @@ func canUseDefaultDNS(id string) bool {
 	case Local, CT + Local:
 		return false
 	case Alg, Preferred, Plus, BlockFree:
-		return true
+		return settings.DefaultDNSAsFallback.Load()
 	case CT + Alg, CT + Preferred, CT + Plus, CT + BlockFree:
-		return true
+		return settings.DefaultDNSAsFallback.Load()
 	}
 	return false
 }

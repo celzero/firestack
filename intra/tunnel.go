@@ -490,6 +490,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.FatalTest = settings.FatalAtRandom.Load()
 	out.RDNSIn.SetUserAgent = settings.SetUserAgent.Load()
 	out.RDNSIn.SystemDNSForUndelegated = settings.SystemDNSForUndelegatedDomains.Load()
+	out.RDNSIn.DefaultDNSAsFallback = settings.DefaultDNSAsFallback.Load()
 	out.RDNSIn.Dialer4 = dialers.Use4()
 	out.RDNSIn.Dialer6 = dialers.Use6()
 	out.RDNSIn.DialerOpts = csv2ssv(settings.GetDialerOpts().String())
