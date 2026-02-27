@@ -29,6 +29,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+// must be kept in sync with rpn's Conf() impls (like in yegor.go)
 const anyCountryCode = "**"   // random country
 const noCountryForOldMen = "" // zz
 

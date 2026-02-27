@@ -891,6 +891,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		cc = cccsv[1]
 	}
 	visited := make(map[string]struct{}, 0)
+	// in sync with anyCountryCode / noCountryForOldMen vars in proxy.go
 	chooseAny := cc == "**" || len(cc) <= 0
 	hasCity := len(city) > 0
 	tot := 0
