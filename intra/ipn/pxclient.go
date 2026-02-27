@@ -23,6 +23,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/log"
 )
 
 const (
@@ -49,6 +50,8 @@ var (
 type proxyClient struct {
 	p Proxy
 }
+
+var _ x.Client = (*proxyClient)(nil)
 
 func newProxyClient(p Proxy) x.Client {
 	return &proxyClient{p: p}
@@ -81,12 +84,12 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 		applyMullvad(meta, mull)
 		meta.ProviderURL = mullvadURL
 	} else {
-		perr := fmt.Errorf("proxy: %s ip lookup failed", idstr(p))
+		perr := fmt.Errorf("proxy: client: %s ip lookup failed", idstr(p))
 		return nil, core.JoinErr(perr, err1, err2, err3)
 	}
 
 	if len(meta.IP) <= 0 {
-		return nil, fmt.Errorf("proxy: %s ip lookup failed", idstr(p))
+		return nil, fmt.Errorf("proxy: client: %s ip lookup failed", idstr(p))
 	}
 
 	return meta, nil
@@ -132,7 +135,7 @@ func fetchTrace(p Proxy, network string) (map[string]string, error) {
 	}
 
 	if len(kv) == 0 {
-		return nil, errors.New("empty trace response")
+		return nil, errors.New("proxy: client: empty trace response")
 	}
 
 	return kv, nil
@@ -179,7 +182,7 @@ func fetchWarp(p Proxy, network string) (*warpResp, error) {
 	}
 
 	if resp.IP == "" {
-		return nil, errors.New("empty warp response")
+		return nil, errors.New("proxy: client: empty warp response")
 	}
 
 	return &resp, nil
@@ -220,7 +223,7 @@ func fetchMullvad(p Proxy, network, url string) (*mullvadResp, error) {
 	}
 
 	if resp.IP == "" {
-		return nil, errors.New("empty mullvad response")
+		return nil, errors.New("proxy: client: empty mullvad response")
 	}
 
 	return &resp, nil
@@ -286,24 +289,29 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 
-	client := httpClient(p, network, parsed)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
 	if err != nil {
 		return nil, err
 	}
 
+	log.VV("proxy: client: %s fetching %s via %s...", idstr(p), rawurl, network)
+
+	// TODO: pool clients
+	client := httpClient(p, network, parsed)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	if resp == nil {
-		return nil, errors.New("ip lookup: nil response")
+		return nil, errors.New("proxy: client: ip lookup nil response")
 	}
-	defer resp.Body.Close()
+	defer core.Close(resp.Body)
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("ip lookup %s: status %s", rawurl, resp.Status)
+		return nil, fmt.Errorf("proxy: client: ip lookup %s: status %s", rawurl, resp.Status)
 	}
+
+	log.VV("proxy: client: %s fetched %s via %s with status %s; reading body...", idstr(p), rawurl, network, resp.Status)
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxIPBodySize))
 	if err != nil {
@@ -358,12 +366,16 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 					return nil, errNoSuitableAddress
 				}
 
+				log.VV("proxy: client: %s resolved %s to %v on port %d for %s", idstr(p), host, filtered, on, network)
+
 				var lastErr error
 				for _, ip := range filtered {
 					dest := netip.AddrPortFrom(ip, uint16(on)).String()
 					if conn, err := p.Dial(network, dest); err == nil {
+						log.VV("proxy: client: %s dialed %s @ %s on %s", idstr(p), host, dest, network)
 						return conn, nil
 					} else {
+						log.E("proxy: client: %s failed to dial %s @ %s on %s: %v", idstr(p), host, dest, network, err)
 						lastErr = err
 					}
 				}
@@ -373,8 +385,8 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 				}
 				return nil, lastErr
 			},
-			TLSHandshakeTimeout:   httpTimeout,
-			ResponseHeaderTimeout: httpTimeout,
+			TLSHandshakeTimeout:   httpTimeout / 2,
+			ResponseHeaderTimeout: httpTimeout - 2,
 			DisableKeepAlives:     true,
 			ForceAttemptHTTP2:     true,
 		},
@@ -389,5 +401,5 @@ func (h *socks5) Client() x.Client  { return newProxyClient(h) }
 func (h *http1) Client() x.Client   { return newProxyClient(h) }
 func (h *wgproxy) Client() x.Client { return newProxyClient(h) }
 func (h *seproxy) Client() x.Client { return newProxyClient(h) }
-func (t *pipws) Client() x.Client   { return newProxyClient(t) }
-func (t *piph2) Client() x.Client   { return newProxyClient(t) }
+func (h *pipws) Client() x.Client   { return newProxyClient(h) }
+func (h *piph2) Client() x.Client   { return newProxyClient(h) }
