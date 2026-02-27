@@ -95,10 +95,11 @@ const (
 	// wspxpath = "ServerCredentials/"
 	// wsbestloc = "BestLocation/"
 
-	wsMinServerLinkSpeed = 1   // 1mbps
-	wsMaxServerHealth    = 100 // min is 0
+	wsMinServerLinkSpeed = 1    // 1mbps
+	wsMaxServerHealth    = 100  // min is 0
+	allPerRegionWgConfs  = true // when false, only maxPerRegionWgConfs*2 are chosen
 	maxPerRegionWgConfs  = 4
-	maxAnyWgConfs        = 10
+	maxAnyWgConfs        = 8
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/constants/NetworkErrorCodes.kt
@@ -1164,7 +1165,7 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 				log.W("ws: wgconfs: no nodes in %s (%s); ip3? %t", group.City, group.Nick, noip3)
 				continue // skip servers without nodes
 			}
-			if tot[cc] >= maxPerRegionWgConfs*2 {
+			if !allPerRegionWgConfs && tot[cc] >= maxPerRegionWgConfs*2 {
 				log.D("ws: wgconfs: skip! %s (%s) has %d configs already",
 					cc, servername, tot[cc])
 				break // we have enough configs for this region
