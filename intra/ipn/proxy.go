@@ -75,7 +75,7 @@ func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
 		cc = noCountryForOldMen
 	}
 
-	log.V("proxy: rpn: remove: %s[%s]", typ, cc)
+	log.I("proxy: rpn: remove: %s[%s]", typ, cc)
 
 	rpnid := cc // cc itself may be a fully qualified id if removing main proxy
 	if !strings.HasPrefix(cc, typ) {
@@ -100,6 +100,8 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 		log.W("proxy: rpn: add: %s not multi-country; [%s] ignored", typ, cc)
 		cc = noCountryForOldMen
 	}
+
+	log.I("proxy: rpn: add: %s[%s]", typ, cc)
 
 	// cc may be typcity;cc (ref struct RpnServer.Key)
 	cc, _ = strings.CutPrefix(cc, typ)
