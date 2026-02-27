@@ -115,7 +115,7 @@ const (
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/res/raw/port_map.txt#L76
-var wswgports = []string{"443", "80", "53", "123", "1194", "65142"}
+var wswgports = []string{ /*0th & 1st pos must always be 443, 80; see wsRandomPort */ "443", "53", "80", "123", "1194", "65142"}
 
 var (
 	errWsBadGatewayArgs = errors.New("ws: cannot make gw; missing args")
@@ -1060,9 +1060,14 @@ func skipWsServer(server WsServerList) (bool, string) {
 	return false, "" // this server is okay to use
 }
 
+// TODO: For now, hardcode to use 443 (at pos 0) or 53 (at pos 1) as it has better "anti-censorship" property.
 func wsRandomPort() string {
 	// return a random port from the list of WireGuard ports
-	return wswgports[rand.Int32N(int32(len(wswgports)))]
+	// return wswgports[rand.Int32N(int32(len(wswgports)))]
+	if rand.Uint()%2 == 0 {
+		return wswgports[0]
+	}
+	return wswgports[1]
 }
 
 func wsRandomIP3(nodes []WsServerNode) string {
