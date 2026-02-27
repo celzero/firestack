@@ -14,13 +14,20 @@ import (
 )
 
 type RegionalWgConf struct {
-	CC      string `json:"CC"`
-	City    string `json:"City"`
-	Name    string `json:"Name"`
-	Load    int32  `json:"Load"`
-	Link    int32  `json:"Link"`
-	Count   int32  `json:"Count"`
-	Premium bool   `json:"Premium"`
+	// WsServerList.CountryCode (uppercased)
+	CC string `json:"CC"`
+	// WsServerGroup.City
+	City string `json:"City"`
+	// City (Nick)
+	Name string `json:"Name"`
+	// WsServerGroup.Health (0-100, lower is better)
+	Load int32 `json:"Load"`
+	// WsServerGroup.LinkSpeed (100, 1000, 10000 in mbps)
+	Link int32 `json:"Link"`
+	// len(WsServerGroup.Nodes) (number of nodes in this group)
+	Count int32 `json:"Count"`
+	// WsServerList.PremiumOnly == 1
+	Premium bool `json:"Premium"`
 
 	ClientAddr4   string `json:"ClientAddr4"`
 	ClientAddr6   string `json:"ClientAddr6"`
@@ -56,12 +63,19 @@ func toHex(b64 string) string {
 	return hex.EncodeToString(b)
 }
 
-func (rwg *RegionalWgConf) GenUapiConfig() bool {
+func (rwg *RegionalWgConf) GenUapiConfig() (didGenerate bool) {
 	return rwg.genUapiConfig()
 }
 
+func (rwg *RegionalWgConf) genUapiConfigIfNeeded() (hasConfig bool) {
+	if len(rwg.UapiWgConf) <= 0 {
+		return rwg.genUapiConfig()
+	}
+	return true
+}
+
 // TODO: genWgConf github.com/celzero/firestack/blob/31633dc6f3/intra/ipn/warp/id.go#L260
-func (rwg *RegionalWgConf) genUapiConfig() bool {
+func (rwg *RegionalWgConf) genUapiConfig() (didGenerate bool) {
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
 	// allowedips must be individual entries in uapi, but our custom impl can handle csv

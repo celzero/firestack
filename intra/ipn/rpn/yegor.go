@@ -457,7 +457,7 @@ type WsServerGroup struct {
 	// Nodes are online servers that can be connected to in a datacneter.
 	// If empty, the datacenter is offline.
 	Nodes []WsServerNode `json:"nodes"`
-	// Health is a measure of load, between 0 and 100.
+	// Health is a measure of load, between 0 and 100. Lower is better.
 	Health int `json:"health"`
 }
 
@@ -896,6 +896,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	out := make([]string, 0, maxPerRegionWgConfs)
 	ids := make([]string, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
+		// TODO: strings.HasSuffix(rc.Cc, cc) replaced with ==?
 		if (chooseAny || strings.HasSuffix(rc.CC, cc)) &&
 			((hasCity && rc.City == city) || (!hasCity && c < maxPerRegionWgConfs)) {
 			if rc.genUapiConfig() {
@@ -908,10 +909,10 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	}
 	if len(out) > 0 {
 		r := rand.IntN(len(out))
-		log.I("ws: conf: cc %s: %d/%d => chosen (any? %t): %d[%s]", cc, c, len(out), chooseAny, r, ids[r])
+		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s]", cc, city, c, len(out), chooseAny, r, ids[r])
 		return out[r], nil
 	}
-	log.E("ws: conf: cc %s not found (tot: %d)", cc, tot)
+	log.E("ws: conf: cc %s(%s) not found (tot: %d)", cc, city, tot)
 	return "", errWsNoCcConfig
 }
 
