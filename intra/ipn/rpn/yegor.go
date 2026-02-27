@@ -98,6 +98,7 @@ const (
 	wsMinServerLinkSpeed = 1   // 1mbps
 	wsMaxServerHealth    = 100 // min is 0
 	maxPerRegionWgConfs  = 4
+	maxAnyWgConfs        = 10
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/constants/NetworkErrorCodes.kt
@@ -889,6 +890,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		city = cccsv[0]
 		cc = cccsv[1]
 	}
+	visited := make(map[string]struct{}, 0)
 	chooseAny := cc == "**" || len(cc) <= 0
 	hasCity := len(city) > 0
 	tot := 0
@@ -897,9 +899,39 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	ids := make([]string, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
 		// TODO: strings.HasSuffix(rc.Cc, cc) replaced with ==?
-		if (chooseAny || strings.HasSuffix(rc.CC, cc)) &&
-			((hasCity && rc.City == city) || (!hasCity && c < maxPerRegionWgConfs)) {
-			if rc.genUapiConfig() {
+		if (chooseAny || strings.HasSuffix(rc.CC, cc)) && (!hasCity || rc.City == city) {
+
+			if chooseAny {
+				if _, ok := visited[rc.CC]; ok {
+					continue
+				}
+				visited[rc.CC] = struct{}{}
+				if c > 2 {
+					// choose only low load and high link speed servers
+					gbps10 := rc.Link >= 10000
+					healthy50 := rc.Load <= 50
+					gbps1 := rc.Link >= 1000
+					healthy20 := rc.Load <= 20
+					if !gbps10 && !gbps1 {
+						continue
+					}
+					if (gbps10 && !healthy50) || (gbps1 && !healthy20) {
+						continue
+					}
+				}
+				if c >= maxAnyWgConfs {
+					// generate maxAnyWgConfs across all CCs.
+					break
+				}
+			} else {
+				if !hasCity && c >= maxPerRegionWgConfs {
+					// not chooseAny; city not specified;
+					// generate maxPerRegionWgConfs for this cc.
+					break
+				}
+			}
+
+			if rc.genUapiConfigIfNeeded() {
 				out = append(out, rc.UapiWgConf)
 				ids = append(ids, strings.Join([]string{rc.CC, rc.City, rc.Name}, "/"))
 				c++
