@@ -316,7 +316,10 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	}
 
 	provider := acc.ProviderID()
-	if mainpid == provider+cc || mainpid == cc {
+	if mainpid == provider+cc || // true when cc == noCountryForOldMen or anyCountryCode
+		mainpid == cc || // true when cc is fully-qualified ID of the main proxy
+		(cc == noCountryForOldMen && !acc.MultiCountry()) ||
+		(cc == anyCountryCode && acc.MultiCountry()) {
 		// re-forking main proxy (which may not be multi-country acc) via Update() => forkAll()
 		log.I("proxy: rpn: fork: %s main cc %s; re-adding...", provider, cc)
 		// expect Emplace to be called
