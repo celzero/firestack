@@ -466,6 +466,9 @@ func (t *rtunnel) Stat() (*x.NetStat, error) {
 }
 
 func (t *rtunnel) stat() (*x.NetStat, error) {
+	log.VV("tun: stat: start")
+	defer log.VV("tun: stat: done")
+
 	tunnel := t.t.Load()
 
 	// NICInfo, NICStat, IPStat, IPFwdStat, TCPStat, UDPStat, ICMPStat, TUNStat
