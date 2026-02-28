@@ -1123,6 +1123,9 @@ func (tun *wgtun) Close() error {
 // TODO: use wgtun as a receiver for Stats()
 // Never returns nil.
 func (w *wgproxy) Stat() (out *x.RouterStats) {
+	log.VV("proxy: wg: %s stats: start", w.tag())
+	defer log.VV("proxy: wg: %s stats: end", w.tag())
+
 	out = new(x.RouterStats)
 
 	out.Addrs = w.ifaddrs() // may be empty
