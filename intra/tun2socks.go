@@ -254,13 +254,6 @@ func PanicAtRandom(y bool) {
 	log.I("tun: panic at random? %t", y)
 }
 
-// FatalAtRandom instructs portions under test to fatally crash the network engine.
-// For testing only.
-func FatalAtRandom(y bool) {
-	settings.FatalAtRandom.Store(y)
-	log.I("tun: fatal at random? %t", y)
-}
-
 func pipeCrashOutput(bdg Bridge) (ok bool) {
 	r, w, err := os.Pipe()
 	if err != nil {

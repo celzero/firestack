@@ -44,6 +44,9 @@ import (
 
 const maxForwarders = 8
 
+// disable log.wtf driven exit (it did not work the last time it was tested)
+const testwtf = false
+
 type fiveTuple struct {
 	srcAddr, dstAddr []byte
 	srcPort, dstPort uint16
@@ -164,7 +167,7 @@ func (p *processor) start(wg *sync.WaitGroup) {
 func (p *processor) deliverPackets() {
 	testpanic := !p.testcrash && settings.PanicAtRandom.Load() && rand10pc()
 	if testpanic {
-		defer core.Recover(core.DontExit, "ns.forwarder.deliverPackets")
+		defer core.Recover(core.Exit11, "ns.forwarder.deliverPackets")
 	}
 
 	p.mu.Lock()
@@ -183,7 +186,7 @@ func (p *processor) deliverPackets() {
 
 	if testpanic {
 		panic("ns: tun: forwarder: deliverPackets rand10pc")
-	} else if !p.testcrash && settings.FatalAtRandom.Load() && rand1pc() {
+	} else if testwtf && !p.testcrash && settings.PanicAtRandom.Load() && rand1pc() {
 		p.testcrash = true
 		core.RuntimeWtf("ns: tun: forwarder: test fatal\n")
 		var mu sync.Mutex

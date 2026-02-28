@@ -74,9 +74,5 @@ const IntraUa = "Intra"
 // every once in a while (for testing).
 var PanicAtRandom = atomic.Bool{}
 
-// FatalAtRandom is a global flag to fatally crash the network engine
-// every once in a while (for testing).
-var FatalAtRandom = atomic.Bool{}
-
 // OwnTunFd is a global flag to indicate that the TUN fd is fully owned by netstack.
 var OwnTunFd = atomic.Bool{}
