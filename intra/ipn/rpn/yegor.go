@@ -700,15 +700,15 @@ type WsWgConfig struct {
 }
 */
 type WsEntitlement struct {
-	kind         string `json:"kind"`          // e.g. "ws#v1"
-	cid          string `json:"cid"`           // Client ID
-	sid          string `json:"pid,omitempty"` // Share ID
-	sessionToken string `json:"sessiontoken"`  // Encrypted session token
+	Kind         string `json:"kind"`          // e.g. "ws#v1"
+	Cid          string `json:"cid"`           // Client ID
+	Pid          string `json:"pid,omitempty"` // Share ID
+	SessionToken string `json:"sessiontoken"`  // Encrypted session token
 	// Expiry date of the entitlement; go.dev/play/p/d2gshytEF61
-	expiry       time.Time `json:"expiry"`
-	status       string    `json:"status"`       // "valid" | "invalid" | "banned" | "expired" | "unknown"
-	allowRestore bool      `json:"allowRestore"` // true if this entitlement can be restored
-	test         bool      `json:"test"`         // true if this is a test entitlement
+	Exp              time.Time `json:"expiry"`
+	AccStatus        string    `json:"status"`       // "valid" | "invalid" | "banned" | "expired" | "unknown"
+	AllowCrossDevice bool      `json:"allowRestore"` // true if this entitlement can be restored
+	TestDomain       bool      `json:"test"`         // true if this is a test entitlement
 }
 
 var _ x.RpnAcc = (*WsClient)(nil)
@@ -719,27 +719,27 @@ func (e *WsEntitlement) ProviderID() *x.Gostr {
 }
 
 func (e *WsEntitlement) CID() *x.Gostr {
-	return x.StrOf(e.cid)
+	return x.StrOf(e.Cid)
 }
 
 func (e *WsEntitlement) Token() *x.Gostr {
-	return x.StrOf(e.sessionToken)
+	return x.StrOf(e.SessionToken)
 }
 
 func (e *WsEntitlement) Expiry() *x.Gostr {
-	return x.StrOf(e.expiry.Format(time.RFC3339))
+	return x.StrOf(e.Exp.Format(time.RFC3339))
 }
 
 func (e *WsEntitlement) Status() *x.Gostr {
-	return x.StrOf(e.status)
+	return x.StrOf(e.AccStatus)
 }
 
 func (e *WsEntitlement) AllowRestore() bool {
-	return e.allowRestore
+	return e.AllowCrossDevice
 }
 
 func (e *WsEntitlement) Test() bool {
-	return e.test
+	return e.TestDomain
 }
 
 func (a *WsWgConfig) Json() ([]byte, error) {
@@ -1262,7 +1262,7 @@ func (a *WsWgConfig) tokenState() string {
 	}
 	s1, s2 := "no-ent", "no-sess"
 	if ent := a.Entitlement; ent != nil {
-		s1 = "ent-" + tokenState(ent.sessionToken)
+		s1 = "ent-" + tokenState(ent.SessionToken)
 	}
 	if sess := a.Session; sess != nil {
 		s2 = "sess-" + tokenState(sess.SessionToken)
@@ -1282,7 +1282,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	if len(bearer) <= 0 {
 		return nil, errWsNoToken
 	}
-	test := ent.test
+	test := ent.TestDomain
 
 	// curl -x GET '.../serverlist/mob-v2/1/<lochash>'
 	u := assetsurl(test).JoinPath(wslocpath, lochash)
@@ -1322,11 +1322,11 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, serve
 	if len(bearer) <= 0 {
 		return nil, nil, errWsNoToken
 	}
-	cid := ent.cid
+	cid := ent.Cid
 	if len(cid) <= 0 {
 		return nil, nil, errWsNoCid
 	}
-	test := ent.test
+	test := ent.TestDomain
 
 	tokst := "sess-" + tokenState(bearer)
 
@@ -1555,12 +1555,12 @@ func (w *BaseClient) MakeWsWg(entitlement []byte) (*WsClient, error) {
 }
 
 func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
-	if ent == nil || len(ent.sessionToken) <= 0 {
+	if ent == nil || len(ent.SessionToken) <= 0 {
 		log.E("ws: makeWsWg: entitlement is nil")
 		return nil, errWsNoEntitlement
 	}
 
-	sess, err := getSession(h, ent.cid, ent.sessionToken, ent.test)
+	sess, err := getSession(h, ent.Cid, ent.SessionToken, ent.TestDomain)
 	if err != nil {
 		return nil, err
 	}
@@ -1598,7 +1598,7 @@ func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte) (x.RpnEnti
 	}
 	var existingConf WsWgConfig
 	err2 := json.Unmarshal(entitlementOrStateJson, &existingConf)
-	if err2 == nil && existingConf.Entitlement != nil && len(existingConf.Entitlement.sessionToken) > 0 {
+	if err2 == nil && existingConf.Entitlement != nil && len(existingConf.Entitlement.SessionToken) > 0 {
 		return existingConf.Entitlement, nil
 	}
 	return nil, core.JoinErr(err1, err2)
@@ -1614,7 +1614,7 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, 
 
 	sz := len(entitlementOrWsConfigJson)
 	hasEnt := existingConf.Entitlement != nil
-	hasTok := hasEnt && len(existingConf.Entitlement.sessionToken) > 0
+	hasTok := hasEnt && len(existingConf.Entitlement.SessionToken) > 0
 	if err != nil || !hasEnt || !hasTok {
 		// may be this is an entitlement and not conf?
 		log.W("ws: make: unmarshal config (sz %d / hasEnt %t / hasTok %t) err? %v; retry as entitlement",
@@ -1631,7 +1631,7 @@ func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig) (*WsClient, error) {
 
 func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refreshedSess bool, err error) {
 	existingEnt := existingConf.Entitlement
-	if existingEnt == nil || len(existingEnt.sessionToken) <= 0 {
+	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
 		err = errWsNoEntitlement
 		return
 	}
@@ -1647,15 +1647,15 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		return
 	}
 
-	cid := existingEnt.cid
+	cid := existingEnt.Cid
 	tokst := existingConf.tokenState()
 	existingToken := existingSess.SessionToken
 	existingLocHash := existingSess.LocHash
-	if existingEnt.sessionToken != existingToken {
+	if existingEnt.SessionToken != existingToken {
 		log.W("ws: make: entitlement does not match session; tok? %s", tokst)
 	}
 
-	newSess, err := getSession(h, cid, existingToken, existingEnt.test)
+	newSess, err := getSession(h, cid, existingToken, existingEnt.TestDomain)
 	if err == nil {
 		existingConf.Session = newSess // update session with the latest info
 		refreshedSess = true
