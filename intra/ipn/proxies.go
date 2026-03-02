@@ -1228,6 +1228,14 @@ func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv *x.Gostr) bool {
 	return false
 }
 
+func (px *proxifier) EntitlementFrom(entitlementOrStateJson *x.Gobyte, id *x.Gostr) (x.RpnEntitlement, error) {
+	switch id.V() {
+	case RpnWin:
+		return px.extc.MakeWsEntitlement(entitlementOrStateJson.V())
+	}
+	return nil, errNotRpnAcc
+}
+
 // RegisterWin implements x.Rpn.
 func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gobyte, err error) {
 	defer func() {

@@ -84,6 +84,8 @@ const ( // see ipn/proxies.go
 )
 
 type Rpn interface {
+	// EntitlementFrom returns the RpnEntitlement represented by entitlementOrStateJson.
+	EntitlementFrom(entitlementOrStateJson *Gobyte, rpnProviderID *Gostr) (RpnEntitlement, error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
 	// RegisterWin is alias for RegisterWin.
@@ -149,6 +151,7 @@ type RpnProxy interface {
 	Kids() (csvpids *Gostr)
 }
 
+// RpnAcc represents an account with RPN provider.
 type RpnAcc interface {
 	// Who returns identifier for this account; may be empty.
 	Who() *Gostr
@@ -162,6 +165,24 @@ type RpnAcc interface {
 	Locations() (RpnServers, error)
 	// Update updates the account creating new state.
 	Update() (newstate *Gobyte, err error)
+}
+
+// RpnEntitlement represents access to a proxy service.
+type RpnEntitlement interface {
+	// ProviderID is RPN provider for this entitlement.
+	ProviderID() *Gostr
+	// Cid is the Client identifier
+	CID() *Gostr
+	// Token is the entitlement token, if any.
+	Token() *Gostr
+	// Expiry is ISO 8601 string of the expiry time of this entitlement, if any.
+	Expiry() *Gostr
+	// "valid", "invalid", "banned", "expired", "unknown"
+	Status() *Gostr
+	// AllowRestore returns true if this entitlement can be transferred around for restores.
+	AllowRestore() bool
+	// Test is set if this entitlement is valid only in the test domain.
+	Test() bool
 }
 
 type Proxies interface {

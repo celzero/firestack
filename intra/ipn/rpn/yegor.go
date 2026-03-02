@@ -695,18 +695,51 @@ type WsWgConfig struct {
 "sessiontoken": enc("id:typ:epochsec:sig1:sig2"),
 "expiry": "2025-07-15T00:00:00Z", // Expiry date of the entitlement
 "status": "valid" // "valid" | "invalid" | "banned" | "expired" | "unknown"
+"allowRestore": false, // true if this entitlement can be restored
 "test": false // true if this is a test entitlement
 }
 */
 type WsEntitlement struct {
-	Kind         string `json:"kind"`          // e.g. "ws#v1"
-	Cid          string `json:"cid"`           // Client ID
-	Sid          string `json:"pid,omitempty"` // Share ID
-	SessionToken string `json:"sessiontoken"`  // Encrypted session token
+	kind         string `json:"kind"`          // e.g. "ws#v1"
+	cid          string `json:"cid"`           // Client ID
+	sid          string `json:"pid,omitempty"` // Share ID
+	sessionToken string `json:"sessiontoken"`  // Encrypted session token
 	// Expiry date of the entitlement; go.dev/play/p/d2gshytEF61
-	Expiry time.Time `json:"expiry"`
-	Status string    `json:"status"` // "valid" | "invalid" | "banned" | "expired" | "unknown"
-	Test   bool      `json:"test"`   // true if this is a test entitlement
+	expiry       time.Time `json:"expiry"`
+	status       string    `json:"status"`       // "valid" | "invalid" | "banned" | "expired" | "unknown"
+	allowRestore bool      `json:"allowRestore"` // true if this entitlement can be restored
+	test         bool      `json:"test"`         // true if this is a test entitlement
+}
+
+var _ x.RpnAcc = (*WsClient)(nil)
+var _ x.RpnEntitlement = (*WsEntitlement)(nil)
+
+func (e *WsEntitlement) ProviderID() *x.Gostr {
+	return x.StrOf(x.RpnWin)
+}
+
+func (e *WsEntitlement) CID() *x.Gostr {
+	return x.StrOf(e.cid)
+}
+
+func (e *WsEntitlement) Token() *x.Gostr {
+	return x.StrOf(e.sessionToken)
+}
+
+func (e *WsEntitlement) Expiry() *x.Gostr {
+	return x.StrOf(e.expiry.Format(time.RFC3339))
+}
+
+func (e *WsEntitlement) Status() *x.Gostr {
+	return x.StrOf(e.status)
+}
+
+func (e *WsEntitlement) AllowRestore() bool {
+	return e.allowRestore
+}
+
+func (e *WsEntitlement) Test() bool {
+	return e.test
 }
 
 func (a *WsWgConfig) Json() ([]byte, error) {
@@ -1229,7 +1262,7 @@ func (a *WsWgConfig) tokenState() string {
 	}
 	s1, s2 := "no-ent", "no-sess"
 	if ent := a.Entitlement; ent != nil {
-		s1 = "ent-" + tokenState(ent.SessionToken)
+		s1 = "ent-" + tokenState(ent.sessionToken)
 	}
 	if sess := a.Session; sess != nil {
 		s2 = "sess-" + tokenState(sess.SessionToken)
@@ -1249,7 +1282,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	if len(bearer) <= 0 {
 		return nil, errWsNoToken
 	}
-	test := ent.Test
+	test := ent.test
 
 	// curl -x GET '.../serverlist/mob-v2/1/<lochash>'
 	u := assetsurl(test).JoinPath(wslocpath, lochash)
@@ -1289,11 +1322,11 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, serve
 	if len(bearer) <= 0 {
 		return nil, nil, errWsNoToken
 	}
-	cid := ent.Cid
+	cid := ent.cid
 	if len(cid) <= 0 {
 		return nil, nil, errWsNoCid
 	}
-	test := ent.Test
+	test := ent.test
 
 	tokst := "sess-" + tokenState(bearer)
 
@@ -1522,12 +1555,12 @@ func (w *BaseClient) MakeWsWg(entitlement []byte) (*WsClient, error) {
 }
 
 func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
-	if ent == nil || len(ent.SessionToken) <= 0 {
+	if ent == nil || len(ent.sessionToken) <= 0 {
 		log.E("ws: makeWsWg: entitlement is nil")
 		return nil, errWsNoEntitlement
 	}
 
-	sess, err := getSession(h, ent.Cid, ent.SessionToken, ent.Test)
+	sess, err := getSession(h, ent.cid, ent.sessionToken, ent.test)
 	if err != nil {
 		return nil, err
 	}
@@ -1553,6 +1586,24 @@ func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 	return newWsGw(cfg, h)
 }
 
+func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte) (x.RpnEntitlement, error) {
+	if len(entitlementOrStateJson) <= 0 {
+		return nil, errWsNoEntitlement
+	}
+
+	var ent WsEntitlement
+	err1 := json.Unmarshal(entitlementOrStateJson, &ent)
+	if err1 == nil {
+		return &ent, nil
+	}
+	var existingConf WsWgConfig
+	err2 := json.Unmarshal(entitlementOrStateJson, &existingConf)
+	if err2 == nil && existingConf.Entitlement != nil && len(existingConf.Entitlement.sessionToken) > 0 {
+		return existingConf.Entitlement, nil
+	}
+	return nil, core.JoinErr(err1, err2)
+}
+
 func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, error) {
 	if len(entitlementOrWsConfigJson) <= 0 {
 		return nil, errWsNoJsonConfig
@@ -1563,14 +1614,13 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, 
 
 	sz := len(entitlementOrWsConfigJson)
 	hasEnt := existingConf.Entitlement != nil
-	hasTok := hasEnt && len(existingConf.Entitlement.SessionToken) > 0
+	hasTok := hasEnt && len(existingConf.Entitlement.sessionToken) > 0
 	if err != nil || !hasEnt || !hasTok {
 		// may be this is an entitlement and not conf?
 		log.W("ws: make: unmarshal config (sz %d / hasEnt %t / hasTok %t) err? %v; retry as entitlement",
 			sz, hasEnt, hasTok, err)
 		return w.MakeWsWg(entitlementOrWsConfigJson)
 	}
-
 	return w.makeWsWgFrom(&existingConf)
 }
 
@@ -1581,7 +1631,7 @@ func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig) (*WsClient, error) {
 
 func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refreshedSess bool, err error) {
 	existingEnt := existingConf.Entitlement
-	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
+	if existingEnt == nil || len(existingEnt.sessionToken) <= 0 {
 		err = errWsNoEntitlement
 		return
 	}
@@ -1597,15 +1647,15 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 		return
 	}
 
-	cid := existingEnt.Cid
+	cid := existingEnt.cid
 	tokst := existingConf.tokenState()
 	existingToken := existingSess.SessionToken
 	existingLocHash := existingSess.LocHash
-	if existingEnt.SessionToken != existingToken {
+	if existingEnt.sessionToken != existingToken {
 		log.W("ws: make: entitlement does not match session; tok? %s", tokst)
 	}
 
-	newSess, err := getSession(h, cid, existingToken, existingEnt.Test)
+	newSess, err := getSession(h, cid, existingToken, existingEnt.test)
 	if err == nil {
 		existingConf.Session = newSess // update session with the latest info
 		refreshedSess = true
