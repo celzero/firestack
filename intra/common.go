@@ -589,6 +589,15 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 	return
 }
 
+func filterFamilyForDialingWithFailSafe(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
+	included, excluded, excludedIsIncluded = filterFamilyForDialing(ipcsv)
+	if (!excludedIsIncluded || len(excluded) > 0) && len(included) > 0 {
+		// if not falling back, then include one excluded ip as a fail-safe
+		included = append(included, core.ChooseOne(excluded))
+	}
+	return included, excluded, excludedIsIncluded
+}
+
 // filterFamilyForDialing filters out invalid IPs and IPs that are not
 // of the family that the dialer is configured to use.
 func filterFamilyForDialing(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
@@ -607,11 +616,11 @@ func filterFamilyForDialing(ipcsv string) (included []netip.Addr, excluded []net
 			invalids++
 			continue
 		}
-		// always include unspecified IPs as it is used by the client
-		// to make block/no-block decisions
-		if ip.IsUnspecified() || use4 && ip.Is4() || use6 && ip.Is6() {
+		// TODO: always include unspecified IPs as it is used by the client to make block/no-block decisions?
+		// The above is not true anymore?
+		if use4 && ip.Is4() || use6 && ip.Is6() {
 			filtered = append(filtered, ip)
-		} else {
+		} else if ip.IsValid() && !ip.IsUnspecified() {
 			unfiltered = append(unfiltered, ip)
 		}
 	}

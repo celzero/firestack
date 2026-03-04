@@ -260,7 +260,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	h.maybeReplaceDest(res, &target)
 
 	// TODO: use res.IP only if set
-	filtered, excluded, fallingback := filterFamilyForDialing(realips)
+	filtered, excluded, fallingback := filterFamilyForDialingWithFailSafe(realips)
 	actualTargets := makeIPPorts(filtered, target, !undidAlg, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 
