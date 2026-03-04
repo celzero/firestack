@@ -48,6 +48,7 @@ const (
 	SOCKS5   = x.SOCKS5
 	HTTP1    = x.HTTP1
 	WG       = x.WG
+	WGFAST   = x.WGFAST
 	PIPH2    = x.PIPH2
 	PIPWS    = x.PIPWS
 	NOOP     = x.NOOP
@@ -702,7 +703,14 @@ func (px *proxifier) clearpins() (int, int) {
 // ProxyFor implements Proxies.
 func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 	p, err := px.proxyFor(id)
-	if !errors.Is(err, errProxyNotFound) {
+	if !errors.Is(err, errProxyNotFound) || !isWellknown(id) {
+		// return proxy not found for non-wellknown proxy ids immediately without waiting
+		// because the constructor's of dns transports call into ProxyFor with their own IDs
+		// (ex: dnsx.Default / dnsx.Preferred) to auto-setup the transporting over proxy
+		// (ex: when WireGuard DNS53 transports are setup). Waiting for "maxWaitPeriodSec"
+		// then delays construction of the transport & in case of dnsx.Default specifically,
+		// it results in prolonged intra.NewTunnel creation, which is sensitive to delays,
+		// as it is expected to be called from the main service thread of the Android client.
 		return p, err
 	}
 
@@ -1459,10 +1467,6 @@ func (px *proxifier) testExit64() (ips string, errs error) {
 	return strings.Join(oks, ","), nil
 }
 
-func isWG(id string) bool {
-	return strings.Contains(id, WG)
-}
-
 func IsAnyLocalProxy(ids ...string) bool {
 	return core.IsAny(ids, local)
 }
@@ -1499,8 +1503,28 @@ func isInternal(id string) bool {
 	return isRPN(id) || immutable(id)
 }
 
+func isWellknown(id string) bool {
+	return isInternal(id) || isWG(id) || isOrbot(id) || isGlobalH1(id) || isPip(id)
+}
+
 func isRPN(id string) bool {
-	return strings.Contains(id, RPN)
+	return strings.Contains(id, RPN) // RPN is a suffix
+}
+
+func isWG(id string) bool {
+	return strings.HasPrefix(id, WG) || strings.HasPrefix(id, WGFAST)
+}
+
+func isOrbot(id string) bool {
+	return id == OrbotH1 || id == OrbotS5
+}
+
+func isGlobalH1(id string) bool {
+	return id == GlobalH1
+}
+
+func isPip(id string) bool {
+	return strings.HasPrefix(id, PIPH2) || strings.HasPrefix(id, PIPWS)
 }
 
 func idling(t time.Time) bool {
