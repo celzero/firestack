@@ -157,6 +157,9 @@ func NewTunnel(fd, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Brid
 func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
 	defer core.Recover(core.Exit11, "i.newTunnel")
 
+	log.D("tun: <<< new >>>; start; fd: %d, tunmtu: %d, linkmtu: %d, ifaddrs: %s, fakedns: %s, dtr? %t, bdg? %t",
+		fd, tunmtu, linkmtu, ifaddrs, fakedns, dtr != nil, bdg != nil)
+
 	if dtr == nil || core.IsNil(dtr) {
 		dtr, err = NewBuiltinDefaultDNS()
 		log.D("tun: using builtin default dns; err? %v", err)
@@ -262,7 +265,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 		}
 	}
 
-	// usually, 10.111.222.0/24 / [fd66:f83a:c650::0]/120
+	// usually, 10.111.222.0/24 / [fd66:f83a:c650::1]/120
 	// github.com/celzero/rethink-app/blob/59aa0daae/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L2813
 	if len(src) <= 0 { // default
 		src = []netip.Prefix{netip.MustParsePrefix("10.111.222.1/24"), netip.MustParsePrefix("fd66:f83a:c650::1/120")}

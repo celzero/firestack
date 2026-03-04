@@ -84,9 +84,9 @@ func Connect(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS, b
 // as -1, ["10.111.222.1/24", "fd66:f83a:c650::0/120"], and ["10.111.222.3", "fd66:f83a:c650::3"]
 // respectively.
 func Connect2(fd, tunmtu int, dtr DefaultDNS, bdg Bridge) (t Tunnel, err error) {
-	// usually, 10.111.222.0/24 / [fd66:f83a:c650::0]/120
+	// usually, 10.111.222.0/24 / [fd66:f83a:c650::1]/120
 	// github.com/celzero/rethink-app/blob/59aa0daae/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L2813
-	return Connect(fd, -1, tunmtu, "10.111.222.1/24,fd66:f83a:c650::0/120", "10.111.222.3,fd66:f83a:c650::3", nil, bdg)
+	return Connect(fd, -1, tunmtu, "10.111.222.1/24,fd66:f83a:c650::1/120", "10.111.222.3,fd66:f83a:c650::3", nil, bdg)
 }
 
 // Connect3 is like Connect2, but does not require passing a Default DNS resolver.
