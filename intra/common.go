@@ -178,8 +178,12 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 				preuid = pre.UID
 			}
 		} else {
-			log.W("com: %s: onFlow: preflow: uid %s is not a number; use %s", h.proto, pre.UID, uid)
+			log.E("com: %s: onFlow: preflow: uid %s is not a number; use %s; err? %v", h.proto, pre.UID, uid, cerr)
 		}
+	}
+
+	if settings.Debug {
+		log.VV("com: %s: onFlow: preflow: has? %t, preuid: %s for %s => %s", h.proto, hasPre, preuid, src, dst)
 	}
 
 	// alg happens after nat64, and so, alg knows nat-ed ips and un-nats them;
@@ -190,13 +194,16 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		hasNewIPs := false
 		if hasPre {
 			for d := range strings.SplitSeq(doms, ",") {
-				if len(d) <= 0 && settings.Debug {
-					log.V("com: %s: onFlow: preflow: empty domain in %v from %v => %v for %s; skip!",
-						h.proto, doms, src, target, preuid)
+				nodomain := len(d) <= 0
+				if nodomain && settings.Debug {
+					logwif(len(d) <= 0)("com: %s: onFlow: preflow: %v from %v => %v for %s; nodomain? %t",
+						h.proto, doms, src, target, preuid, nodomain)
 					continue
 				}
 				newips, err := dialers.ResolveFor(d, preuid)
 				hasNewIPs = err == nil && len(newips) > 0
+				logwif(!hasNewIPs)("com: %s: onFlow: preflow: resolved alg domain %s? %t; new ips %v for %s => %s; preuid: %s",
+					h.proto, d, hasNewIPs, newips, src, dst, preuid)
 				if hasNewIPs { // already unalg'd by ipmapper
 					// _, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
 					ips = dnsx.Netip2Csv(newips)
@@ -213,13 +220,14 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		} // else: if we've got target and/or old ips, dial them
 	} else {
 		if settings.Debug {
-			log.D("com: %s: onFlow: noalg? %t or hasips? %t", h.proto, !undidAlg, hasOldIPs)
+			log.D("com: %s: onFlow: noalg? %t or hasips? %t for %s => %s; preuid %s",
+				h.proto, !undidAlg, hasOldIPs, src, dst, preuid)
 		}
 	}
 
 	if settings.Debug && (len(ips) <= 0 || len(doms) <= 0) {
-		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s",
-			h.proto, ips, doms, pdoms, localaddr, target)
+		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s; preuid=%s; alg? %t",
+			h.proto, ips, doms, pdoms, localaddr, target, preuid, undidAlg)
 	}
 
 	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
@@ -510,7 +518,7 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool
 
 	origip := origipp.Addr()
 	origport := origipp.Port()
-	willIncludeOrig := maybeIncludeOrig && ((use4 && origip.Is4()) || (use6 && origip.Is6()))
+	willIncludeOrig := maybeIncludeOrig && ((use4 && orig4) || (use6 && orig6))
 	r := make([]netip.AddrPort, 0, cap)
 	// override alg-ip with the first real-ip
 	for _, v := range ips { // may contain unspecifed ips
@@ -534,7 +542,7 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool
 	if len(r) > 0 {
 		s := core.ShuffleInPlace(r)
 		if willIncludeOrig {
-			return append([]netip.AddrPort{origipp}, s...)
+			s = append([]netip.AddrPort{origipp}, s...)
 		}
 		return s
 	}
