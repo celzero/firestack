@@ -95,7 +95,7 @@ type DNSListener interface {
 	ResolverListener
 	// OnQuery is called when a DNS query is received. The listener
 	// can return a DNSOpts to specify how the query should be handled.
-	OnQuery(uid, domain *Gostr, qtyp int) *DNSOpts
+	OnQuery(who, uid, domain *Gostr, qtyp int) *DNSOpts
 	// OnUpstreamAnswer is called before an upstream DNS answer (not blocked by firestack) is sent to the OS.
 	// The listener may return DNSOpts to specify if another upstream should override that answer.
 	// Another round of OnQuery is NOT called in this case, and OnResponse is called once after processing

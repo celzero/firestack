@@ -58,6 +58,10 @@ const (
 	IpMapper  = x.IpMapper
 	NoDNS     = ""
 
+	// DNS request origin indicators
+	OriginInternal = x.OriginInternal
+	OriginTunnel   = x.OriginTunnel
+
 	invalidQname = "invalid.query"
 
 	// preferred network to use with t.Query
@@ -463,22 +467,25 @@ func (r *resolver) IsDnsAddr(ipport netip.AddrPort) bool {
 	return r.isDns(ipport)
 }
 
+// Lookup implements ResolverSelf.
 func (r *resolver) Lookup(q []byte, tids ...string) ([]byte, string, error) {
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
 	// if len(tids) == 0, use transport from preferences
-	return r.forward(q, protect.UidSelf, tids...)
+	return r.forward(q, OriginInternal, protect.UidSelf, tids...)
 }
 
+// LookupForSelf implements ResolverSelf.
 func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
 
-	return r.forward(q, uid)
+	return r.forward(q, OriginInternal, uid)
 }
 
+// LocalLookup implements ResovlerSelf.
 func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	if r.closed.Load() {
 		return nil, NoDNS, errResolverClosed
@@ -496,13 +503,13 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(msg))
-		ans, tid, err = r.forward(q, protect.UidSelf, Goos) // Goos is System; see: determineTransport
+		ans, tid, err = r.forward(q, OriginInternal, protect.UidSelf, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
 	return ans, tid, err
 }
 
-func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
+func (r *resolver) forward(q []byte, who, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
 	starttime := time.Now()
 	ogsmm := &x.DNSSummary{
 		ID:     NoDNS,
@@ -538,7 +545,7 @@ func (r *resolver) forward(q []byte, uid string, chosenids ...string) (res0 []by
 	}
 
 	pref, oqcompleted := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
-		return r.listener.OnQuery(x.StrOf(uid), x.StrOf(qname), qtyp), nil
+		return r.listener.OnQuery(x.StrOf(who), x.StrOf(uid), x.StrOf(qname), qtyp), nil
 	}, listenerTimeout)
 	if !oqcompleted || pref == nil {
 		log.W("dns: fwd: for %s; no preferences (%t) for %s:%d", uid, pref == nil, qname, qtyp)
@@ -806,7 +813,7 @@ func (r *resolver) determineTransport(id string) Transport {
 
 // dnstcp queries the transport and writes answers to w, prefixed by length.
 func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) error {
-	ans, _, err := r.forward(q, uid)
+	ans, _, err := r.forward(q, OriginTunnel, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -826,7 +833,7 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) error {
 
 // dnsudp queries the transport and writes answers to w.
 func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) error {
-	ans, _, err := r.forward(q, uid)
+	ans, _, err := r.forward(q, OriginTunnel, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {

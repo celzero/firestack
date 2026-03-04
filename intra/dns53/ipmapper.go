@@ -152,7 +152,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	if len(tid) > 0 { // always choose one among these tids
 		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, tid...))
 		val6, _ = m.ba.Do(key6(host, tid...), m.lookupon(q6, tid...))
-	} else if uid != core.UNKNOWN_UID_STR { // client code chooses a tid
+	} else if uid != core.UNKNOWN_UID_STR { // client code chooses a tid depending on uid & "origin"
 		val4, _ = m.ba.Do(key4(host, uid), m.lookupfor(q4, uid))
 		val6, _ = m.ba.Do(key6(host, uid), m.lookupfor(q6, uid))
 	} else { // either Default or System/Goos

@@ -49,6 +49,14 @@ const ( // see dnsx/transport.go
 	// dns resolver for dns resolvers and for firestack (built-in)
 	// delegates queries to Bootstrap.
 	IpMapper = "IpMapper"
+
+	// dns request origin indicators
+
+	// DNS request originated internally
+	OriginInternal = "self"
+
+	// DNS request originated from tunnel read
+	OriginTunnel = "tunnel"
 )
 
 const ( // from dnsx/queryerror.go
