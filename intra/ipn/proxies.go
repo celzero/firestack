@@ -147,7 +147,7 @@ const (
 	alwaysPin             = true             // always pin to a proxy no matter the errors
 	maxFailingPinTrackTTl = 30 * time.Second // max period to track a failing to-be-pinned proxy
 	maxStallPeriodSec     = 10               // max duration to stall a failing proxy
-	maxWaitPeriodSec      = 5                // max duration to wait for a missing proxy to be added
+	maxWaitPeriodSec      = 3                // max duration to wait for a missing proxy to be added
 	getproxytimeout       = 5 * time.Second
 )
 
