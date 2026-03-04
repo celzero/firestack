@@ -84,6 +84,10 @@ func SetConsoleLevel(level LogLevel) {
 	Glogger.SetConsoleLevel(level)
 }
 
+func ConsoleReady(ctx context.Context) {
+	Glogger.ConsoleReady(ctx)
+}
+
 // SetConsole sets external console to redirect log output to.
 func SetConsole(consoleCtx context.Context, c Console) {
 	Glogger.SetConsole(c)

@@ -29,13 +29,8 @@ func newRing[T any](ctx context.Context, capacity int) *ring[T] {
 		inC: make(chan T, capacity/2),
 	}
 	go r.process()
+	context.AfterFunc(ctx, func() { close(r.inC) })
 	return r
-}
-
-func (r *ring[T]) closeWaiter() {
-	defer close(r.inC)
-
-	<-r.ctx.Done()
 }
 
 // Push adds an element to the ring buffer
@@ -56,8 +51,6 @@ func (r *ring[T]) Push(v T) (ok bool) {
 // process reads from the input channel and adds elements to the ring buffer.
 // Must be run in a goroutine.
 func (r *ring[T]) process() {
-	go r.closeWaiter()
-
 	for v := range r.inC {
 		r.Lock()
 		r.b[r.head] = v

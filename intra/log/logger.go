@@ -49,6 +49,7 @@ type Logger interface {
 	SetLevel(level LogLevel)
 	SetConsoleLevel(level LogLevel)
 	SetConsole(c Console)
+	ConsoleReady(ctx context.Context)
 	Usr(msg string)
 	Printf(msg string, args ...any)
 	VeryVerbosef(at int, msg string, args ...any)
@@ -254,7 +255,6 @@ func defaultLogger() *simpleLogger {
 		o: golog.New(os.Stdout, "", defaultFlags),
 		q: newRing[string](context.TODO(), qSize),
 	}
-	go l.consoleDispatcher()
 	return l
 }
 
@@ -291,6 +291,12 @@ func (l *simpleLogger) SetConsole(c Console) {
 	l.c.set(c) // c may point to nil impl
 }
 
+func (l *simpleLogger) ConsoleReady(ctx context.Context) {
+	go l.consoleDispatcher(ctx)
+	// TODO: close l.msgC when ctx is done
+	// TODO: wireup ctx to l.q
+}
+
 func (l *simpleLogger) clearStCounts() {
 	l.stmu.Lock()
 	defer l.stmu.Unlock()
@@ -320,8 +326,13 @@ func (l *simpleLogger) incrStCount(id string) (c uint32) {
 // consoleDispatcher sends msgs from l.msgC to external log console.
 // It may drop logs on high load (50% for conNorm, 80% for conErr).
 // Must be called once from a goroutine.
-func (l *simpleLogger) consoleDispatcher() {
+func (l *simpleLogger) consoleDispatcher(ctx context.Context) {
 	for m := range l.cmsgC {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		if m == nil || len(m.m) <= 0 { // no msg
 			continue
 		}
