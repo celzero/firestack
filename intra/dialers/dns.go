@@ -12,6 +12,7 @@ import (
 	"net/url"
 
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -70,7 +71,7 @@ func ECH(hostname string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := ipm.Lookup(q)
+	res, err := ipm.LocalLookup(q)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
 		return nil, err
 	}
 
-	r, err := ipm.Lookup(q, tids...)
+	r, err := ipm.Lookup(q, protect.UidSelf, tids...)
 	if err != nil {
 		return nil, err
 	}
@@ -120,13 +121,8 @@ func QueryFor(msg *dns.Msg, uid, tid string) (*dns.Msg, error) {
 		return nil, qerr
 	}
 
-	var r []byte
-	var rerr error
-	if uid == core.UNKNOWN_UID_STR {
-		r, rerr = ipm.Lookup(q, tid)
-	} else {
-		r, rerr = ipm.LookupFor(q, uid)
-	}
+	// uid may be core.UNKNOWN_UID_STR
+	r, rerr := ipm.Lookup(q, uid, tid)
 
 	if rerr != nil {
 		return nil, rerr

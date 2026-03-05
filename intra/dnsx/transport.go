@@ -285,8 +285,8 @@ func (r *resolver) MDNS() (MDNSTransport, error) {
 	return nil, errNoSuchTransport
 }
 
-func (r *resolver) Translate(b bool) {
-	r.gateway.translate(b)
+func (r *resolver) Translate(tr, fix bool) {
+	r.gateway.translate(tr, fix)
 }
 
 // stopIfExistsLocked stops the transport if it exists,
@@ -467,19 +467,27 @@ func (r *resolver) IsDnsAddr(ipport netip.AddrPort) bool {
 	return r.isDns(ipport)
 }
 
-// Lookup implements ResolverSelf.
-func (r *resolver) Lookup(q []byte, tids ...string) ([]byte, string, error) {
+// LookupFor2 implements ResolverSelf.
+func (r *resolver) LookupFor2(q []byte, uid string, tids ...string) ([]byte, string, error) {
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
 	// if len(tids) == 0, use transport from preferences
-	return r.forward(q, OriginInternal, protect.UidSelf, tids...)
+	return r.forward(q, OriginInternal, uid, tids...)
 }
 
-// LookupForSelf implements ResolverSelf.
+// LookupFor implements ResolverSelf.
 func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
+	}
+
+	// prechose tids preferred & fixed when uid is set to 0, -1, or 1051 (common
+	// android system components that send DNS requests on behalf of actual apps/uids)
+	// to use "fixed" transport to later uncover the actual requesting app/uid during
+	// tcp/udp flows (specifically, with preflow)
+	if (uid == core.UNKNOWN_UID_STR || uid == core.DNS_UID_STR || uid == core.ANDROID_UID_STR) && r.gateway.fixedTransport() {
+		return r.forward(q, OriginInternal, uid, Preferred, Fixed)
 	}
 
 	return r.forward(q, OriginInternal, uid)
@@ -495,7 +503,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	defaultIsSystemDNS := r.isDefaultSystemDNS()
 
 	// including dns64 and/or alg
-	ans, tid, err := r.forward(q, protect.UidSelf, Default)
+	ans, tid, err := r.forward(q, OriginInternal, protect.UidSelf, Default)
 	if !defaultIsSystemDNS || loopingBack {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
@@ -735,7 +743,7 @@ func (r *resolver) Serve(proto string, c protect.Conn, uid string) {
 	// if Serve (which is called by common.go:dnsOverride) calls in with a uid
 	// that is not UNKNOWN_UID_STR, then we know that the query is from an app
 	// and we can presume per app split tunnel is working as expected.
-	if len(uid) > 0 && uid != core.UNKNOWN_UID_STR && uid != core.DNS_UID_STR {
+	if len(uid) > 0 && uid != core.ANDROID_UID_STR && uid != core.UNKNOWN_UID_STR && uid != core.DNS_UID_STR {
 		r.gateway.splitTunnel()
 	}
 

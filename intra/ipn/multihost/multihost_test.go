@@ -15,6 +15,7 @@ import (
 
 	"github.com/celzero/firestack/intra/dialers"
 	ilog "github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -24,7 +25,7 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup(q []byte, _ ...string) ([]byte, error) {
+func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
 	// return nil, errors.New("lookup: not implemented")
 	msg := xdns.AsMsg(q)
 	if msg == nil {
@@ -62,8 +63,12 @@ func (r fakeResolver) Lookup(q []byte, _ ...string) ([]byte, error) {
 	return ans.Pack()
 }
 
+func (r fakeResolver) LocalLookup(q []byte) ([]byte, error) {
+	return r.Lookup(q, protect.UidSelf)
+}
+
 func (r fakeResolver) LookupFor(q []byte, _ string) ([]byte, error) {
-	return r.Lookup(q)
+	return r.Lookup(q, protect.UidSelf)
 }
 
 func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {

@@ -20,7 +20,10 @@ type fakeProxy struct{ id string }
 
 type systemMapper struct{}
 
-func (systemMapper) Lookup(_ []byte, _ ...string) ([]byte, error) {
+func (systemMapper) LocalLookup(_ []byte) ([]byte, error) {
+	return nil, errors.New("wire lookup not supported")
+}
+func (systemMapper) Lookup(_ []byte, _ string, _ ...string) ([]byte, error) {
 	return nil, errors.New("wire lookup not supported")
 }
 func (systemMapper) LookupFor(_ []byte, _ string) ([]byte, error) {

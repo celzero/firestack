@@ -145,8 +145,8 @@ type RDNSResolver interface {
 	SetRdnsRemote(filetag string) error
 	// GetRdnsRemote returns the remote rdns resolver.
 	GetRdnsRemote() (RDNS, error)
-	// Translate enables or disables ALG/fixed responses
-	Translate(bool)
+	// Translate enables or disables ALG and fixed responses.
+	Translate(alg, fix bool)
 }
 
 type DNSTransportMultProvider interface {

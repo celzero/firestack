@@ -36,7 +36,11 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup(q []byte, _ ...string) ([]byte, error) {
+func (r fakeResolver) LocalLookup(q []byte) ([]byte, error) {
+	return r.Lookup(q, protect.UidSelf)
+}
+
+func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
 	// return nil, errors.New("lookup: not implemented")
 	msg := xdns.AsMsg(q)
 	if msg == nil {
@@ -75,7 +79,7 @@ func (r fakeResolver) Lookup(q []byte, _ ...string) ([]byte, error) {
 }
 
 func (r fakeResolver) LookupFor(q []byte, _ string) ([]byte, error) {
-	return r.Lookup(q)
+	return r.LocalLookup(q)
 }
 
 func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
@@ -119,7 +123,7 @@ var (
 	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnWin, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
-func (*fakeBdg) OnQuery(_, _ *x.Gostr, _ int) *x.DNSOpts                 { return autoNsOpts }
+func (*fakeBdg) OnQuery(_, _, _ *x.Gostr, _ int) *x.DNSOpts              { return autoNsOpts }
 func (*fakeBdg) OnUpstreamAnswer(_ *x.DNSSummary, _ *x.Gostr) *x.DNSOpts { return nil }
 func (*fakeBdg) OnResponse(*x.DNSSummary)                                {}
 func (*fakeBdg) OnDNSAdded(*x.Gostr)                                     {}
@@ -168,12 +172,12 @@ func TestDot(t *testing.T) {
 	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
-	r4, _, err := resolv.Lookup(b4)
-	r6, _, err6 := resolv.Lookup(b6)
-	_, _, _ = resolv.Lookup(b24)
-	_, _, _ = resolv.Lookup(b26)
+	r4, _, err := resolv.LocalLookup(b4)
+	r6, _, err6 := resolv.LocalLookup(b6)
+	_, _, _ = resolv.LocalLookup(b24)
+	_, _, _ = resolv.LocalLookup(b26)
 	time.Sleep(1 * time.Second)
-	_, _, _ = resolv.Lookup(b6)
+	_, _, _ = resolv.LocalLookup(b6)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)
@@ -286,8 +290,8 @@ func TestSEProxy(t *testing.T) {
 	b4, _ := q.Pack()
 	b6, _ := q6.Pack()
 
-	r4, _, err := resolv.Lookup(b4)
-	r6, _, err6 := resolv.Lookup(b6)
+	r4, _, err := resolv.LocalLookup(b4)
+	r6, _, err6 := resolv.LocalLookup(b6)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)
@@ -385,7 +389,7 @@ func TestWgReaches(t *testing.T) {
 	}*/
 	ilog.VV("-----------------------DNSX--------------------------")
 	b4, _ := aquery("skysports.com").Pack()
-	r4, _, err := resolv.Lookup(b4) // must use "test0"
+	r4, _, err := resolv.LocalLookup(b4) // must use "test0"
 
 	ilog.D("testwg: %v", win.Router().Stat())
 	time.Sleep(2 * time.Second)
@@ -509,7 +513,7 @@ func TestWinReaches(t *testing.T) {
 	}*/
 	ilog.VV("-----------------------DNSX--------------------------")
 	b4, _ := aquery("skysports.com").Pack()
-	r4, _, err := resolv.Lookup(b4) // must use "test0"
+	r4, _, err := resolv.LocalLookup(b4) // must use "test0"
 
 	ilog.D("%v", propx2.Router().Stat())
 	time.Sleep(2 * time.Second)

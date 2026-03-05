@@ -73,11 +73,10 @@ type ResolverSelf interface {
 	// LocalLookup performs resolution on Default and/or Goos DNSes.
 	// To be only used by protect.UidSelf.
 	LocalLookup(q []byte) (a []byte, tid string, err error)
-	// Lookup performs resolution on chosen Transport.
-	// To be only used by protect.UidSelf.
-	Lookup(q []byte, chosen ...string) (a []byte, tid string, err error)
 	// LookupFor performs resolution for uid.
 	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
+	// Lookup performs resolution on chosen Transport.
+	LookupFor2(q []byte, uid string, chosen ...string) (a []byte, tid string, err error)
 }
 
 type RDNS interface {

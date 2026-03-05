@@ -15,9 +15,11 @@ import (
 
 // from: github.com/eycorsican/go-tun2socks/blob/301549c435/core/conn.go#LL3C9-L3C9
 
+// ref: cs.android.com/android/platform/superproject/+/android-latest-release:system/core/libcutils/include/private/android_filesystem_config.h;drc=e999f05f34e91a3a313ba7dd77bcf52b58a0841e
 const (
 	UNKNOWN_UID         = -1
 	UNKNOWN_UID_STR     = "-1"
+	ANDROID_UID_STR     = "0"
 	DNS_UID_STR         = "1051"
 	UNSUPPORTED_NETWORK = -1
 )

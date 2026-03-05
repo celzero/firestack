@@ -90,9 +90,11 @@ type Gateway interface {
 	// given an alg or real ip, retrieve assoc blocklists as csv, if any
 	RDNSBL(maybeAlg netip.Addr) (blocklistcsv string)
 	// translate overwrites ip answers to alg ip & fixed ip answers
-	translate(yes bool)
+	translate(tr, fix bool)
 	// splitTunnel sets per-app split tunneling on/off
 	splitTunnel()
+	// fixedTransport returns true if split tunneling is enforced via dnsx.Fixed
+	fixedTransport() bool
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
 	q(t1, t2 Transport, preset []netip.Addr, network, uid string, q *dns.Msg, s *x.DNSSummary) (og *dns.Msg, algd *dns.Msg, err error)
 	// onStopped is called when a transport tid is stopped. Gateway invalidates its local caches, if any.
@@ -870,6 +872,7 @@ type dnsgateway struct {
 	// fields below are mutable
 
 	mod   atomic.Bool // modify realip to algip
+	fix   atomic.Bool // enforce split tunneling via dnsx.Fixed
 	split atomic.Bool // per-app split tunneling
 }
 
@@ -898,9 +901,12 @@ func NewDNSGateway(pctx context.Context, fakeaddrs []netip.AddrPort, outer RdnsR
 	return
 }
 
-func (t *dnsgateway) translate(yes bool) {
-	prev := t.mod.Swap(yes)
-	log.I("alg: translate? prev(%t) > now(%t)", prev, yes)
+func (t *dnsgateway) translate(tr, fix bool) {
+	// fixed transport can only be used if translation is on
+	fix = tr && fix
+	prevtr := t.mod.Swap(tr)
+	prevfix := t.fix.Swap(fix)
+	log.I("alg: translate? prevtr(%t) > nowtr(%t); prevfix(%t) > nowfix(%t)", prevtr, tr, prevfix, fix)
 }
 
 func (t *dnsgateway) splitTunnel() {
@@ -909,6 +915,10 @@ func (t *dnsgateway) splitTunnel() {
 	}
 	t.split.Store(true)
 	log.I("alg: splitTunnel turned on")
+}
+
+func (t *dnsgateway) fixedTransport() bool {
+	return t.mod.Load() && t.split.Load() && t.fix.Load()
 }
 
 func (t *dnsgateway) onStopped(tid string) {
@@ -1773,8 +1783,10 @@ func (t *dnsgateway) S() string {
 	sb.WriteString("dnsgateway state:\n")
 	sb.WriteString(" mod: ")
 	sb.WriteString(strconv.FormatBool(t.mod.Load()))
-	sb.WriteString(" / split: ")
+	sb.WriteString(" / cansplit: ")
 	sb.WriteString(strconv.FormatBool(t.split.Load()))
+	sb.WriteString(" / wantsplit: ")
+	sb.WriteString(strconv.FormatBool(t.fixedTransport()))
 	sb.WriteString(" / chash: ")
 	sb.WriteString(strconv.FormatBool(t.chash))
 	sb.WriteString(" / adv: ")

@@ -74,8 +74,13 @@ func str2ip(host string) (netip.Addr, error) {
 }
 
 // Implements IPMapper.
-func (m *ipmapper) Lookup(q []byte, tids ...string) ([]byte, error) {
-	return m.queryAny(q, tids...)
+func (m *ipmapper) LocalLookup(q []byte) ([]byte, error) {
+	return m.Lookup(q, protect.UidSelf)
+}
+
+// Implements IPMapper.
+func (m *ipmapper) Lookup(q []byte, uid string, tids ...string) ([]byte, error) {
+	return m.queryAny2(q, uid, tids...)
 }
 
 // Implements IPMapper.
@@ -150,8 +155,8 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 
 	var val4, val6 *core.V[answer, string]
 	if len(tid) > 0 { // always choose one among these tids
-		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, tid...))
-		val6, _ = m.ba.Do(key6(host, tid...), m.lookupon(q6, tid...))
+		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, uid, tid...))
+		val6, _ = m.ba.Do(key6(host, tid...), m.lookupon(q6, uid, tid...))
 	} else if uid != core.UNKNOWN_UID_STR { // client code chooses a tid depending on uid & "origin"
 		val4, _ = m.ba.Do(key4(host, uid), m.lookupfor(q4, uid))
 		val6, _ = m.ba.Do(key6(host, uid), m.lookupfor(q6, uid))
@@ -227,7 +232,7 @@ func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, erro
 
 	var v *core.V[answer, string]
 	if len(tids) > 0 {
-		v, _ = m.ba.Do(key(qname, qtypestr, tids...), m.lookupon(q, tids...))
+		v, _ = m.ba.Do(key(qname, qtypestr, tids...), m.lookupon(q, uid, tids...))
 	} else if uid != core.UNKNOWN_UID_STR {
 		v, _ = m.ba.Do(key(qname, qtypestr, uid), m.lookupfor(q, uid))
 	} else {
@@ -257,10 +262,10 @@ func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 // lookupon always resolves on one of the chosen tids
 // (if empty, it may or may not use dnsx.Default;
 // see: dnsx.transport.go:determineTransport)
-func (m *ipmapper) lookupon(q []byte, tids ...string) func() (answer, error) {
+func (m *ipmapper) lookupon(q []byte, uid string, tids ...string) func() (answer, error) {
 	return func() (answer, error) {
-		a, tid, err := m.r.Lookup(q, tids...)
-		return answer{a, tid, core.UNKNOWN_UID_STR}, err
+		a, tid, err := m.r.LookupFor2(q, uid, tids...)
+		return answer{a, tid, uid}, err
 	}
 }
 

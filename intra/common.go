@@ -36,6 +36,7 @@ const (
 	smmchSize           = 256 // some comfortably high number
 	UNKNOWN_UID         = core.UNKNOWN_UID
 	UNKNOWN_UID_STR     = core.UNKNOWN_UID_STR
+	ANDROID_UID_STR     = core.ANDROID_UID_STR
 	SELF_UID            = protect.UidSelf
 	UNSUPPORTED_NETWORK = core.UNSUPPORTED_NETWORK
 )
