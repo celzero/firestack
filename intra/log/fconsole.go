@@ -71,7 +71,7 @@ func (f *fconsole) write(lvl LogLevel, m Logmsg) error {
 	// levels like STACKTRACE may not prefix the expected tag
 	// ("F " in the STACKTRACE case), but file-based logger
 	// always expects it for every line
-	if !bytes.HasPrefix(l, b) {
+	if !bytes.HasPrefix(b, l) {
 		w.Write(l)
 	}
 	n, err := w.Write(b)
