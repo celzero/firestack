@@ -55,10 +55,13 @@ const (
 
 func (t traceout) s() string { return string(t) }
 
+const minMemLimit = 512 * 1024 * 1024      // 512MiB
+const maxMemLimit = 4 * 1024 * 1024 * 1024 // 4GiB
+
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
 	debug.SetGCPercent(25)
-	debug.SetMemoryLimit(1024 * 1024 * 1024 * 4) // 4GB
+	debug.SetMemoryLimit(maxMemLimit)
 	debug.SetPanicOnFault(true)
 }
 
@@ -152,6 +155,7 @@ func FlightRecorder(y bool) (bool, error) {
 // LowMem triggers garbage collection cycle & allows for
 // setting maximum memory limit, if limit > 0.
 func LowMem(limitBytes int64) {
+	limitBytes = max(limitBytes, minMemLimit)
 	prevLimit := debug.SetMemoryLimit(limitBytes)
 	go debug.FreeOSMemory()
 	log.I("tun: lowmem; limits => new: %d, prev: %d", limitBytes, prevLimit)
