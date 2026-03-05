@@ -107,10 +107,6 @@ func (m *ipmapper) queryIP(ctx context.Context, network, host string, uid string
 	return m.queryIP2(ctx, network, host, uid)
 }
 
-func (m *ipmapper) queryAny(q []byte, tids ...string) ([]byte, error) {
-	return m.queryAny2(q, core.UNKNOWN_UID_STR, tids...)
-}
-
 // todo: use context
 func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ...string) ([]netip.Addr, error) {
 	if len(host) <= 0 {
