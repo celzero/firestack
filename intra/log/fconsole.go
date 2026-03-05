@@ -65,13 +65,14 @@ func (f *fconsole) write(lvl LogLevel, m Logmsg) error {
 	if len(m) <= 0 {
 		return nil
 	}
+	l := []byte(lvl.s())
 	p := unsafe.StringData(m)
 	b := unsafe.Slice(p, len(m))
 	// levels like STACKTRACE may not prefix the expected tag
 	// ("F " in the STACKTRACE case), but file-based logger
 	// always expects it for every line
-	if !bytes.HasPrefix([]byte(lvl.s()), b) {
-		w.Write(b)
+	if !bytes.HasPrefix(l, b) {
+		w.Write(l)
 	}
 	n, err := w.Write(b)
 	// go.dev/play/p/NbJimcpoS0o
