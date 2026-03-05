@@ -427,33 +427,32 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 }
 
 // emitStack sends stacktrace to console or log.
-// Empty msgs are ignored.
+// Empty msgs are ignored. Log level (ex: "F ") is
+// prepend to each log line when sent to console.
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at <= callerat
-	if !sendtoconsole {
-		for _, msg := range msgs {
-			if len(msg) <= 0 {
-				continue
-			}
-			l.err(at+nextframe, msg)
-		}
-	} else if c := l.c.get(); c != nil && !isNil(c) {
-		// buffer copy :( but the msgs need to be sent as a single unit
-		// for kotlin-land to process them as being from the same panic.
-		msg := strings.Join(msgs, consoleStacktraceSep)
+	c := l.c.get()
+	hasc := c != nil && !isNil(c)
+
+	for _, msg := range msgs {
 		if len(msg) <= 0 {
-			return
+			continue
 		}
-		// c.Stack() on the same go routine, since
-		// the caller (ex: core.Recover) may exit
-		// immediately once simpleLogger.Stack() returns
-		c.Log(STACKTRACE, Logmsg(msg))
-	} else {
-		// msg, which is unsafely type-coerced from []byte,
-		// is pooled; but the caller owns []byte and so it
-		// cannot be used asynchronously (ex: over channels).
-		// l.toConsole(&conMsg{msg, STACKTRACE})
-		l.cskips.Add(1)
+		if !sendtoconsole {
+			l.err(at+nextframe, msg)
+		} else if hasc {
+			// c.Stack() on the same go routine, since
+			// the caller (ex: core.Recover) may exit
+			// immediately once simpleLogger.Stack() returns
+			c.Log(STACKTRACE, Logmsg(msg))
+		} else {
+			// msg, which is unsafely type-coerced from []byte,
+			// is pooled; but the caller owns []byte and so it
+			// cannot be used asynchronously (ex: over channels).
+			// l.toConsole(&conMsg{msg, STACKTRACE})
+			l.cskips.Add(1)
+			break // terminate the loop
+		}
 	}
 }
 
@@ -502,8 +501,7 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	// byt2str accepted proposal: github.com/golang/go/issues/19367
 	// previous discussion: github.com/golang/go/issues/25484
 	trace := unsafe.String(&scratch[0], n)
-	msgcat := strings.Join([]string{msg, trace, prev}, consoleStacktraceSep)
-	l.emitStack(at, msgcat)
+	l.emitStack(at, msg, trace, prev)
 }
 
 func (l *simpleLogger) queued(all bool) (appendix string) {
