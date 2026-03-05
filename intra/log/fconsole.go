@@ -39,11 +39,11 @@ func (p *fconsole) File() *os.File {
 	return p.w
 }
 
-func (p *fconsole) Log(_ LogLevel, msg Logmsg) {
+func (p *fconsole) Log(lvl LogLevel, msg Logmsg) {
 	if p == nil || p.w == nil {
 		return
 	}
-	p.write(msg)
+	p.write(lvl, msg)
 }
 
 func setNonblock(f *os.File) error {
@@ -53,7 +53,7 @@ func setNonblock(f *os.File) error {
 	return syscall.SetNonblock(int(f.Fd()), true)
 }
 
-func (f *fconsole) write(m Logmsg) error {
+func (f *fconsole) write(lvl LogLevel, m Logmsg) error {
 	if len(m) == 0 {
 		return nil
 	}
@@ -67,6 +67,12 @@ func (f *fconsole) write(m Logmsg) error {
 	}
 	p := unsafe.StringData(m)
 	b := unsafe.Slice(p, len(m))
+	// levels like STACKTRACE may not prefix the expected tag
+	// ("F " in the STACKTRACE case), but file-based logger
+	// always expects it for every line
+	if !bytes.HasPrefix([]byte(lvl.s()), b) {
+		w.Write(b)
+	}
 	n, err := w.Write(b)
 	// go.dev/play/p/NbJimcpoS0o
 	if !bytes.HasSuffix(b, newline) {
