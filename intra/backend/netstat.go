@@ -237,6 +237,10 @@ type GoStat struct {
 	Env  string // environment variables
 }
 
+type GoMetrics struct {
+	M string
+}
+
 // NetStat is a collection of network engine statistics.
 type NetStat struct {
 	NICSt  NICStat
@@ -249,6 +253,7 @@ type NetStat struct {
 	UDPSt  UDPStat
 	RDNSIn RDNSInfo
 	GOSt   GoStat
+	GOMet  GoMetrics
 }
 
 // NIC returns the network interface statistics.
@@ -280,3 +285,6 @@ func (n *NetStat) RDNSINFO() *RDNSInfo { return &n.RDNSIn }
 
 // GO returns the Go runtime statistics.
 func (n *NetStat) GO() *GoStat { return &n.GOSt }
+
+// GO2 returns the GO runtime metrics on g, m, & p.
+func (n *NetStat) GO2() *GoMetrics { return &n.GOMet }

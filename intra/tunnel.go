@@ -605,6 +605,9 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		}
 		out.RDNSIn.ProxyStatus = ss.Status
 	}
+
+	out.GOMet.M = core.Metrics()
+
 	return out, nil
 }
 
