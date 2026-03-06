@@ -64,26 +64,24 @@ type PipKeyProvider interface {
 	Finalize(blingSig string) (*PipKey, error)
 }
 
-// nb: PipToken inherits fields from Gostr but not its methods.
-
 // PipToken is a 32 byte random token for bespoke auth.
-type PipToken Gostr
+type PipToken string
 
 // PipMsg is a 64 byte hex encoded string that contains:
 // - first 32 bytes as message (random)
 // - next 32 bytes as client identifier (random)
-type PipMsg Gostr
+type PipMsg string
 
-// AsPipMsg typecast Gostr m to PipMsg.
+// AsPipMsg typecast m to PipMsg.
 // m must be a 64 bytes hex string
 // (32b for msg + 32b for opaque-id).
 // Returns nil if the string m is nil or not a valid PipMsg.
 func AsPipMsg(m string) *PipMsg {
-	p := &PipMsg{S: m}
+	p := (PipMsg)(m)
 	if !p.ok() {
 		return nil
 	}
-	return p
+	return &p
 }
 
 func NewPipMsgWith(tok *PipToken) *PipMsg {
@@ -95,9 +93,10 @@ func NewPipMsgWith(tok *PipToken) *PipMsg {
 		log.E("pipkey: new: invalid msg size; want %d, got %d", 2*msgsize, len(msg))
 		return nil
 	}
-	return pipmsgof(msg + tok.S)
+	return pipmsgof(msg + (string)(*tok))
 }
 
+// go.dev/play/p/hPFgE9s9tMP
 // go.dev/play/p/OTMIv7FLtVs
 func pipmsgof(m string) *PipMsg {
 	// 2 chars per byte in hex
@@ -106,54 +105,45 @@ func pipmsgof(m string) *PipMsg {
 		return nil
 	}
 	// m is a 64 byte hex encoded string + tok is a 64 byte
-	return &PipMsg{S: m}
-}
-
-// Returns empty Gostr if p is nil or invalid PipMsg.
-func (p *PipMsg) AsGostr() string {
-	if !p.ok() {
-		return ""
-	}
-	// go.dev/play/p/hPFgE9s9tMP
-	return p.S
+	return AsPipMsg(m)
 }
 
 func (p *PipMsg) v() string {
 	if p == nil {
 		return ""
 	}
-	return p.S
+	return string(*p)
 }
 
 func (p *PipMsg) ok() bool {
-	return p != nil && len(p.S) >= 2*(msgsize+cidsize)
+	return p != nil && len(*p) >= 2*(msgsize+cidsize)
 }
 
 func (p *PipMsg) msg() []byte {
 	if p == nil || !p.ok() {
-		log.E("pipkey: msg: invalid; got %d", len(p.S))
+		log.E("pipkey: msg: invalid; got %d", len(*p))
 		return nil
 	}
 	// first 32 bytes are the message
-	return hex2byte(p.S[:2*msgsize])
+	return hex2byte(string(*p)[:2*msgsize])
 }
 
 func (p *PipMsg) cid() []byte {
 	if p == nil || !p.ok() {
-		log.E("pipkey: cid: invalid; got %d", len(p.S))
+		log.E("pipkey: cid: invalid; got %d", len(*p))
 		return nil
 	}
 	// next 32 bytes are the client identifier
-	return hex2byte(p.S[2*msgsize : 2*(msgsize+cidsize)])
+	return hex2byte(string(*p)[2*msgsize : 2*(msgsize+cidsize)])
 }
 
 // Opaque returns the client id part of the PipMsg as hex string.
 func (p *PipMsg) Opaque() *PipToken {
 	if p == nil || !p.ok() {
-		log.E("pipkey: opaque: invalid; got %d", len(p.S))
+		log.E("pipkey: opaque: invalid; got %d", len(*p))
 		return nil
 	}
-	tok, err := asPipToken(p.S[2*(msgsize) : 2*(msgsize+cidsize)])
+	tok, err := asPipToken(string(*p)[2*(msgsize) : 2*(msgsize+cidsize)])
 	if err != nil {
 		log.E("pipkey: opaque conv: %v", err)
 		return nil
@@ -192,11 +182,7 @@ func (p *PipKey) V() string {
 	}, delim)
 }
 
-func PipKeyFrom(v string) (*PipKey, error) {
-	if v == "" {
-		return nil, errEmptyPipKeyState
-	}
-	state := v
+func PipKeyFrom(state string) (*PipKey, error) {
 	if len(state) <= 0 {
 		return nil, errEmptyPipKeyState
 	}
@@ -244,11 +230,7 @@ func newPipKeyState(id, blindMsg, r, salt, msg string) *PipKeyState {
 	}
 }
 
-func NewPipKeyStateFrom(v string) (*PipKeyState, error) {
-	if v == "" {
-		return nil, errEmptyPipKeyState
-	}
-	state := v
+func NewPipKeyStateFrom(state string) (*PipKeyState, error) {
 	if len(state) <= 0 {
 		return nil, errEmptyPipKeyState
 	}
@@ -343,16 +325,16 @@ var _ PipKeyProvider = (*pkgen)(nil)
 // NewPipKeyProvider creates a new PipKeyProvider instance.
 // pubjwk: JWK string of the public key of the RSA-PSS signer (for which modulus must be 2048 bits, and hash-fn must be SHA384).
 // msgOrExistingState: if empty, a new PipKeyProvider is created with a random message, if not empty, it's the state of an existing PipKey.
-// Typically, msgOrExistingState is got from PipKeyState
+// Typically, msgOrExistingState is got from PipKeyState.V()
 func NewPipKeyProvider(pubjwk []byte, msgOrExistingState string) (PipKeyProvider, error) {
 	return newPipKey(pubjwk, msgOrExistingState, false)
 }
 
 // NewPipKeyProviderFromMsg creates a new PipKeyProvider instance from a JWK and a msg hex string.
 // Generating Blind() for the same msg with the same JWK will NOT result in the same PipKeyState.
-// To restore a previous state, use NewPipKeyProvider() with the PipKeyState string.
-func NewPipKeyProviderFromMsg(pubjwk []byte, msg *PipMsg) (PipKeyProvider, error) {
-	return newPipKey(pubjwk, msg.v(), true)
+// To restore a previous state, use NewPipKeyProvider() with the PipKeyState.V() string.
+func NewPipKeyProviderFromMsg(pubjwk []byte, msg string) (PipKeyProvider, error) {
+	return newPipKey(pubjwk, msg, true)
 }
 
 func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProvider, error) {
@@ -573,7 +555,8 @@ func asPipToken(tok string) (*PipToken, error) {
 	if len(tok) != 2*tokensize {
 		return nil, errTokenCreat
 	}
-	return &PipToken{S: tok}, nil
+	// StrOf interns the string
+	return (*PipToken)(&tok), nil
 }
 
 func token() string {
