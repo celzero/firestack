@@ -165,7 +165,7 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 	smm.RTtl = xdns.RTtl(r)
 	smm.Server = t.getAddr()
 	smm.Status = status
-	smm.PID = t.exit.ID().V()
+	smm.PID = t.exit.ID()
 	if err != nil {
 		smm.Msg = err.Error()
 	}
@@ -176,20 +176,20 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 	return r, err
 }
 
-func (t *goosr) ID() *x.Gostr {
-	return x.StrOf(dnsx.Goos)
+func (t *goosr) ID() string {
+	return dnsx.Goos
 }
 
-func (t *goosr) Type() *x.Gostr {
-	return x.StrOf(dnsx.DNS53)
+func (t *goosr) Type() string {
+	return dnsx.DNS53
 }
 
 func (t *goosr) P50() int64 {
 	return 1 // always fast
 }
 
-func (t *goosr) GetAddr() *x.Gostr {
-	return x.StrOf(t.getAddr())
+func (t *goosr) GetAddr() string {
+	return t.getAddr()
 }
 
 func (t *goosr) getAddr() string {

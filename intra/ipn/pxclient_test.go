@@ -58,16 +58,16 @@ func (f *fakeProxy) Probe(string, string) (protect.PacketConn, error) {
 func (f *fakeProxy) Dialer() protect.RDialer                { return f }
 func (f *fakeProxy) DialerHandle() uintptr                  { return 0 }
 func (f *fakeProxy) Handle() uintptr                        { return 0 }
-func (f *fakeProxy) ID() *x.Gostr                           { return x.StrOf(f.id) }
-func (f *fakeProxy) Type() *x.Gostr                         { return x.StrOf(NOOP) }
+func (f *fakeProxy) ID() string                           { return f.id }
+func (f *fakeProxy) Type() string                         { return NOOP }
 func (f *fakeProxy) Router() x.Router                       { return &GWNoVia{} }
 func (f *fakeProxy) Client() x.Client                       { return newProxyClient(f) }
 func (f *fakeProxy) onNotOK() (bool, bool)                  { return false, true }
 func (f *fakeProxy) OnProtoChange(LinkProps) (string, bool) { return "", false }
 func (f *fakeProxy) Hop(Proxy, bool) error                  { return nil }
 func (f *fakeProxy) Status() int                            { return TOK }
-func (f *fakeProxy) GetAddr() *x.Gostr                      { return x.StrOf("") }
-func (f *fakeProxy) DNS() *x.Gostr                          { return x.StrOf("") }
+func (f *fakeProxy) GetAddr() string                      { return "" }
+func (f *fakeProxy) DNS() string                          { return "" }
 func (f *fakeProxy) Ping() bool                             { return true }
 func (f *fakeProxy) Pause() bool                            { return false }
 func (f *fakeProxy) Resume() bool                           { return false }

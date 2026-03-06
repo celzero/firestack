@@ -108,8 +108,8 @@ type fakeObs struct {
 	x.ProxyListener
 }
 
-func (*fakeObs) OnProxyAdded(*x.Gostr)   {}
-func (*fakeObs) OnProxyRemoved(*x.Gostr) {}
+func (*fakeObs) OnProxyAdded(string)   {}
+func (*fakeObs) OnProxyRemoved(string) {}
 func (*fakeObs) OnProxiesStopped()       {}
 
 type fakeBdg struct {
@@ -123,11 +123,11 @@ var (
 	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnWin, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
-func (*fakeBdg) OnQuery(_, _, _ *x.Gostr, _ int) *x.DNSOpts              { return autoNsOpts }
-func (*fakeBdg) OnUpstreamAnswer(_ *x.DNSSummary, _ *x.Gostr) *x.DNSOpts { return nil }
+func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts              { return autoNsOpts }
+func (*fakeBdg) OnUpstreamAnswer(_ *x.DNSSummary, _ string) *x.DNSOpts { return nil }
 func (*fakeBdg) OnResponse(*x.DNSSummary)                                {}
-func (*fakeBdg) OnDNSAdded(*x.Gostr)                                     {}
-func (*fakeBdg) OnDNSRemoved(*x.Gostr)                                   {}
+func (*fakeBdg) OnDNSAdded(string)                                     {}
+func (*fakeBdg) OnDNSRemoved(string)                                   {}
 func (*fakeBdg) OnDNSStopped()                                           {}
 
 func (*fakeBdg) Route(a, b, c, d, e string) *x.Tab { return baseTab }
@@ -357,7 +357,7 @@ func TestWgReaches(t *testing.T) {
 		t.Fatal("testwg: gen uapi conf failed")
 	}
 
-	win, err := pxr.AddProxy(x.StrOf(wgid), x.StrOf(rwg.UapiWgConf))
+	win, err := pxr.AddProxy(wgid, rwg.UapiWgConf)
 	ko(t, err)
 
 	ilog.D("testwg: setup %s: %d", rwg.Name, len(rwg.UapiWgConf))
@@ -441,10 +441,10 @@ func TestWinReaches(t *testing.T) {
 	ko(t, err)
 
 	ilog.D("ws: read ent (sess? %t): %d", readWinJson, len(entjson))
-	if wreg, err := pxr.RegisterWin(x.BytesOf(entjson)); err != nil {
+	if wreg, err := pxr.RegisterWin(entjson); err != nil {
 		t.Fatal(err)
 	} else {
-		entjson = wreg.V()
+		entjson = wreg
 		_ = os.WriteFile("win.json", entjson, 0644) // same as sess.json
 		ilog.D("ws: setup %d", len(entjson))
 	}
@@ -477,9 +477,9 @@ func TestWinReaches(t *testing.T) {
 	}
 	ilog.I("available proxy CCs (limited to 10): %v", visited)
 
-	_, err = win.Fork(x.StrOf("US"))
+	_, err = win.Fork("US")
 	ko(t, err)
-	_, err = win.Fork(x.StrOf("GT"))
+	_, err = win.Fork("GT")
 	ko(t, err)
 
 	settings.SetAutoDialsParallel(false)
@@ -494,7 +494,7 @@ func TestWinReaches(t *testing.T) {
 
 	sess, err := win.State()
 	ko(t, err)
-	err = os.WriteFile("sess.json", sess.V(), 0644) // same as win.json
+	err = os.WriteFile("sess.json", sess, 0644) // same as win.json
 	ko(t, err)
 
 	autoNsOpts.PIDCSV = ipn.RpnWin

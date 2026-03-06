@@ -72,7 +72,7 @@ var UndelegatedDomainsTrie = newUndelegatedDomainTrie()
 func newUndelegatedDomainTrie() x.RadixTree {
 	t := x.NewRadixTree()
 	for _, domain := range core.UndelegatedDomains {
-		t.Add(x.StrOf(domain))
+		t.Add(domain)
 	}
 	return t
 }
@@ -305,7 +305,7 @@ func (m *ipmap) ReverseGetMany(n uint8, ipver string) []string {
 		if xdns.IsMDNSQuery(host) {
 			return false
 		}
-		if UndelegatedDomainsTrie.HasAny(x.StrOf(host)) {
+		if UndelegatedDomainsTrie.HasAny(host) {
 			return false
 		}
 		if _, err := netip.ParseAddr(host); err == nil {
@@ -338,16 +338,16 @@ func (m *ipmap) ReverseGetMany(n uint8, ipver string) []string {
 }
 
 func (m *ipmap) ReverseGet(ip netip.Addr) []string {
-	q := x.StrOf(ip.String())
+	q := ip.String()
 
 	s, _ := m.rptr.Get(q)
-	hosts := s.V()
+	hosts := s
 	if len(hosts) > 0 {
 		return strings.Split(hosts, x.Vsep)
 	}
 
 	s, _ = m.pptr.Get(q)
-	hosts = s.V()
+	hosts = s
 	if len(hosts) > 0 {
 		return strings.Split(hosts, x.Vsep)
 	}
@@ -540,7 +540,7 @@ func (m *ipmap) revmap(hostOrIP string, new *IPSet, old *IPSet) {
 	if maybeip, _ := netip.ParseAddr(hostOrIP); maybeip.IsValid() {
 		return // no-op
 	}
-	host := x.StrOf(hostOrIP)
+	host := hostOrIP
 
 	add := new.Addrs()    // new may be nil or addrs() may be empty
 	remove := old.Addrs() // old may be nil or addrs() may be empty
@@ -561,7 +561,7 @@ func (m *ipmap) revmap(hostOrIP string, new *IPSet, old *IPSet) {
 	r, a := 0, 0
 	for _, ip := range remove {
 		if ip.IsValid() {
-			q := x.StrOf(ip.String())
+			q := ip.String()
 			if rmvtree.Esc(q, host) {
 				r++
 			}
@@ -569,7 +569,7 @@ func (m *ipmap) revmap(hostOrIP string, new *IPSet, old *IPSet) {
 	}
 	for _, ip := range add {
 		if ip.IsValid() {
-			q := x.StrOf(ip.String())
+			q := ip.String()
 			if err := addtree.Add(q, host); err == nil {
 				a++
 			} else {

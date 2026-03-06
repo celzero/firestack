@@ -158,8 +158,8 @@ func (r *rethinkdns) OnDeviceBlock() bool {
 	return r.mode == localBlock
 }
 
-func (r *rethinkdns) GetStamp() (*x.Gostr, error) {
-	return x.StrOfFunc(r.getStamp)
+func (r *rethinkdns) GetStamp() (string, error) {
+	return r.getStamp()
 }
 
 func (r *rethinkdns) getStamp() (s string, err error) {
@@ -175,8 +175,8 @@ func (r *rethinkdns) getStamp() (s string, err error) {
 	return
 }
 
-func (r *rethinkdns) SetStamp(stamp *x.Gostr) error {
-	return r.setStamp(stamp.V())
+func (r *rethinkdns) SetStamp(stamp string) error {
+	return r.setStamp(stamp)
 }
 
 func (r *rethinkdns) setStamp(stamp string) error {
@@ -197,8 +197,8 @@ func (r *rethinkdns) setStamp(stamp string) error {
 }
 
 // Returns blockstamp given comma-separated blocklist ids
-func (r *rethinkdns) FlagsToStamp(flagscsv *x.Gostr, enctyp int) (*x.Gostr, error) {
-	return x.StrOfFunc2(r.flagsToStamp, flagscsv.V(), enctyp)
+func (r *rethinkdns) FlagsToStamp(flagscsv string, enctyp int) (string, error) {
+	return r.flagsToStamp(flagscsv, enctyp)
 }
 
 func (r *rethinkdns) flagsToStamp(flagscsv string, enctyp int) (string, error) {
@@ -227,8 +227,8 @@ func (r *rethinkdns) flagsToStamp(flagscsv string, enctyp int) (string, error) {
 }
 
 // Returns comma-separated blocklist ids, given a stamp of form version:base64
-func (r *rethinkdns) StampToFlags(stamp *x.Gostr) (*x.Gostr, error) {
-	return x.StrOfFunc1(r.stampToFlags, stamp.V())
+func (r *rethinkdns) StampToFlags(stamp string) (string, error) {
+	return r.stampToFlags(stamp)
 }
 
 func (r *rethinkdns) stampToFlags(stamp string) (string, error) {
@@ -245,8 +245,8 @@ func (r *rethinkdns) stampToFlags(stamp string) (string, error) {
 	return strings.Join(blocklistids[:], ","), nil
 }
 
-func (r *rethinkdns) StampToNames(stamp *x.Gostr) (*x.Gostr, error) {
-	return x.StrOfFunc1(r.stampToNames, stamp.V())
+func (r *rethinkdns) StampToNames(stamp string) (string, error) {
+	return r.stampToNames(stamp)
 }
 
 func (r *rethinkdns) stampToNames(stamp string) (string, error) {

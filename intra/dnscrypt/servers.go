@@ -258,7 +258,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	if px != nil {
 		x, _ := px.ProxyFor(name)
 		if x != nil {
-			relay = x.ID().V()
+			relay = x.ID()
 		}
 	}
 
@@ -360,7 +360,7 @@ func (s *serverinfo) String() string {
 		return "<nil>"
 	}
 
-	serverid := s.ID().V()
+	serverid := s.ID()
 	servername := s.getAddr()
 	serveraddr := "notcp"
 	relayaddr := "norelay"
@@ -374,12 +374,12 @@ func (s *serverinfo) String() string {
 	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
 }
 
-func (s *serverinfo) ID() *x.Gostr {
-	return x.StrOf(s.Name)
+func (s *serverinfo) ID() string {
+	return s.Name
 }
 
-func (s *serverinfo) Type() *x.Gostr {
-	return x.StrOf(dnsx.DNSCrypt)
+func (s *serverinfo) Type() string {
+	return dnsx.DNSCrypt
 }
 
 func (s *serverinfo) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
@@ -404,8 +404,8 @@ func (s *serverinfo) P50() int64 {
 	}
 }
 
-func (s *serverinfo) GetAddr() *x.Gostr {
-	return x.StrOf(s.getAddr())
+func (s *serverinfo) GetAddr() string {
+	return s.getAddr()
 }
 
 func (s *serverinfo) getAddr() string {
@@ -484,7 +484,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 }
 
 func (s *serverinfo) chooseProxy(pids []string) string {
-	return dnsx.ChooseHealthyProxy("dnscrypt: "+s.ID().V(), s.IPPorts(), pids, s.proxies)
+	return dnsx.ChooseHealthyProxy("dnscrypt: "+s.ID(), s.IPPorts(), pids, s.proxies)
 }
 
 func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {

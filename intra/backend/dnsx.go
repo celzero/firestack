@@ -92,13 +92,13 @@ const ( // from: dnsx/rethinkdns.go
 // DNSTransport exports necessary methods from dnsx.Transport
 type DNSTransport interface {
 	// uniquely identifies this transport
-	ID() *Gostr
+	ID() string
 	// one of DNS53, DOH, DNSCrypt, System
-	Type() *Gostr
+	Type() string
 	// Median round-trip time for this transport, in millis.
 	P50() int64
 	// Return the server host address used to initialize this transport.
-	GetAddr() *Gostr
+	GetAddr() string
 	// Return the proxy (relay) always used by this transport.
 	// Returns nil if there isn't any.
 	GetRelay() Proxy
@@ -111,29 +111,29 @@ type DNSTransportMult interface {
 	// Add adds a transport to this multi-transport.
 	Add(t DNSTransport) bool
 	// Remove removes a transport from this multi-transport.
-	Remove(id *Gostr) bool
+	Remove(id string) bool
 	// Refresh re-registers transports and returns a csv of active ones.
-	Refresh() (*Gostr, error)
+	Refresh() (string, error)
 	// LiveTransports returns a csv of active transports.
-	LiveTransports() *Gostr
+	LiveTransports() string
 }
 
 type DNSTransportProvider interface {
 	// Get returns a transport from this multi-transport.
-	Get(id *Gostr) (DNSTransport, error)
+	Get(id string) (DNSTransport, error)
 }
 
 type RDNS interface {
 	// SetStamp sets the rethinkdns blockstamp.
-	SetStamp(*Gostr) error
+	SetStamp(string) error
 	// GetStamp returns the current rethinkdns blockstamp.
-	GetStamp() (*Gostr, error)
+	GetStamp() (string, error)
 	// StampToNames returns csv group:names of blocklists in the given stamp s.
-	StampToNames(s *Gostr) (*Gostr, error)
+	StampToNames(s string) (string, error)
 	// FlagsToStamp returns a blockstamp for given csv blocklist-ids, if valid.
-	FlagsToStamp(csv *Gostr, enctyp int) (*Gostr, error)
+	FlagsToStamp(csv string, enctyp int) (string, error)
 	// StampToFlags retruns csv blocklist-ids given a valid blockstamp s.
-	StampToFlags(s *Gostr) (*Gostr, error)
+	StampToFlags(s string) (string, error)
 }
 
 type RDNSResolver interface {
@@ -151,7 +151,7 @@ type RDNSResolver interface {
 
 type DNSTransportMultProvider interface {
 	// GetMult returns a multi-transport by id.
-	GetMult(id *Gostr) (DNSTransportMult, error)
+	GetMult(id string) (DNSTransportMult, error)
 }
 
 type DNSResolver interface {
@@ -162,10 +162,10 @@ type DNSResolver interface {
 
 type ResolverListener interface {
 	// OnDNSAdded is called when a new DNS transport with id is added.
-	OnDNSAdded(id *Gostr)
+	OnDNSAdded(id string)
 	// OnDNSRemoved is called when a DNS transport with id is removed, except
 	// when the transport is stopped, then OnDNSStopped is called instead.
-	OnDNSRemoved(id *Gostr)
+	OnDNSRemoved(id string)
 	// OnDNSStopped is called when all DNS transports are stopped. Note:
 	// OnDNSRemoved is not called for each transport even if they are
 	// being removed and not just stopped.

@@ -361,13 +361,13 @@ func (h *seproxy) DialerHandle() uintptr {
 }
 
 // ID implements Proxy.
-func (*seproxy) ID() *x.Gostr {
-	return x.StrOf(RpnSE)
+func (*seproxy) ID() string {
+	return RpnSE
 }
 
 // Type implements Proxy.
-func (*seproxy) Type() *x.Gostr {
-	return x.StrOf(HTTP1)
+func (*seproxy) Type() string {
+	return HTTP1
 }
 
 // Router implements Proxy.
@@ -406,8 +406,8 @@ func (d *seproxy) Dialer() protect.RDialer {
 }
 
 // Reaches implements x.Router.
-func (h *seproxy) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
-	return Reaches(h, hostportOrIPPortCsv.V())
+func (h *seproxy) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 func (h *seproxy) viafor() *Proxy {
@@ -447,12 +447,12 @@ func (h *seproxy) Via() (x.Proxy, error) {
 }
 
 // GetAddr implements Proxy.
-func (h *seproxy) GetAddr() *x.Gostr {
+func (h *seproxy) GetAddr() string {
 	if len(h.addrs) <= 0 {
-		return nil
+		return ""
 	}
 	n := rand.IntN(len(h.addrs))
-	return x.StrOf(h.addrs[n].String())
+	return h.addrs[n].String()
 }
 
 // Status implements Proxy.
@@ -496,11 +496,11 @@ func (h *seproxy) Stop() error {
 }
 
 // Who implements x.RpnAcc.
-func (h *seproxy) Who() *x.Gostr {
+func (h *seproxy) Who() string {
 	if h == nil || h.sec == nil {
-		return nil
+		return ""
 	}
-	return x.StrOf(h.sec.AssignedDeviceID)
+	return h.sec.AssignedDeviceID
 }
 
 // Provider implements RpnAcc.

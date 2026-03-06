@@ -96,7 +96,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	var relay string
 	if dnsx.CanUseProxy(id) {
 		if p, _ := px.ProxyFor(id); p != nil {
-			relay = p.ID().V()
+			relay = p.ID()
 		}
 	}
 	tx := &transport{
@@ -326,20 +326,20 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	return ans, err
 }
 
-func (t *transport) ID() *x.Gostr {
-	return x.StrOf(t.id)
+func (t *transport) ID() string {
+	return t.id
 }
 
-func (t *transport) Type() *x.Gostr {
-	return x.StrOf(dnsx.DNS53)
+func (t *transport) Type() string {
+	return dnsx.DNS53
 }
 
 func (t *transport) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *transport) GetAddr() *x.Gostr {
-	return x.StrOf(t.getAddr())
+func (t *transport) GetAddr() string {
+	return t.getAddr()
 }
 
 func (t *transport) getAddr() string {

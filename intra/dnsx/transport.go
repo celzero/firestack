@@ -222,7 +222,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	}
 	r.loadaddrs(fakeaddrs)
 	r.gateway = NewDNSGateway(ctx, r.dnsaddrs, r, pt)
-	if dtr.ID().V() != Default {
+	if dtr.ID() != Default {
 		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
 	} else if tr, ok := dtr.(Transport); !ok {
 		log.W("dns: not a transport; ignoring", dtr.ID(), dtr.GetAddr())
@@ -336,7 +336,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	}
 
 	caching := false
-	switch t.Type().V() {
+	switch t.Type() {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		r.Lock()
 		// stop existing transport if different
@@ -358,7 +358,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 			core.Gx("r.Add64", func() { r.Add64(tid) })
 		}
 
-		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(x.StrOf(tid)) })
+		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
 		log.I("dns: add transport %s@%s; caching? %t",
 			t.ID(), t.GetAddr(), caching)
 
@@ -369,8 +369,8 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	return false
 }
 
-func (r *resolver) GetMult(id *x.Gostr) (x.DNSTransportMult, error) {
-	return r.GetMultInternal(id.V())
+func (r *resolver) GetMult(id string) (x.DNSTransportMult, error) {
+	return r.GetMultInternal(id)
 }
 
 func (r *resolver) GetMultInternal(id string) (TransportMult, error) {
@@ -414,17 +414,17 @@ func (r *resolver) S() string {
 	return r.gateway.S()
 }
 
-func (r *resolver) Get(id *x.Gostr) (x.DNSTransport, error) {
-	return r.GetInternal(id.V())
+func (r *resolver) Get(id string) (x.DNSTransport, error) {
+	return r.GetInternal(id)
 }
 
-func (r *resolver) Remove(tid *x.Gostr) (ok bool) {
+func (r *resolver) Remove(tid string) (ok bool) {
 	if r.closed.Load() {
 		log.W("dns: remove: closed for business")
 		return false
 	}
 
-	id := tid.V()
+	id := tid
 	// these IDs are reserved for internal use
 	if isReserved(id) {
 		log.I("dns: removing reserved transport %s", id)
@@ -448,16 +448,16 @@ func (r *resolver) Remove(tid *x.Gostr) (ok bool) {
 
 	if tm, err := r.dcProxy(); err == nil { // remove from dc-proxy, if any
 		hasTransport = tm.Remove(tid) || hasTransport
-		hasTransport = tm.Remove(x.StrOf(CT+id)) || hasTransport
+		hasTransport = tm.Remove(CT+id) || hasTransport
 	}
 
 	if tm, err := r.plus(); err == nil { // remove from plus, if any
 		hasTransport = tm.Remove(tid) || hasTransport
-		hasTransport = tm.Remove(x.StrOf(CT+id)) || hasTransport
+		hasTransport = tm.Remove(CT+id) || hasTransport
 	}
 
 	if hasTransport {
-		core.Go("r.onRemove", func() { r.listener.OnDNSRemoved(x.StrOf(id)) })
+		core.Go("r.onRemove", func() { r.listener.OnDNSRemoved(id) })
 	}
 
 	return hasTransport
@@ -553,7 +553,7 @@ func (r *resolver) forward(q []byte, who, uid string, chosenids ...string) (res0
 	}
 
 	pref, oqcompleted := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
-		return r.listener.OnQuery(x.StrOf(who), x.StrOf(uid), x.StrOf(qname), qtyp), nil
+		return r.listener.OnQuery(who, uid, qname, qtyp), nil
 	}, listenerTimeout)
 	if !oqcompleted || pref == nil {
 		log.W("dns: fwd: for %s; no preferences (%t) for %s:%d", uid, pref == nil, qname, qtyp)
@@ -595,7 +595,7 @@ runagain:
 		t2 = r.determineTransport(sid)
 	}
 
-	smm.Type = t.Type().V()
+	smm.Type = t.Type()
 	smm.ID = idstr(t)
 
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
@@ -709,7 +709,7 @@ runagain:
 
 	if run == 1 {
 		pref2, ouacompleted := core.Grx("r.onUA."+qname, func(_ context.Context) (*x.DNSOpts, error) {
-			return r.listener.OnUpstreamAnswer(smm, x.StrOf(realips)), nil
+			return r.listener.OnUpstreamAnswer(smm, realips), nil
 		}, listenerTimeout)
 		if !ouacompleted {
 			log.W("dns: fwd: for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
@@ -1007,8 +1007,8 @@ func (r *resolver) refresh() {
 	}
 }
 
-func (r *resolver) Refresh() (*x.Gostr, error) {
-	return x.StrOfFunc(r.refreshAll)
+func (r *resolver) Refresh() (string, error) {
+	return r.refreshAll()
 }
 
 func (r *resolver) refreshAll() (string, error) {
@@ -1023,32 +1023,32 @@ func (r *resolver) refreshAll() (string, error) {
 	s := tr2csv(r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {
-			s += "," + x.V()
+			s += "," + x
 		}
 	}
 	if p, err := r.plus(); err == nil {
 		if x, err := p.Refresh(); err == nil {
-			s += "," + x.V()
+			s += "," + x
 		}
 	}
 	return trimcsv(s), nil
 }
 
-func (r *resolver) LiveTransports() *x.Gostr {
+func (r *resolver) LiveTransports() string {
 	if r.closed.Load() {
 		log.W("dns: liveTransports: closed for business")
-		return nil
+		return ""
 	}
 	s := tr2csv(r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		x := dc.LiveTransports()
-		s += "," + x.V()
+		s += "," + x
 	}
 	if p, err := r.plus(); err == nil {
 		x := p.LiveTransports()
-		s += "," + x.V()
+		s += "," + x
 	}
-	return x.StrOf(trimcsv(s))
+	return trimcsv(s)
 }
 
 func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv string, ips []netip.Addr) {
@@ -1160,7 +1160,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 		// todo: remove this once we let users "pin" domains to resolvers
 		// github.com/celzero/rethink-app/issues/1153
 		// skip override when preventing DNS capture on port53 is turned off
-	} else if len(qname) > 0 && r.localdomains.HasAny(x.StrOf(qname)) {
+	} else if len(qname) > 0 && r.localdomains.HasAny(qname) {
 		id = Goos // system is primary; see: transport.go:determineTransports()
 	}
 	return
@@ -1294,7 +1294,7 @@ func Fastest(a, b Transport) int {
 }
 
 func IsEncrypted(t Transport) bool {
-	return t != nil && isEncrypted(t.Type().V())
+	return t != nil && isEncrypted(t.Type())
 }
 
 func isEncrypted(t string) bool {
@@ -1420,7 +1420,7 @@ func (r *resolver) isDefaultSystemDNS() (y bool) {
 	if dtr, _ := r.GetInternal(Default); dtr != nil {
 		// todo: a better way to determine whether Default is SystemDNS
 		// Default is usually SystemDNS if it is of type DNS53
-		y = dtr.Type().V() == DNS53
+		y = dtr.Type() == DNS53
 	}
 	return
 }
@@ -1510,7 +1510,7 @@ func asCachedTransport(t Transport) Cacher {
 
 func cachedTransport(t Transport) bool {
 	return strings.HasSuffix(idstr(t), CT) ||
-		strings.HasPrefix(t.GetAddr().V(), cacheprefix)
+		strings.HasPrefix(t.GetAddr(), cacheprefix)
 }
 
 func WillErr(t Transport) *QueryError {

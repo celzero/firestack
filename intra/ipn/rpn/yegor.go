@@ -714,24 +714,24 @@ type WsEntitlement struct {
 var _ x.RpnAcc = (*WsClient)(nil)
 var _ x.RpnEntitlement = (*WsEntitlement)(nil)
 
-func (e *WsEntitlement) ProviderID() *x.Gostr {
-	return x.StrOf(x.RpnWin)
+func (e *WsEntitlement) ProviderID() string {
+	return x.RpnWin
 }
 
-func (e *WsEntitlement) CID() *x.Gostr {
-	return x.StrOf(e.Cid)
+func (e *WsEntitlement) CID() string {
+	return e.Cid
 }
 
-func (e *WsEntitlement) Token() *x.Gostr {
-	return x.StrOf(e.SessionToken)
+func (e *WsEntitlement) Token() string {
+	return e.SessionToken
 }
 
-func (e *WsEntitlement) Expiry() *x.Gostr {
-	return x.StrOf(e.Exp.Format(time.RFC3339))
+func (e *WsEntitlement) Expiry() string {
+	return e.Exp.Format(time.RFC3339)
 }
 
-func (e *WsEntitlement) Status() *x.Gostr {
-	return x.StrOf(e.AccStatus)
+func (e *WsEntitlement) Status() string {
+	return e.AccStatus
 }
 
 func (e *WsEntitlement) AllowRestore() bool {
@@ -772,23 +772,23 @@ func (a *WsClient) config() *WsWgConfig {
 }
 
 // Who implements x.RpnAcc.
-func (a *WsClient) Who() *x.Gostr {
+func (a *WsClient) Who() string {
 	if a == nil {
-		return nil
+		return ""
 	}
 	c := a.config()
 	if c == nil || c.Session == nil {
-		return nil
+		return ""
 	}
 	status := strconv.Itoa(c.Session.Status)
-	return x.StrOf(status + ":" + c.Session.UserID + "+" + trunc8(byte2hex(sha(c.Session.SessionToken))) + "@" + a.kid())
+	return status + ":" + c.Session.UserID + "+" + trunc8(byte2hex(sha(c.Session.SessionToken))) + "@" + a.kid()
 }
 
 // ProviderID implements RpnAcc.
 func (*WsClient) ProviderID() string { return x.RpnWin }
 
 // State implements x.RpnAcc.
-func (a *WsClient) State() (*x.Gobyte, error) {
+func (a *WsClient) State() ([]byte, error) {
 	if a == nil {
 		return nil, errWsNoClient
 	}
@@ -796,7 +796,7 @@ func (a *WsClient) State() (*x.Gobyte, error) {
 	if c == nil {
 		return nil, errWsNoConfig
 	}
-	return x.BytesOfFunc(c.Json)
+	return c.Json()
 }
 
 // Created implements x.RpnAcc.
@@ -877,7 +877,7 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 }
 
 // Update implements x.RpnAcc.
-func (a *WsClient) Update() (newstate *x.Gobyte, err error) {
+func (a *WsClient) Update() (newstate []byte, err error) {
 	if a == nil {
 		return nil, errWsNoClient
 	}
@@ -1350,7 +1350,7 @@ keyagain:
 		}
 	}
 	pub := priv.Mult()
-	pubkeybase64 := pub.Base64().V()
+	pubkeybase64 := pub.Base64()
 
 	log.I("ws: wgconfs: gen creds: pubkey: %s, existing key? %t", trunc8(pubkeybase64), useExistingCreds)
 
@@ -1415,7 +1415,7 @@ initagain:
 			return nil, nil, log.EE("ws: wgconfs: success != 1; debug: %v", d.Debug)
 		}
 		if len(d.Config.PrivateKey) <= 0 { // private key is generated locally (by the client)
-			d.Config.PrivateKey = priv.Base64().V()
+			d.Config.PrivateKey = priv.Base64()
 			if len(d.Config.PublicKey) > 0 && d.Config.PublicKey != pubkeybase64 { // registered public key must match the local one
 				return nil, nil, log.EE("ws: wgconfs: pubkey mismatch; expected %s, got %s",
 					pubkeybase64, d.Config.PublicKey)

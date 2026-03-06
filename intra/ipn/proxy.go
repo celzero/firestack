@@ -46,20 +46,20 @@ func (pxr *proxifier) NewSocks5Proxy(id, user, pwd, ip, port string) (p *socks5,
 	return NewSocks5Proxy(id, pxr.ctx, pxr.ctl, pxr, opts)
 }
 
-func (pxr *proxifier) Underlay(id *x.Gostr, c x.Controller) x.Proxy {
-	return newBasicProxy(id.V(), fakeBaseAddr, pxr.ctx, c, pxr)
+func (pxr *proxifier) Underlay(id string, c x.Controller) x.Proxy {
+	return newBasicProxy(id, fakeBaseAddr, pxr.ctx, c, pxr)
 }
 
 // AddProxy implements Proxifier.
-func (pxr *proxifier) AddProxy(id, txt *x.Gostr) (x.Proxy, error) {
-	defer core.Recover(core.Exit11, "prx.AddProxy."+id.V())
+func (pxr *proxifier) AddProxy(id, txt string) (x.Proxy, error) {
+	defer core.Recover(core.Exit11, "prx.AddProxy."+id)
 
-	pid := id.V()
+	pid := id
 	if isRPN(pid) { // must call addRpnProxy instead
 		return nil, errAddProxyAsRpn
 	}
 
-	return pxr.addProxy(pid, txt.V())
+	return pxr.addProxy(pid, txt)
 }
 
 // cc may be a fully qualified ID in case of removing the main proxy.
@@ -647,7 +647,7 @@ func hasroute(p Proxy, ipp string) bool {
 	if p == nil {
 		return false
 	}
-	return p.Router().Contains(x.StrOf(ipp))
+	return p.Router().Contains(ipp)
 }
 
 func healthy(p Proxy) error {

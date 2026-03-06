@@ -160,12 +160,12 @@ func (h *base) Dialer() protect.RDialer {
 	return h
 }
 
-func (h *base) ID() *x.Gostr {
-	return x.StrOf(Base)
+func (h *base) ID() string {
+	return Base
 }
 
-func (h *base) Type() *x.Gostr {
-	return x.StrOf(NOOP)
+func (h *base) Type() string {
+	return NOOP
 }
 
 func (h *base) Router() x.Router {
@@ -173,8 +173,8 @@ func (h *base) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *base) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
-	return Reaches(h, hostportOrIPPortCsv.V())
+func (h *base) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 // Hop implements Proxy.
@@ -208,8 +208,8 @@ func (h *base) Via() (x.Proxy, error) {
 	return nil, errNoHop
 }
 
-func (h *base) GetAddr() *x.Gostr {
-	return x.StrOf(h.addr)
+func (h *base) GetAddr() string {
+	return h.addr
 }
 
 func (h *base) Status() int {

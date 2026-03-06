@@ -13,7 +13,7 @@ const ( // see protect/protect.go
 )
 
 type Console interface {
-	Log(int32, *Gostr)
+	Log(int32, string)
 	LogFD(readAfterDup int) bool
 	CrashFD(readUntilEOF int) bool
 }

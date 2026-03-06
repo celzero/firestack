@@ -98,12 +98,12 @@ func (r *rpnp) requireProxy() (Proxy, error) {
 }
 
 // ID implements x.Proxy.
-func (r *rpnp) ID() *x.Gostr {
+func (r *rpnp) ID() string {
 	return r.ensureProxy().ID()
 }
 
 // Type implements x.Proxy.
-func (r *rpnp) Type() *x.Gostr {
+func (r *rpnp) Type() string {
 	return r.ensureProxy().Type()
 }
 
@@ -118,12 +118,12 @@ func (r *rpnp) Client() x.Client {
 }
 
 // GetAddr implements x.Proxy.
-func (r *rpnp) GetAddr() *x.Gostr {
+func (r *rpnp) GetAddr() string {
 	return r.ensureProxy().GetAddr()
 }
 
 // DNS implements x.Proxy.
-func (r *rpnp) DNS() *x.Gostr {
+func (r *rpnp) DNS() string {
 	return r.ensureProxy().DNS()
 }
 
@@ -296,8 +296,8 @@ func (r *rpnp) Emplace(new Proxy) (err error) {
 }
 
 // Fork implements x.RpnProxy.
-func (r *rpnp) Fork(cc *x.Gostr) (x.Proxy, error) {
-	return r.fork(cc.V())
+func (r *rpnp) Fork(cc string) (x.Proxy, error) {
+	return r.fork(cc)
 }
 
 // cc may be a fully qualified ID (in case of re-forking the main proxy), too.
@@ -397,8 +397,8 @@ func (r *rpnp) purgeMain() bool {
 }
 
 // Purge implements x.RpnProxy.
-func (r *rpnp) Purge(cc *x.Gostr) bool {
-	return r.purge(cc.V())
+func (r *rpnp) Purge(cc string) bool {
+	return r.purge(cc)
 }
 
 func (r *rpnp) purge(cc string) bool {
@@ -435,8 +435,8 @@ func (r *rpnp) purge(cc string) bool {
 }
 
 // Get implements x.RpnProxy.
-func (r *rpnp) Get(cc *x.Gostr) (x.Proxy, error) {
-	return r.get(cc.V())
+func (r *rpnp) Get(cc string) (x.Proxy, error) {
+	return r.get(cc)
 }
 
 func (r *rpnp) get(cc string) (x.Proxy, error) {
@@ -471,8 +471,8 @@ func (r *rpnp) get(cc string) (x.Proxy, error) {
 }
 
 // Kids implements x.RpnProxy.
-func (r *rpnp) Kids() (csvpids *x.Gostr) {
-	return x.StrOf(r.kidsCsv())
+func (r *rpnp) Kids() (csvpids string) {
+	return r.kidsCsv()
 }
 
 func (r *rpnp) kidsCsv() string {
@@ -491,7 +491,7 @@ func (r *rpnp) flattenKids() (ccs []string) {
 }
 
 // Update implements RpnAcc.
-func (r *rpnp) Update() (newState *x.Gobyte, err error) {
+func (r *rpnp) Update() (newState []byte, err error) {
 	newState, err = r.RpnAcc.Update()
 	if err == nil {
 		core.Gx("rpn.fork."+r.ProviderID(), r.forkAll)

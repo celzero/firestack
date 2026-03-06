@@ -154,6 +154,7 @@ func FlightRecorder(y bool) (bool, error) {
 
 // LowMem triggers garbage collection cycle & allows for
 // setting maximum memory limit, if limit > 0.
+// github.com/golang/proposal/blob/master/design/48409-soft-memory-limit.md
 func LowMem(limitBytes int64) {
 	limitBytes = max(limitBytes, minMemLimit)
 	prevLimit := debug.SetMemoryLimit(limitBytes)

@@ -37,8 +37,8 @@ type fakeObs struct {
 	x.ProxyListener
 }
 
-func (*fakeObs) OnProxyAdded(*x.Gostr)   {}
-func (*fakeObs) OnProxyRemoved(*x.Gostr) {}
+func (*fakeObs) OnProxyAdded(string)   {}
+func (*fakeObs) OnProxyRemoved(string) {}
 func (*fakeObs) OnProxiesStopped()       {}
 
 /*

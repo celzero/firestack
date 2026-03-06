@@ -254,13 +254,13 @@ func (h *socks5) Dialer() protect.RDialer {
 }
 
 // ID implements x.Proxy.
-func (h *socks5) ID() *x.Gostr {
-	return x.StrOf(h.id)
+func (h *socks5) ID() string {
+	return h.id
 }
 
 // Type implements x.Proxy.
-func (h *socks5) Type() *x.Gostr {
-	return x.StrOf(SOCKS5)
+func (h *socks5) Type() string {
+	return SOCKS5
 }
 
 // Router implements x.Proxy.
@@ -269,8 +269,8 @@ func (h *socks5) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *socks5) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
-	return Reaches(h, hostportOrIPPortCsv.V())
+func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 // Hop implements Proxy.
@@ -302,8 +302,8 @@ func (h *socks5) Via() (x.Proxy, error) {
 }
 
 // GetAddr implements x.Proxy.
-func (h *socks5) GetAddr() *x.Gostr {
-	return x.StrOf(h.opts.IPPort)
+func (h *socks5) GetAddr() string {
+	return h.opts.IPPort
 }
 
 // Status implements Proxy.

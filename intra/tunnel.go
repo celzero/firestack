@@ -146,7 +146,7 @@ var _ log.Console = (*clogAdapter)(nil)
 
 func (l *clogAdapter) Log(lvl log.LogLevel, msg log.Logmsg) {
 	if bdg := l.b; bdg != nil {
-		bdg.Log(int32(lvl), x.StrOf(msg)) // adopt the log message
+		bdg.Log(int32(lvl), msg) // adopt the log message
 	}
 }
 
@@ -579,7 +579,7 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		out.RDNSIn.DNSDefault = fetchDNSInfo(r, x.Default)
 		out.RDNSIn.DNSSystem = fetchDNSInfo(r, x.System)
 		dns := make([]string, 0, 3)
-		if csv := r.LiveTransports().V(); len(csv) > 0 {
+		if csv := r.LiveTransports(); len(csv) > 0 {
 			for tr := range strings.SplitSeq(csv, ",") {
 				dns = append(dns, fetchDNSInfo(r, tr))
 			}

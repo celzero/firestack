@@ -1242,7 +1242,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	smm.QType = qtyp
 
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
-	ans64 := t.dns64.D64(network, t1.ID().V(), uid, ansin) // ans64 may be nil if no D64 or error
+	ans64 := t.dns64.D64(network, t1.ID(), uid, ansin) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
 		if settings.Debug {
 			log.D("alg: %s<>%s:%s[%s] %d dns64; dnssec? %t; s/ans(%d)/ans64(%d)",
@@ -2312,7 +2312,7 @@ func proxyID(p ipn.Proxy) string {
 	if p == nil {
 		return NetNoProxy
 	}
-	return p.ID().V()
+	return p.ID()
 }
 
 func splitIPFamilies(ips []netip.Addr) (ip4s, ip6s []netip.Addr) {
@@ -2366,7 +2366,7 @@ func idstr(t Transport) string {
 	if t == nil {
 		return notransport
 	}
-	return t.ID().V()
+	return t.ID()
 }
 
 func infcsv(ts ...Transport) string {
@@ -2381,7 +2381,7 @@ func getaddrstr(t Transport) string {
 	if t == nil {
 		return notransport
 	}
-	return t.GetAddr().V()
+	return t.GetAddr()
 }
 
 func ipok(ip netip.Addr) bool {

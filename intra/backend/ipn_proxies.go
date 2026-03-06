@@ -85,21 +85,21 @@ const ( // see ipn/proxies.go
 
 type Rpn interface {
 	// EntitlementFrom returns the RpnEntitlement represented by entitlementOrStateJson.
-	EntitlementFrom(entitlementOrStateJson *Gobyte, rpnProviderID *Gostr) (RpnEntitlement, error)
+	EntitlementFrom(entitlementOrStateJson []byte, rpnProviderID string) (RpnEntitlement, error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
 	// RegisterWin is alias for RegisterWin.
-	RegisterWin(entitlementOrStateJson *Gobyte) (json *Gobyte, err error)
+	RegisterWin(entitlementOrStateJson []byte) (json []byte, err error)
 	// UnregisterWin unregisters a Windscribe installation.
 	UnregisterWin() bool
 	// UnregisterSE unregisters a SurfEasy user.
 	UnregisterSE() bool
 	// TestWin connects to the Windscribe gateway and returns its IP if reachable.
-	TestWin() (ips *Gostr, errs error)
+	TestWin() (ips string, errs error)
 	// TestSE connects to some SurfEasy IPs and returns reachable ones.
-	TestSE() (ips *Gostr, errs error)
+	TestSE() (ips string, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
-	TestExit64() (ips *Gostr, errs error)
+	TestExit64() (ips string, errs error)
 	// Win returns a Windscribe WireGuard proxy.
 	Win() (wg RpnProxy, err error)
 	// Pip returns a RpnWs proxy.
@@ -113,17 +113,17 @@ type Rpn interface {
 
 type Proxy interface {
 	// ID returns the ID of this proxy.
-	ID() *Gostr
+	ID() string
 	// Type returns the type of this proxy.
-	Type() *Gostr
+	Type() string
 	// Returns x.Router.
 	Router() Router
 	// Client returns a client that uses this proxy.
 	Client() Client
 	// GetAddr returns the address of this proxy.
-	GetAddr() *Gostr
+	GetAddr() string
 	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
-	DNS() *Gostr
+	DNS() string
 	// Status returns the status of this proxy.
 	Status() int
 	// Ping pings this proxy.
@@ -142,21 +142,21 @@ type RpnProxy interface {
 	Proxy
 	RpnAcc
 	// Fork adds proxy for country code, cc.
-	Fork(cc *Gostr) (Proxy, error)
+	Fork(cc string) (Proxy, error)
 	// Purge removes proxy for country code, cc.
-	Purge(cc *Gostr) bool
+	Purge(cc string) bool
 	// Get returns proxy for country code, cc.
-	Get(cc *Gostr) (Proxy, error)
+	Get(cc string) (Proxy, error)
 	// Kids returns csv of forked proxy PIDs, excluding this one.
-	Kids() (csvpids *Gostr)
+	Kids() (csvpids string)
 }
 
 // RpnAcc represents an account with RPN provider.
 type RpnAcc interface {
 	// Who returns identifier for this account; may be empty.
-	Who() *Gostr
+	Who() string
 	// State returns the state (as json) of the account.
-	State() (*Gobyte, error)
+	State() ([]byte, error)
 	// Created returns the time (unix millis) currently active account was created.
 	Created() int64
 	// Expires returns the time (unix millis) currently active account expires.
@@ -164,21 +164,21 @@ type RpnAcc interface {
 	// Locations returns RpnServers encapsulating this proxy's worldwide server presence.
 	Locations() (RpnServers, error)
 	// Update updates the account creating new state.
-	Update() (newstate *Gobyte, err error)
+	Update() (newstate []byte, err error)
 }
 
 // RpnEntitlement represents access to a proxy service.
 type RpnEntitlement interface {
 	// ProviderID is RPN provider for this entitlement.
-	ProviderID() *Gostr
+	ProviderID() string
 	// Cid is the Client identifier
-	CID() *Gostr
+	CID() string
 	// Token is the entitlement token, if any.
-	Token() *Gostr
+	Token() string
 	// Expiry is ISO 8601 string of the expiry time of this entitlement, if any.
-	Expiry() *Gostr
+	Expiry() string
 	// "valid", "invalid", "banned", "expired", "unknown"
-	Status() *Gostr
+	Status() string
 	// AllowRestore returns true if this entitlement can be transferred around for restores.
 	AllowRestore() bool
 	// Test is set if this entitlement is valid only in the test domain.
@@ -189,7 +189,7 @@ type Proxies interface {
 	// Underlay creates a [NOOP] proxy (that always connects over underlying network),
 	// but one that uses a custom Controller.
 	// This proxy is not tracked (APIs like GetProxy won't return these).
-	Underlay(id *Gostr, c Controller) Proxy
+	Underlay(id string, c Controller) Proxy
 	// Add adds a proxy to this multi-transport.
 	// "id" is a free-form unique identifier for this proxy, except:
 	// "id" for WireGuard proxies must be prefixed with [WG]
@@ -198,24 +198,24 @@ type Proxies interface {
 	// scheme://usr:pwd@domain.tld:port/p/a/t/h?q&u=e&r=y#f,r
 	// where scheme is "http" or "socks5", usr and/or pwd are optional
 	// port is the port number, and domain.tld could also be ip address.
-	AddProxy(id, url *Gostr) (Proxy, error)
+	AddProxy(id, url string) (Proxy, error)
 	// Remove removes a transport from this multi-transport.
-	RemoveProxy(id *Gostr) bool
+	RemoveProxy(id string) bool
 	// GetProxy returns a transport from this multi-transport.
-	GetProxy(id *Gostr) (Proxy, error)
+	GetProxy(id string) (Proxy, error)
 	// TestHop returns empty diag if origin can hop to via,
 	// otherwise returns a diagnosis of why it couldn't.
 	// Only WireGuard via & origin are supported, for now.
-	TestHop(via, origin *Gostr) (diag *Gostr)
+	TestHop(via, origin string) (diag string)
 	// Hop chains two proxies in the order of origin dialing through via.
 	// Only WireGuard via & origin are supported, for now.
-	Hop(via, origin *Gostr) error
+	Hop(via, origin string) error
 	// Router returns a lowest common denomination router for this multi-transport.
 	Router() Router
 	// RPN returns the Rethink Proxy Network api.
 	Rpn() Rpn
 	// Refresh re-registers proxies and returns a csv of active ones.
-	RefreshProxies() *Gostr
+	RefreshProxies() string
 }
 
 type Router interface {
@@ -230,9 +230,9 @@ type Router interface {
 	// Via returns the gateway for this router, if any.
 	Via() (gw Proxy, err error)
 	// Reaches returns true if any host:port or ip:port is dialable.
-	Reaches(hostportOrIPPortCsv *Gostr) (y bool)
+	Reaches(hostportOrIPPortCsv string) (y bool)
 	// Contains returns true if this router can route ipprefix.
-	Contains(ipprefix *Gostr) (y bool)
+	Contains(ipprefix string) (y bool)
 }
 
 type Client interface {
@@ -247,15 +247,15 @@ type Client interface {
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
-	OnProxyAdded(id *Gostr)
+	OnProxyAdded(id string)
 	// OnProxyRemoved is called when a proxy is removed except when all
 	// proxies are stopped, in which case OnProxiesStopped is called.
-	OnProxyRemoved(id *Gostr)
+	OnProxyRemoved(id string)
 	// OnProxyStopped is called when a proxy is stopped instead of being
 	// removed (that is, this callback is not called in all proxy stop scenarios).
 	// A stopped proxy, if added again, is replaced/updated instead; and subsequently,
 	// the onProxyAdded callback is invoked.
-	OnProxyStopped(id *Gostr)
+	OnProxyStopped(id string)
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy, even
 	// if they are removed instead of being merely "stopped".
@@ -300,7 +300,7 @@ type RpnServers interface {
 	// Len returns the number of RpnServers.
 	Len() int
 	// Json returns the RpnServer struct as JSON bytes.
-	Json() (*Gobyte, error)
+	Json() ([]byte, error)
 }
 
 type RpnServer struct {

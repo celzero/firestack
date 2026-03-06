@@ -227,12 +227,12 @@ func (w *wgproxy) Stop() error {
 }
 
 // GetAddr implements x.Proxy
-func (h *wgproxy) GetAddr() *x.Gostr {
+func (h *wgproxy) GetAddr() string {
 	dst := h.wgep.RemoteAddr()
 	if !dst.IsValid() {
-		return x.StrOf(noaddr)
+		return noaddr
 	}
-	return x.StrOf(dst.String())
+	return dst.String()
 }
 
 // onProtoChange implements Proxy
@@ -463,7 +463,7 @@ func (w *wgproxy) update(id, txt string) bool {
 func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 	w.rt.Clear()
 	for _, ipnet := range allowed {
-		w.rt.Set(x.StrOf(ipnet.String()), x.StrOf(w.id))
+		w.rt.Set(ipnet.String(), w.id)
 	}
 }
 
@@ -1278,13 +1278,13 @@ func (h *wgtun) Probe(network, local string) (pc net.PacketConn, err error) {
 }
 
 // ID implements x.Proxy.
-func (h *wgtun) ID() *x.Gostr {
-	return x.StrOf(h.id)
+func (h *wgtun) ID() string {
+	return h.id
 }
 
 // Type implements x.Proxy.
-func (h *wgtun) Type() *x.Gostr {
-	return x.StrOf(WG)
+func (h *wgtun) Type() string {
+	return WG
 }
 
 // Router implements Proxy.
@@ -1295,8 +1295,8 @@ func (h *wgproxy) Router() x.Router {
 
 // Reaches implements x.Router.
 // TODO: make wgtun a Router; see Stats()
-func (h *wgproxy) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
-	return Reaches(h, hostportOrIPPortCsv.V())
+func (h *wgproxy) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 // Hop implements Proxy.
@@ -1418,8 +1418,8 @@ func (h *wgproxy) Resume() (resumed bool) {
 }
 
 // DNS implements x.Proxy.
-func (h *wgtun) DNS() *x.Gostr {
-	return x.StrOf(h.dnsResolvers())
+func (h *wgtun) DNS() string {
+	return h.dnsResolvers()
 }
 
 func (h *wgtun) dnsResolvers() string {
@@ -1464,7 +1464,7 @@ func (h *wgtun) IP4() bool { return h.hasV4.Load() }
 func (h *wgtun) IP6() bool { return h.hasV6.Load() }
 
 // Contains implements x.Router.
-func (h *wgtun) Contains(ippOrCidr *x.Gostr) bool {
+func (h *wgtun) Contains(ippOrCidr string) bool {
 	var err error
 	y1, y2 := false, false
 	canroute6 := h.IP6()
@@ -1473,7 +1473,7 @@ func (h *wgtun) Contains(ippOrCidr *x.Gostr) bool {
 	y1, err = h.rt.HasAny(ippOrCidr)
 	if y1 {
 		y2 = true // assume all okay
-		if cidr, err := core.IP2Cidr2(ippOrCidr.V()); err == nil {
+		if cidr, err := core.IP2Cidr2(ippOrCidr); err == nil {
 			is6 := cidr.Addr().Is6()
 			is4 := cidr.Addr().Is4()
 			y2 = (is6 && canroute6) || (is4 && canroute4)
@@ -1672,7 +1672,7 @@ func (w *wgtun) viaCanRoute(via Proxy, dryrun bool) error {
 	for _, p := range multihost.Flatten(all) {
 		ip := p.Addr()
 		if (ip.Is4() && check4) || (ip.Is6() && check6) {
-			if !viaRouter.Contains(x.StrOf(ip.String())) {
+			if !viaRouter.Contains(ip.String()) {
 				return log.EE("wg: %s proxy: viaCanRoute: via %s cannot route peer %s; dryrun? %t",
 					w.id, idstr(via), p, dryrun)
 			}

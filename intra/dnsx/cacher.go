@@ -121,7 +121,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		log.I("cache: (%s) no-op: %s", t.ID(), t.GetAddr())
 		return t
 	}
-	if strings.HasPrefix(t.GetAddr().V(), algprefix) {
+	if strings.HasPrefix(t.GetAddr(), algprefix) {
 		log.W("cache: (%s) no-op for alg: %s", t.ID(), t.GetAddr())
 		return t
 	}
@@ -351,12 +351,12 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, e
 	return
 }
 
-func (t *ctransport) ID() *x.Gostr {
+func (t *ctransport) ID() string {
 	// must match with how wrapping transports like DcProxy / Gateway rely on the ID
-	return x.StrOf(CT + t.Transport.ID().V())
+	return CT + t.Transport.ID()
 }
 
-func (t *ctransport) Type() *x.Gostr {
+func (t *ctransport) Type() string {
 	return t.Transport.Type()
 }
 
@@ -464,7 +464,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			// fallthrough to sendRequest
 		} else if cachedsmm != nil {
 			if !isfresh { // not fresh, fetch in the background
-				core.Gx("c.sendRequest: "+key+t.ID().V(), func() {
+				core.Gx("c.sendRequest: "+key+t.ID(), func() {
 					_, _ = sendRequest(q.Copy(), copySummary(smmout)) // summary may be cached
 				})
 			}
@@ -516,9 +516,9 @@ func (t *ctransport) P50() int64 {
 	return 0
 }
 
-func (t *ctransport) GetAddr() *x.Gostr {
+func (t *ctransport) GetAddr() string {
 	prefix := PrefixFor(CT)
-	return x.StrOf(prefix + t.Transport.GetAddr().V())
+	return prefix + t.Transport.GetAddr()
 }
 
 func (t *ctransport) IPPorts() []netip.AddrPort {

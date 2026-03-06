@@ -86,12 +86,12 @@ type RpnStateless struct {
 	RpnUpdateless
 }
 
-func (RpnStateless) State() (*x.Gobyte, error)      { return nil, errRpnStateless }
+func (RpnStateless) State() ([]byte, error)      { return nil, errRpnStateless }
 func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless }
 
 type RpnUpdateless struct{}
 
-func (RpnUpdateless) Update() (*x.Gobyte, error) { return nil, errRpnUpdateless }
+func (RpnUpdateless) Update() ([]byte, error) { return nil, errRpnUpdateless }
 
 type RpnMultiCountryServers struct {
 	all []x.RpnServer
@@ -110,7 +110,7 @@ func (s *RpnMultiCountryServers) Len() int {
 	return len(s.all)
 }
 
-func (s *RpnMultiCountryServers) Json() (*x.Gobyte, error) {
+func (s *RpnMultiCountryServers) Json() ([]byte, error) {
 	if s == nil || len(s.all) <= 0 {
 		return nil, fmt.Errorf("rpn: no servers")
 	}
@@ -119,7 +119,7 @@ func (s *RpnMultiCountryServers) Json() (*x.Gobyte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("rpn: json: %w", err)
 	}
-	return x.BytesOf(b), nil
+	return b, nil
 }
 
 func WinEndpoints() (v4 []netip.AddrPort, v6 []netip.AddrPort, err error) {

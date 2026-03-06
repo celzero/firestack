@@ -74,11 +74,11 @@ var _ dnsx.Transport = (*bootstrap)(nil)
 // NewDefaultDNS creates a new DefaultDNS resolver of type typ. For typ DOH,
 // url scheme is http or https; for typ DNS53, url is ipport or csv(ipport).
 // ips is a csv of ipports for typ DOH, and nil for typ DNS53.
-func NewDefaultDNS(typ, url, ips *x.Gostr) (DefaultDNS, error) {
+func NewDefaultDNS(typ, url, ips string) (DefaultDNS, error) {
 	b := new(bootstrap)
 	b.ctx = context.TODO()
 
-	if err := b.reinit(typ.V(), url.V(), ips.V()); err != nil {
+	if err := b.reinit(typ, url, ips); err != nil {
 		return nil, err
 	}
 
@@ -255,13 +255,13 @@ func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider) error {
 	return nil
 }
 
-func (*bootstrap) ID() *x.Gostr {
+func (*bootstrap) ID() string {
 	// never assume underlying transport's identity
-	return x.StrOf(dnsx.Default)
+	return dnsx.Default
 }
 
-func (b *bootstrap) Type() *x.Gostr {
-	return x.StrOf(b.typ) // DOH or DNS53
+func (b *bootstrap) Type() string {
+	return b.typ // DOH or DNS53
 }
 
 func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
@@ -285,11 +285,11 @@ func (b *bootstrap) P50() int64 {
 	return 0
 }
 
-func (b *bootstrap) GetAddr() *x.Gostr {
+func (b *bootstrap) GetAddr() string {
 	if tr := b.tr; tr != nil {
 		return tr.GetAddr()
 	}
-	return x.StrOf(dnsx.NoDNS)
+	return dnsx.NoDNS
 }
 
 func (b *bootstrap) GetRelay() x.Proxy {
@@ -322,7 +322,7 @@ func typstr(tr dnsx.Transport) string {
 	if tr == nil {
 		return "<notype>"
 	}
-	return tr.Type().V()
+	return tr.Type()
 }
 
 func ippstr(tr dnsx.Transport) string {

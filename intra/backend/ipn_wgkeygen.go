@@ -39,19 +39,19 @@ type WgKey interface {
 	// IsZero returns true if the key is all zeros.
 	IsZero() bool
 	// Base64 returns the key as a base64-encoded string.
-	Base64() *Gostr
+	Base64() string
 	// Hex returns the key as a hex-encoded string.
-	Hex() *Gostr
+	Hex() string
 	// Mult returns the key multiplied by the basepoint (curve25519).
 	Mult() WgKey
 }
 
-func (k *eckey) Hex() *Gostr {
-	return StrOf(hex.EncodeToString(k[:]))
+func (k *eckey) Hex() string {
+	return hex.EncodeToString(k[:])
 }
 
-func (k *eckey) Base64() *Gostr {
-	return StrOf(base64.StdEncoding.EncodeToString(k[:]))
+func (k *eckey) Base64() string {
+	return base64.StdEncoding.EncodeToString(k[:])
 }
 
 func (k *eckey) IsZero() bool {

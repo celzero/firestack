@@ -179,7 +179,7 @@ func (h *socks5) ID() string {
 
 func (h *socks5) GetAddr() string {
 	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
-		return px.GetAddr().V()
+		return px.GetAddr()
 	}
 	return h.url
 }
@@ -232,7 +232,7 @@ func (h *socks5) dial(network, src, dst string) (cid string, conn net.Conn, err 
 
 func (h *socks5) pid() (x string) {
 	if px := h.hdl.px.Load(); px != nil && core.IsNotNil(px) {
-		x = px.ID().V()
+		x = px.ID()
 	}
 	return
 }

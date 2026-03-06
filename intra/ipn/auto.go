@@ -397,13 +397,13 @@ func (h *auto) Dialer() protect.RDialer {
 }
 
 // ID implements x.Proxy.
-func (h *auto) ID() *x.Gostr {
-	return x.StrOf(Auto)
+func (h *auto) ID() string {
+	return Auto
 }
 
 // Type implements x.Proxy.
-func (h *auto) Type() *x.Gostr {
-	return x.StrOf(RPN)
+func (h *auto) Type() string {
+	return RPN
 }
 
 // Router implements x.Proxy.
@@ -412,8 +412,8 @@ func (h *auto) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (h *auto) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
-	return Reaches(h, hostportOrIPPortCsv.V())
+func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(h, hostportOrIPPortCsv)
 }
 
 // Hop implements Proxy.
@@ -455,8 +455,8 @@ func (h *auto) Via() (x.Proxy, error) {
 }
 
 // GetAddr implements x.Proxy.
-func (h *auto) GetAddr() *x.Gostr {
-	return x.StrOf(h.addr)
+func (h *auto) GetAddr() string {
+	return h.addr
 }
 
 // Status implements x.Proxy.

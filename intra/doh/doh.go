@@ -132,7 +132,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	var relay string
 	if px != nil {
 		if p, _ := px.ProxyFor(id); p != nil {
-			relay = p.ID().V()
+			relay = p.ID()
 		}
 	}
 
@@ -361,7 +361,7 @@ func (t *transport) getOrCreateEchConfigIfNeeded() *tls.Config {
 }
 
 func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
-	pid := p.ID().V()
+	pid := p.ID()
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[pid]
 	same := pxtr != nil && pxtr.p.Handle() == p.Handle()
@@ -407,7 +407,7 @@ func (t *transport) updateHttpClientsFor(p ipn.Proxy, c, c3 *http.Client) {
 		return
 	}
 
-	pid := p.ID().V()
+	pid := p.ID()
 
 	t.pxcmu.Lock()
 	defer t.pxcmu.Unlock()
@@ -752,12 +752,12 @@ func (t *transport) asDohRequest(msg *dns.Msg) (req *http.Request, err error) {
 	return
 }
 
-func (t *transport) ID() *x.Gostr {
-	return x.StrOf(t.id)
+func (t *transport) ID() string {
+	return t.id
 }
 
-func (t *transport) Type() *x.Gostr {
-	return x.StrOf(t.typ)
+func (t *transport) Type() string {
+	return t.typ
 }
 
 func (t *transport) chooseProxy(pids ...string) string {
@@ -840,8 +840,8 @@ func (t *transport) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *transport) GetAddr() *x.Gostr {
-	return x.StrOf(t.getAddr())
+func (t *transport) GetAddr() string {
+	return t.getAddr()
 }
 
 func (t *transport) getAddr() string {

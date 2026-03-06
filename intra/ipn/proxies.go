@@ -410,10 +410,10 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 }
 
 // RemoveProxy implements x.Proxies.
-func (px *proxifier) RemoveProxy(id *x.Gostr) bool {
-	defer core.Recover(core.Exit11, "pxr.RemoveProxy."+id.V())
+func (px *proxifier) RemoveProxy(id string) bool {
+	defer core.Recover(core.Exit11, "pxr.RemoveProxy."+id)
 
-	return px.removeProxy(id.V(), false /*force remove?*/)
+	return px.removeProxy(id, false /*force remove?*/)
 }
 
 func (px *proxifier) removeProxy(id string, force bool) bool {
@@ -435,10 +435,10 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 
 			_ = p.Stop()
 			if !perma {
-				px.obs.OnProxyRemoved(x.StrOf(id))
+				px.obs.OnProxyRemoved(id)
 				log.I("proxy: removed %s", id)
 			} else {
-				px.obs.OnProxyStopped(x.StrOf(id))
+				px.obs.OnProxyStopped(id)
 				log.I("proxy: stopped (not removed) %s", id)
 			}
 		})
@@ -805,22 +805,22 @@ func (px *proxifier) rpnProxyFor(provider, cc string) (Proxy, error) {
 }
 
 // GetProxy implements x.Proxies.
-func (px *proxifier) GetProxy(id *x.Gostr) (x.Proxy, error) {
-	return px.ProxyFor(id.V())
+func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
+	return px.ProxyFor(id)
 }
 
 // TestHop implements Proxies.
-func (px *proxifier) TestHop(via, origin *x.Gostr) *x.Gostr {
-	defer core.Recover(core.Exit11, "pxr.TestHop."+via.V()+">>"+origin.V())
-	if err := px.hop(via.V(), origin.V(), true /*dryrun*/); err != nil {
-		return x.StrOf(err.Error())
+func (px *proxifier) TestHop(via, origin string) string {
+	defer core.Recover(core.Exit11, "pxr.TestHop."+via+">>"+origin)
+	if err := px.hop(via, origin, true /*dryrun*/); err != nil {
+		return err.Error()
 	}
-	return nil // all ok
+	return "" // all ok
 }
 
 // Hop implements x.Proxies.
-func (px *proxifier) Hop(via, origin *x.Gostr) error {
-	return px.hop(via.V(), origin.V(), false /*dryrun*/)
+func (px *proxifier) Hop(via, origin string) error {
+	return px.hop(via, origin, false /*dryrun*/)
 }
 
 func (px *proxifier) hop(via, origin string, dryrun bool) error {
@@ -1004,7 +1004,7 @@ func (px *proxifier) stopProxies() {
 }
 
 // RefreshProxies implements x.Proxies.
-func (px *proxifier) RefreshProxies() *x.Gostr {
+func (px *proxifier) RefreshProxies() string {
 	// TODO: remove error in the return value
 	defer core.Recover(core.Exit11, "pxr.RefreshProxies")
 
@@ -1033,7 +1033,7 @@ func (px *proxifier) RefreshProxies() *x.Gostr {
 
 	log.I("proxy: refreshed %d / %d: %v", len(which), tot, which)
 
-	return x.StrOf(strings.Join(which, ","))
+	return strings.Join(which, ",")
 }
 
 // LiveProxies implements x.Proxies.
@@ -1206,7 +1206,7 @@ func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
 }
 
 // Contains implements x.Router.
-func (px *proxifier) Contains(ipprefix *x.Gostr) bool {
+func (px *proxifier) Contains(ipprefix string) bool {
 	px.RLock()
 	defer px.RUnlock()
 
@@ -1224,7 +1224,7 @@ func (px *proxifier) Contains(ipprefix *x.Gostr) bool {
 }
 
 // Reaches implements x.Router.
-func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv *x.Gostr) bool {
+func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv string) bool {
 	px.RLock()
 	defer px.RUnlock()
 
@@ -1236,20 +1236,20 @@ func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv *x.Gostr) bool {
 	return false
 }
 
-func (px *proxifier) EntitlementFrom(entitlementOrStateJson *x.Gobyte, id *x.Gostr) (x.RpnEntitlement, error) {
-	switch id.V() {
+func (px *proxifier) EntitlementFrom(entitlementOrStateJson []byte, id string) (x.RpnEntitlement, error) {
+	switch id {
 	case RpnWin:
-		return px.extc.MakeWsEntitlement(entitlementOrStateJson.V())
+		return px.extc.MakeWsEntitlement(entitlementOrStateJson)
 	}
 	return nil, errNotRpnAcc
 }
 
 // RegisterWin implements x.Rpn.
-func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gobyte, err error) {
+func (px *proxifier) RegisterWin(entitlementOrState []byte) (stateJson []byte, err error) {
 	defer func() {
 		px.lastWinErr.Store(err) // may be nil
 	}()
-	existingStateJson := entitlementOrState.V()
+	existingStateJson := entitlementOrState
 	restore := len(existingStateJson) > 0
 
 	win, err := px.registerWin(existingStateJson)
@@ -1272,7 +1272,7 @@ func (px *proxifier) RegisterWin(entitlementOrState *x.Gobyte) (stateJson *x.Gob
 		return nil, core.JoinErr(err, errNotRpnProxy)
 	}
 
-	log.I("proxy: ws: registered: %s / %d; new? %t", win.Who(), state.Len(), !restore)
+	log.I("proxy: ws: registered: %s / %d; new? %t", win.Who(), len(state), !restore)
 	return state, nil
 }
 
@@ -1363,8 +1363,8 @@ func (px *proxifier) SE() (x.RpnProxy, error) {
 }
 
 // TestSE implements x.Rpn.
-func (px *proxifier) TestSE() (*x.Gostr, error) {
-	return x.StrOfFunc(px.testSE)
+func (px *proxifier) TestSE() (string, error) {
+	return px.testSE()
 }
 
 func (px *proxifier) testSE() (string, error) {
@@ -1400,8 +1400,8 @@ func (px *proxifier) testSE() (string, error) {
 }
 
 // TestWin implements x.Rpn.
-func (px *proxifier) TestWin() (*x.Gostr, error) {
-	return x.StrOfFunc(px.testWin)
+func (px *proxifier) TestWin() (string, error) {
+	return px.testWin()
 }
 
 func (px *proxifier) testWin() (string, error) {
@@ -1437,8 +1437,8 @@ func (px *proxifier) testWin() (string, error) {
 }
 
 // TestExit64 implements x.Rpn.
-func (px *proxifier) TestExit64() (*x.Gostr, error) {
-	return x.StrOfFunc(px.testExit64)
+func (px *proxifier) TestExit64() (string, error) {
+	return px.testExit64()
 }
 
 func (px *proxifier) testExit64() (ips string, errs error) {

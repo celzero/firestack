@@ -268,18 +268,18 @@ func (t *pipws) swapVia(new Proxy) Proxy {
 }
 
 // ID implements x.Proxy.
-func (t *pipws) ID() *x.Gostr {
-	return x.StrOf(RpnWs)
+func (t *pipws) ID() string {
+	return RpnWs
 }
 
 // Type implements x.Proxy.
-func (t *pipws) Type() *x.Gostr {
-	return x.StrOf(PIPWS)
+func (t *pipws) Type() string {
+	return PIPWS
 }
 
 // GetAddr implements x.Proxy.
-func (t *pipws) GetAddr() *x.Gostr {
-	return x.StrOf(t.hostname + ":" + strconv.Itoa(t.port))
+func (t *pipws) GetAddr() string {
+	return t.hostname + ":" + strconv.Itoa(t.port)
 }
 
 // Router implements x.Proxy.
@@ -288,8 +288,8 @@ func (t *pipws) Router() x.Router {
 }
 
 // Reaches implements x.Router.
-func (t *pipws) Reaches(hostportOrIPPortCsv *x.Gostr) bool {
-	return Reaches(t, hostportOrIPPortCsv.V())
+func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
+	return Reaches(t, hostportOrIPPortCsv)
 }
 
 // Hop implements Proxy.

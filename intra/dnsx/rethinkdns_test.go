@@ -9,19 +9,17 @@ package dnsx
 import (
 	"fmt"
 	"testing"
-
-	x "github.com/celzero/firestack/intra/backend"
 )
 
 var (
-	v0case0  = x.StrOf("6b%2Bg67y%2Bz7%2Fvv7%2Fvv7ztlaDvgIDkhIDnhYTogKA%3D")
-	v0case1  = x.StrOf("77%2Bg77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2Bg")
-	v1case0  = x.StrOf("1:ENz_PwDwfwD___j_YKE=") // same as fcase0
-	v1case1  = x.StrOf("1:4J8-v_8D___8_2DVAPAAQURxIIA=")
-	v1case2  = x.StrOf("1:4P___________________________-D_")
-	v1case2a = x.StrOf("1-4d7777777777777777777777777777777776b7y")
-	v1case3  = x.StrOf("1:ENz_PwDw_wP___j_YKk=")     // same as fcase3
-	v1case4  = x.StrOf("1:MNz_PwDw_wP___j_BABgqQ==") // same as fcase4
+	v0case0  = "6b%2Bg67y%2Bz7%2Fvv7%2Fvv7ztlaDvgIDkhIDnhYTogKA%3D"
+	v0case1  = "77%2Bg77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2B%2F77%2Bg"
+	v1case0  = "1:ENz_PwDwfwD___j_YKE=" // same as fcase0
+	v1case1  = "1:4J8-v_8D___8_2DVAPAAQURxIIA="
+	v1case2  = "1:4P___________________________-D_"
+	v1case2a = "1-4d7777777777777777777777777777777776b7y"
+	v1case3  = "1:ENz_PwDw_wP___j_YKk="     // same as fcase3
+	v1case4  = "1:MNz_PwDw_wP___j_BABgqQ==" // same as fcase4
 )
 
 var (
@@ -44,9 +42,9 @@ func TestGeneric(tester *testing.T) {
 	}
 
 	// decode v0 to blocklist-info
-	_, err := b.decode(v0case0.V(), ver0, EB64)
+	_, err := b.decode(v0case0, ver0, EB64)
 	ok("v0case0", err)
-	_, err = b.decode(v0case1.V(), ver0, EB64)
+	_, err = b.decode(v0case1, ver0, EB64)
 	ok("v0case1", err)
 	fmt.Println("-------------------------------------------------")
 
@@ -98,21 +96,21 @@ func TestGeneric(tester *testing.T) {
 	ko(tester, err)
 	stamp0, err := encode(ver1, ustamp0, EB64)
 	ko(tester, err)
-	fmt.Println("fcase0; ok?", stamp0 == v1case0.V(), "\t\t", ustamp0, stamp0)
+	fmt.Println("fcase0; ok?", stamp0 == v1case0, "\t\t", ustamp0, stamp0)
 	fmt.Println("-------------------------------------------------")
 
 	ustamp3, err := b.flagtostamp(fcase3)
 	ko(tester, err)
 	stamp3, err := encode(ver1, ustamp3, EB64)
 	ko(tester, err)
-	fmt.Println("fcase3 ok?", stamp3 == v1case3.V(), "\t\t", ustamp3, stamp3)
+	fmt.Println("fcase3 ok?", stamp3 == v1case3, "\t\t", ustamp3, stamp3)
 	fmt.Println("-------------------------------------------------")
 
 	ustamp4, err := b.flagtostamp(fcase4)
 	ko(tester, err)
 	stamp4, err := encode(ver1, ustamp4, EB64)
 	ko(tester, err)
-	fmt.Println("fcase4 ok?", stamp4 == v1case4.V(), "\t\t", ustamp4, stamp4)
+	fmt.Println("fcase4 ok?", stamp4 == v1case4, "\t\t", ustamp4, stamp4)
 	fmt.Println("-------------------------------------------------")
 
 	err = b.SetStamp(v1case2a) // v1case2 is its base64 representation

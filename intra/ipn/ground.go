@@ -73,20 +73,20 @@ func (h *ground) Dialer() protect.RDialer {
 	return h // no-op dialer
 }
 
-func (h *ground) ID() *x.Gostr {
-	return x.StrOf(Block)
+func (h *ground) ID() string {
+	return Block
 }
 
-func (h *ground) Type() *x.Gostr {
-	return x.StrOf(NOOP)
+func (h *ground) Type() string {
+	return NOOP
 }
 
 func (h *ground) Router() x.Router {
 	return h
 }
 
-func (h *ground) GetAddr() *x.Gostr {
-	return x.StrOf(h.addr)
+func (h *ground) GetAddr() string {
+	return h.addr
 }
 
 func (h *ground) Status() int {

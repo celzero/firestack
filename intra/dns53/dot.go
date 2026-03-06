@@ -81,7 +81,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	var relay string
 	if px != nil {
 		if p, _ := px.ProxyFor(id); p != nil {
-			relay = p.ID().V()
+			relay = p.ID()
 		}
 	}
 	ctx, done := context.WithCancel(ctx)
@@ -228,7 +228,7 @@ func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, bool, error) {
 	if px == nil {
 		return nil, "", core.Nobody, false, dnsx.ErrNoProxyProvider
 	}
-	pid = px.ID().V()
+	pid = px.ID()
 	rpid := ipn.ViaID(px)
 	if settings.Debug {
 		log.V("dot: pxdial: (%s) using relay/proxy %s (via: %s) at %s",
@@ -364,20 +364,20 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	return
 }
 
-func (t *dot) ID() *x.Gostr {
-	return x.StrOf(t.id)
+func (t *dot) ID() string {
+	return t.id
 }
 
-func (t *dot) Type() *x.Gostr {
-	return x.StrOf(dnsx.DOT)
+func (t *dot) Type() string {
+	return dnsx.DOT
 }
 
 func (t *dot) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *dot) GetAddr() *x.Gostr {
-	return x.StrOf(t.getAddr())
+func (t *dot) GetAddr() string {
+	return t.getAddr()
 }
 
 func (t *dot) GetRelay() x.Proxy {

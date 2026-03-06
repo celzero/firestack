@@ -196,20 +196,20 @@ func (t *dnssd) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, er
 	return ans, err
 }
 
-func (t *dnssd) ID() *x.Gostr {
-	return x.StrOf(t.id)
+func (t *dnssd) ID() string {
+	return t.id
 }
 
-func (t *dnssd) Type() *x.Gostr {
-	return x.StrOf(dnsx.DNS53)
+func (t *dnssd) Type() string {
+	return dnsx.DNS53
 }
 
 func (t *dnssd) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *dnssd) GetAddr() *x.Gostr {
-	return x.StrOf(t.ipport)
+func (t *dnssd) GetAddr() string {
+	return t.ipport
 }
 
 func (t *dnssd) GetRelay() x.Proxy {
