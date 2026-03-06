@@ -64,20 +64,25 @@ type PipKeyProvider interface {
 	Finalize(blingSig string) (*PipKey, error)
 }
 
+// Strx exists for gomobile type export support for PipMsg & PipToken
+type Strx struct {
+	s string
+}
+
 // PipToken is a 32 byte random token for bespoke auth.
-type PipToken string
+type PipToken Strx
 
 // PipMsg is a 64 byte hex encoded string that contains:
 // - first 32 bytes as message (random)
 // - next 32 bytes as client identifier (random)
-type PipMsg string
+type PipMsg Strx
 
 // AsPipMsg typecast m to PipMsg.
 // m must be a 64 bytes hex string
 // (32b for msg + 32b for opaque-id).
 // Returns nil if the string m is nil or not a valid PipMsg.
 func AsPipMsg(m string) *PipMsg {
-	p := (PipMsg)(m)
+	p := (PipMsg)(Strx{s: m})
 	if !p.ok() {
 		return nil
 	}
@@ -93,7 +98,7 @@ func NewPipMsgWith(tok *PipToken) *PipMsg {
 		log.E("pipkey: new: invalid msg size; want %d, got %d", 2*msgsize, len(msg))
 		return nil
 	}
-	return pipmsgof(msg + (string)(*tok))
+	return pipmsgof(msg + tok.s)
 }
 
 // go.dev/play/p/hPFgE9s9tMP
@@ -112,38 +117,38 @@ func (p *PipMsg) v() string {
 	if p == nil {
 		return ""
 	}
-	return string(*p)
+	return p.s
 }
 
 func (p *PipMsg) ok() bool {
-	return p != nil && len(*p) >= 2*(msgsize+cidsize)
+	return p != nil && len(p.s) >= 2*(msgsize+cidsize)
 }
 
 func (p *PipMsg) msg() []byte {
 	if p == nil || !p.ok() {
-		log.E("pipkey: msg: invalid; got %d", len(*p))
+		log.E("pipkey: msg: invalid; got %d", len(p.s))
 		return nil
 	}
 	// first 32 bytes are the message
-	return hex2byte(string(*p)[:2*msgsize])
+	return hex2byte(p.s[:2*msgsize])
 }
 
 func (p *PipMsg) cid() []byte {
 	if p == nil || !p.ok() {
-		log.E("pipkey: cid: invalid; got %d", len(*p))
+		log.E("pipkey: cid: invalid; got %d", len(p.s))
 		return nil
 	}
 	// next 32 bytes are the client identifier
-	return hex2byte(string(*p)[2*msgsize : 2*(msgsize+cidsize)])
+	return hex2byte(p.s[2*msgsize : 2*(msgsize+cidsize)])
 }
 
 // Opaque returns the client id part of the PipMsg as hex string.
 func (p *PipMsg) Opaque() *PipToken {
 	if p == nil || !p.ok() {
-		log.E("pipkey: opaque: invalid; got %d", len(*p))
+		log.E("pipkey: opaque: invalid; got %d", len(p.s))
 		return nil
 	}
-	tok, err := asPipToken(string(*p)[2*(msgsize) : 2*(msgsize+cidsize)])
+	tok, err := asPipToken(p.s[2*(msgsize) : 2*(msgsize+cidsize)])
 	if err != nil {
 		log.E("pipkey: opaque conv: %v", err)
 		return nil
@@ -556,7 +561,7 @@ func asPipToken(tok string) (*PipToken, error) {
 		return nil, errTokenCreat
 	}
 	// StrOf interns the string
-	return (*PipToken)(&tok), nil
+	return (*PipToken)(&Strx{s: tok}), nil
 }
 
 func token() string {

@@ -187,8 +187,6 @@ func (l LogLevel) s() string {
 	}
 }
 
-const consoleStacktraceSep = "\n<===>\n"
-
 const defaultLevel = INFO
 const defaultClevel = STACKTRACE
 
