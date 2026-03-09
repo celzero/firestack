@@ -54,50 +54,29 @@ func init() {
 	sb.Grow(len(allsamples) * 100)
 }
 
-func skipped(s string, skip []string) bool {
-	for _, prefix := range skip {
-		if strings.HasPrefix(s, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // from pkg.go.dev/runtime/metrics#Read
-func Metrics(skip ...string) string {
-	if len(skip) > 0 {
-		filtered := make([]metrics.Sample, len(descs))
-		for i := range filtered {
-			if skipped(descs[i].Name, skip) {
-				continue
-			}
-			filtered[i].Name = descs[i].Name
-		}
-		return readMetrics(filtered)
-	}
+func Metrics() string {
+	mu.Lock()
+	defer mu.Unlock()
 
 	if !lastcall.IsZero() && time.Since(lastcall) < memoizationThreshold {
-		mu.Lock()
-		defer mu.Unlock()
 		return sb.String()
 	}
 
 	lastcall = time.Now()
-	return readMetrics(allsamples)
-}
-
-// TODO: read only once every 10s?
-func readMetrics(samples []metrics.Sample) string {
-	mu.Lock()
-	defer mu.Unlock()
 
 	sb.Reset()
 	sb.WriteString("\n")
 
-	metrics.Read(samples)
+	metrics.Read(allsamples)
 
-	for _, sample := range samples {
+	for _, sample := range allsamples {
 		name, value := sample.Name, sample.Value
+
+		switch name {
+		case MetCgo, MetDbg: // skip debug
+			continue
+		}
 
 		switch value.Kind() {
 		case metrics.KindUint64:
@@ -109,7 +88,7 @@ func readMetrics(samples []metrics.Sample) string {
 		case metrics.KindFloat64Histogram:
 			// The histogram may be quite large, so let's just pull out
 			// a crude estimate for the median.
-			s := fmt.Sprintf("%s: p50(%f)\n", name, medianBucket(value.Float64Histogram()))
+			s := fmt.Sprintf("%s: hist(%s)\n", name, histoCsv(value.Float64Histogram()))
 			sb.WriteString(s)
 		case metrics.KindBad:
 			fallthrough
@@ -122,19 +101,15 @@ func readMetrics(samples []metrics.Sample) string {
 	return sb.String()
 }
 
-func medianBucket(h *metrics.Float64Histogram) float64 {
-	total := uint64(0)
-	for _, count := range h.Counts {
-		total += count
-	}
-	thresh := total / 2
-	total = 0
-	for i, count := range h.Counts {
-		total += count
-		if total >= thresh {
-			return h.Buckets[i]
+func histoCsv(h *metrics.Float64Histogram) string {
+	var sb strings.Builder
+	sb.Grow(20 * len(h.Buckets))
+	for i, b := range h.Buckets {
+		s := fmt.Sprintf("%f:%d", b, h.Counts[i])
+		sb.WriteString(s)
+		if i < len(h.Buckets)-1 {
+			sb.WriteString(",")
 		}
 	}
-	// should not happen
-	return -1.0
+	return sb.String()
 }
