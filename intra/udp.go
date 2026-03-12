@@ -175,6 +175,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 		h.queueSummary(smm.done(err)) // no-op if smm is nil
 		return false                  // not ok
 	} else if remote == nil || smm == nil { // dnsOverride or ipn.Block
+		h.queueSummary(smm.done(err)) // no-op if smm is nil
 		// do not close gconn here; it is either
 		// connected (overridden) or disconnected (blocked) already
 		// no summary for dns queries; for blocked connection,
@@ -261,8 +262,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// to be marked ipn.Base for queries sent to tunnel's fake DNS addr
 	// and ipn.Exit for anywhere else.
 	if isAnyBasePid(pids) && h.isDNS(target) {
-		if h.dnsOverride(gconn, uid) {
-			// SocketSummary is not sent to listener; x.DNSSummary is
+		if h.dnsOverride(gconn, uid, smm) {
+			// socket/session closed by the overriding dns resolver
 			return nil, nil, nil // connect override, no dst
 		} // else: not a dns query or target is not a dns addr
 	} // else: proxy src to dst

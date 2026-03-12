@@ -61,8 +61,8 @@ var _ SocketListener = (*zeroListener)(nil)
 func (*zeroListener) Preflow(_, _ int32, _, _ string) *PreMark       { return nil }
 func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
 func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
-func (*zeroListener) PostFlow(*Mark)                                   {}
-func (*zeroListener) OnSocketClosed(*SocketSummary)                    {}
+func (*zeroListener) PostFlow(*Mark)                                 {}
+func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
 
 var nooplistener = new(zeroListener)
 
@@ -426,12 +426,15 @@ func (h *baseHandler) isDNS(addr netip.AddrPort) bool {
 	return addr.IsValid() && h.resolver.IsDnsAddr(addr)
 }
 
-func (h *baseHandler) dnsOverride(conn net.Conn, uid string) bool {
+func (h *baseHandler) dnsOverride(conn net.Conn, uid string, smm *SocketSummary) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
 	// conn closed by the resolver
 	core.Gx(h.proto+".dns", func() {
-		h.resolver.Serve(h.proto, conn, uid)
+		// SocketSummary is not meant to be used by the listener; x.DNSSummary is
+		// but call into PostFlow & OnSocketClosed anyway, to avoid ambiguities
+		// on which sockets / sessions are still active.
+		h.resolver.Serve(h.proto, conn, uid, func() { h.queueSummary(smm.done()) })
 	})
 	return true
 }

@@ -176,7 +176,7 @@ type Resolver interface {
 	// IsDnsAddr returns true if the ip:port is resolver's fake endpoint
 	IsDnsAddr(ipport netip.AddrPort) bool
 	// Serve reads DNS query from conn and writes DNS answer to conn
-	Serve(proto string, conn protect.Conn, uid string)
+	Serve(proto string, conn protect.Conn, uid string, cb core.Finally)
 
 	// StopAll stops all transports.
 	StopAll()
@@ -734,7 +734,9 @@ runagain:
 }
 
 // Serve implements Resolver.
-func (r *resolver) Serve(proto string, c protect.Conn, uid string) {
+func (r *resolver) Serve(proto string, c protect.Conn, uid string, cb core.Finally) {
+	defer cb()
+
 	if r.closed.Load() {
 		log.W("dns: serve: closed for business")
 		return
@@ -864,6 +866,7 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) error {
 func (r *resolver) reply(c protect.Conn, uid string) {
 	defer clos(c)
 
+	var wg sync.WaitGroup
 	start := time.Now()
 	cnt := 0
 	for {
@@ -879,22 +882,24 @@ func (r *resolver) reply(c protect.Conn, uid string) {
 		_ = c.SetDeadline(tm)
 
 		if n, err := c.Read(q); err != nil {
-			millis := int(time.Since(start).Seconds() * 1000)
-			log.VV("dns: udp: for %s done; tot: %d, t: %dms, err: %v",
-				uid, cnt, millis, err)
+			log.VV("dns: udp: for %s done; tot: %d, t: %s, err: %v",
+				uid, cnt, core.FmtTimeAsPeriod(start), err)
 			free()
 			break
 		} else {
 			core.Gx("r.reply.do", func() {
+				wg.Add(1)
+				defer wg.Done()
 				defer free()
 				err = r.dnsudp(q[:n], c, uid)
-				millis := int(time.Since(start).Seconds() * 1000)
-				logeif(err != nil)("dns: udp: for %s err! tot: %d, t: %dms, %v",
-					uid, cnt, millis, err)
+				logeif(err != nil)("dns: udp: for %s err! tot: %d, t: %s, %v",
+					uid, cnt, core.FmtTimeAsPeriod(start), err)
 			})
 		}
 		cnt++
 	}
+	wg.Wait()
+	log.VV("dns: udp: for %s done; tot: %d, t: %s", uid, cnt, core.FmtTimeAsPeriod(start))
 }
 
 // Accept a DNS-over-TCP socket from a stub resolver, and connect the socket
@@ -902,6 +907,7 @@ func (r *resolver) reply(c protect.Conn, uid string) {
 func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 	defer clos(c)
 
+	var wg sync.WaitGroup
 	start := time.Now()
 	cnt := 0
 	qlbuf := make([]byte, 2)
@@ -937,23 +943,23 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 			break // close on read errs
 		}
 		if n != int(qlen) {
-			ms := int(time.Since(start).Seconds() * 1000)
-			log.W("dns: tcp: for %s incomplete query: %d < %d; tot: %d, t: %dms",
-				uid, n, qlen, cnt, ms)
 			free()
+			log.W("dns: tcp: for %s incomplete query: %d < %d; tot: %d, t: %s",
+				uid, n, qlen, cnt, core.FmtTimeAsPeriod(start))
 			break // close on incomplete reads
 		}
 		core.Gx("r.accept.do", func() {
+			wg.Add(1)
+			defer wg.Done()
 			defer free()
 			err = r.dnstcp(q[:n], c, uid)
-			ms := int(time.Since(start).Seconds() * 1000)
-			logeif(err != nil)("dns: tcp: for %s err! tot: %d, t: %dms, %v",
-				uid, cnt, ms, err)
+			logeif(err != nil)("dns: tcp: for %s err! tot: %d, t: %s, %v",
+				uid, cnt, core.FmtTimeAsPeriod(start), err)
 		})
 		cnt++
 	}
-	ms := int(time.Since(start).Seconds() * 1000)
-	log.VV("dns: tcp: for %s done; tot: %d, t: %ds", uid, cnt, ms)
+	wg.Wait()
+	log.VV("dns: tcp: for %s done; tot: %d, t: %s", uid, cnt, core.FmtTimeAsPeriod(start))
 	// TODO: Cancel outstanding queries.
 }
 
