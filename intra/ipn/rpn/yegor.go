@@ -885,7 +885,7 @@ func (a *WsClient) Update() (newstate []byte, err error) {
 	if c == nil {
 		return nil, errWsNoConfig
 	}
-	b, refreshed, err := makeWsWgFrom(a.http, c)
+	b, refreshed, err := makeWsWgFrom(a.http, c, true /*err on no update*/)
 	if err != nil || !refreshed {
 		log.E("ws: update: refreshed? %t; err: %v", refreshed, err)
 		return nil, core.OneErr(err, errWsRetryUpdate)
@@ -1625,11 +1625,11 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, 
 }
 
 func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig) (*WsClient, error) {
-	ws, _, err := makeWsWgFrom(&w.h2, existingConf)
+	ws, _, err := makeWsWgFrom(&w.h2, existingConf, false)
 	return ws, err
 }
 
-func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refreshedSess bool, err error) {
+func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, errOnNoUpdate bool) (ws *WsClient, refreshedSess bool, err error) {
 	existingEnt := existingConf.Entitlement
 	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
 		err = errWsNoEntitlement
@@ -1662,6 +1662,9 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 	} else {
 		log.W("ws: make: get session err: %v; using existing; tok? %s", err, tokst)
 		newSess = existingConf.Session // use existing session
+		if errOnNoUpdate {
+			return nil, refreshedSess, err
+		}
 	}
 
 	exp, err := time.Parse(time.DateOnly, newSess.ExpiryDate)
@@ -1694,14 +1697,16 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig) (ws *WsClient, refre
 
 		// create wg confs from new or existing server list
 		// always reconfigure (as /WgConfigs/connect must be done once every wg_ttl, which is 60m)
-		maybeNewCreds, maybeNewWgConfs, err := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement)
-		loge(err)("ws: make: gen wg confs; tok? %s; new loc? %t len (%d/%d); err? %v",
-			tokst, hasnew, len(existingServers), len(maybeNewServers), err)
+		maybeNewCreds, maybeNewWgConfs, uerr := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement)
+		loge(uerr)("ws: make: gen wg confs; tok? %s; downloadloc? %t / hasnewloc? %t len (%d/%d); err? %v",
+			tokst, downloadServerList, hasnew, len(existingServers), len(maybeNewServers), uerr)
 
-		if err == nil {
+		if uerr == nil {
 			existingConf.Servers = maybeNewServers
 			existingConf.Configs = maybeNewWgConfs
 			existingConf.Creds = maybeNewCreds
+		} else if errOnNoUpdate {
+			return nil, refreshedSess, uerr
 		}
 	} else {
 		log.W("ws: make: session expired at %s; tok? %s", fmtTime(exp), tokst)
