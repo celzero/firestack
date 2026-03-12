@@ -139,7 +139,7 @@ type rtunnel struct {
 var _ Tunnel = (*rtunnel)(nil)
 
 type clogAdapter struct {
-	b Bridge
+	b Console
 }
 
 var _ log.Console = (*clogAdapter)(nil)
@@ -189,35 +189,6 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 
 	const dualstack = settings.IP46
 
-	logch := make(chan bool, 1)
-	crashch := make(chan bool, 1)
-	go func() {
-		logfd := false
-		if r, c, err := log.NewFilebased(); err == nil {
-			closeall := func() {
-				core.Close(c)
-				core.Close(r)
-			}
-			if logfd = bdg.LogFD(int(r.Fd())); logfd {
-				log.SetConsole(ctx, c)
-				context.AfterFunc(ctx, closeall)
-			} else {
-				closeall()
-			}
-		}
-		if !logfd {
-			log.SetConsole(ctx, &clogAdapter{bdg})
-		}
-		log.D("tun: <<< new >>>; log out ok; fd? %t", logfd)
-		logch <- logfd
-	}()
-
-	go func() {
-		crashfd := pipeCrashOutput(bdg)
-		crashch <- crashfd
-		log.D("tun: <<< new >>>; crash out ok; fd? %t", crashfd)
-	}()
-
 	natpt := x64.NewNatPt2(ctx)
 	proxies := ipn.NewProxifier(ctx, dualstack, linkmtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
@@ -234,14 +205,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 		return nil, err
 	}
 
-	log.D("tun: <<< new >>>; default dns: ok")
-
-	logfd := <-logch
-	crashfd := <-crashch
-
-	log.ConsoleReady(ctx)
-
-	log.D("tun: <<< new >>>; logger, proxies, svcs, bootstrap: ok; fds (log? %t / crash? %t)", logfd, crashfd)
+	log.D("tun: <<< new >>>; proxies, svcs, bootstrap: ok")
 
 	resolver := dnsx.NewResolver(ctx, fakedns, dtr, bdg, natpt)
 	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed

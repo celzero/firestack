@@ -60,9 +60,50 @@ const maxMemLimit = 4 * 1024 * 1024 * 1024 // 4GiB
 
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
-	debug.SetGCPercent(25)
+	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(maxMemLimit)
 	debug.SetPanicOnFault(true)
+}
+
+// SetupConsole wires up firestack's logger to bdg.
+func SetupConsole(console Console) {
+	ctx := context.Background()
+
+	logch := make(chan bool, 1)
+	crashch := make(chan bool, 1)
+	go func() {
+		logfd := false
+		if r, c, err := log.NewFilebased(); err == nil {
+			closeall := func() {
+				core.Close(c)
+				core.Close(r)
+			}
+			if logfd = console.LogFD(int(r.Fd())); logfd {
+				log.SetConsole(ctx, c)
+				context.AfterFunc(ctx, closeall)
+			} else {
+				closeall()
+			}
+		}
+		if !logfd {
+			log.SetConsole(ctx, &clogAdapter{console})
+		}
+		log.D("tun: <<< console >>>; log out ok; fd? %t", logfd)
+		logch <- logfd
+	}()
+
+	go func() {
+		crashfd := pipeCrashOutput(console)
+		crashch <- crashfd
+		log.D("tun: <<< console >>>; crash out ok; fd? %t", crashfd)
+	}()
+
+	logfd := <-logch
+	crashfd := <-crashch
+
+	log.ConsoleReady(ctx)
+
+	log.I("tun: <<< console >>>; logger: ok; fds (log? %t / crash? %t)", logfd, crashfd)
 }
 
 // Connect creates firestack-administered tunnel.
@@ -259,7 +300,7 @@ func PanicAtRandom(y bool) {
 	log.I("tun: panic at random? %t", y)
 }
 
-func pipeCrashOutput(bdg Bridge) (ok bool) {
+func pipeCrashOutput(c Console) (ok bool) {
 	r, w, err := os.Pipe()
 	if err != nil {
 		log.E("tun: err crash output pipe: %v", err)
@@ -267,7 +308,7 @@ func pipeCrashOutput(bdg Bridge) (ok bool) {
 	}
 	// core.Close(r) // do not close as r isn't dup'd by client code
 	defer core.Close(w) // always close as w is dup'd by the runtime
-	if setCrashFd(w) && bdg.CrashFD(int(r.Fd())) {
+	if setCrashFd(w) && c.CrashFD(int(r.Fd())) {
 		return true
 	}
 	return false
