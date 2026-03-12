@@ -32,9 +32,10 @@ import (
 )
 
 const (
-	smmchSize           = 256 // some comfortably high number
-	UNKNOWN_UID         = core.UNKNOWN_UID
-	UNKNOWN_UID_STR     = core.UNKNOWN_UID_STR
+	smmchSize       = 256 // some comfortably high number
+	UNKNOWN_UID     = core.UNKNOWN_UID
+	UNKNOWN_UID_STR = core.UNKNOWN_UID_STR
+	// ANDROID_UID         = core.ANDROID_UID
 	ANDROID_UID_STR     = core.ANDROID_UID_STR
 	SELF_UID            = protect.UidSelf
 	UNSUPPORTED_NETWORK = core.UNSUPPORTED_NETWORK
@@ -148,6 +149,13 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		if procEntry != nil {
 			uid = procEntry.UserID
 			preuid = strconv.Itoa(uid)
+		} else {
+			// TODO: ipmapper wouldn't call into LookupFor (instead call into LocalLookup)
+			// when preuid (uid) is UNKNOWN_UID which is not what we want with ResolveFor
+			// call made below; that is, we want ResolveFor to call into ipmapper to then
+			// in to LookupFor so dnsx.Fixed would be the chosen transport?
+			// uid = ANDROID_UID
+			// preuid = ANDROID_UID_STR
 		}
 	}
 
