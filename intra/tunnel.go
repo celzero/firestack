@@ -63,7 +63,6 @@ var (
 type Bridge interface {
 	Listener
 	Controller
-	Console
 }
 
 // Listener receives usage statistics when a UDP or TCP socket is closed,
