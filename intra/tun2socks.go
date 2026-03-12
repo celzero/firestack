@@ -265,11 +265,11 @@ func pipeCrashOutput(bdg Bridge) (ok bool) {
 		log.E("tun: err crash output pipe: %v", err)
 		return false
 	}
+	// core.Close(r) // do not close as r isn't dup'd by client code
+	defer core.Close(w) // always close as w is dup'd by the runtime
 	if setCrashFd(w) && bdg.CrashFD(int(r.Fd())) {
 		return true
 	}
-	core.Close(r)
-	core.Close(w)
 	return false
 }
 
