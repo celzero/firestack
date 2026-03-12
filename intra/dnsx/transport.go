@@ -576,7 +576,7 @@ runagain:
 	run++
 	*smm = *copySummary(ogsmm)
 
-	log.V("dns: fwd: 1 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, qname, qtyp, run, pref, chosenids)
+	log.V("dns: fwd: 1 for %s (%s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, who, qname, qtyp, run, pref, chosenids)
 
 	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 	t := r.determineTransport(id) // id may be empty if pref is nil
@@ -1144,7 +1144,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id1 = reqid
 		id2 = ""
 	} else if isAnyFixed(x...) || isAnyFixed(xx...) {
-		if id1 != Fixed { // Fixed must always be the primary transport
+		if id1 != Fixed && id1 != cacheprefix+Fixed { // Fixed must always be the primary transport
 			id2 = id1
 			id1 = Fixed
 		}
