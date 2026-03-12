@@ -434,7 +434,12 @@ func (h *baseHandler) dnsOverride(conn net.Conn, uid string, smm *SocketSummary)
 		// SocketSummary is not meant to be used by the listener; x.DNSSummary is
 		// but call into PostFlow & OnSocketClosed anyway, to avoid ambiguities
 		// on which sockets / sessions are still active.
-		h.resolver.Serve(h.proto, conn, uid, func() { h.queueSummary(smm.done()) })
+		rx, tx, errs := h.resolver.Serve(h.proto, conn, uid)
+		smm.Rx = rx
+		smm.Tx = tx
+		// smm.Rtt
+		// smm.Target = DNS resolver?
+		h.listener.OnSocketClosed(smm.done(errs...))
 	})
 	return true
 }

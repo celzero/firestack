@@ -176,7 +176,7 @@ type Resolver interface {
 	// IsDnsAddr returns true if the ip:port is resolver's fake endpoint
 	IsDnsAddr(ipport netip.AddrPort) bool
 	// Serve reads DNS query from conn and writes DNS answer to conn
-	Serve(proto string, conn protect.Conn, uid string, cb core.Finally)
+	Serve(proto string, conn protect.Conn, uid string) (rx, tx int64, errs []error)
 
 	// StopAll stops all transports.
 	StopAll()
@@ -734,11 +734,10 @@ runagain:
 }
 
 // Serve implements Resolver.
-func (r *resolver) Serve(proto string, c protect.Conn, uid string, cb core.Finally) {
-	defer cb()
-
+func (r *resolver) Serve(proto string, c protect.Conn, uid string) (rx, tx int64, errs []error) {
 	if r.closed.Load() {
-		log.W("dns: serve: closed for business")
+		err := log.EE("dns: serve: closed for business")
+		errs = append(errs, err)
 		return
 	}
 
@@ -751,12 +750,14 @@ func (r *resolver) Serve(proto string, c protect.Conn, uid string, cb core.Final
 
 	switch proto {
 	case NetTypeTCP:
-		r.accept(c, uid)
+		rx, tx, errs = r.accept(c, uid)
 	case NetTypeUDP:
-		r.reply(c, uid)
+		rx, tx, errs = r.reply(c, uid)
 	default:
-		log.W("dns: unknown proto: %s", proto)
+		err := log.EE("dns: unknown proto: %s", proto)
+		errs = append(errs, err)
 	}
+	return
 }
 
 func (r *resolver) determineTransport(id string) Transport {
@@ -822,49 +823,48 @@ func (r *resolver) determineTransport(id string) Transport {
 }
 
 // dnstcp queries the transport and writes answers to w, prefixed by length.
-func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) error {
+func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) (written int, err error) {
 	ans, _, err := r.forward(q, OriginTunnel, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
 		clos(w) // close on client err
-		return err
+		return
 	}
 
-	if n, err := writePrefixed(w, ans, rlen); err != nil {
+	if written, err = writePrefixed(w, ans, rlen); err != nil {
 		clos(w) // close on write back err
-		return err
-	} else if n != rlen {
-		// do not close on incomplete writes
-		return fmt.Errorf("dns: tcp: for %s incomplete write: n(%d) != r(%d)", uid, n, rlen)
+	} else if written != rlen { // do not close on incomplete writes
+		err = fmt.Errorf("dns: tcp: for %s incomplete write: n(%d) != r(%d)", uid, written, rlen)
 	}
-	return nil // ok
+	return
 }
 
 // dnsudp queries the transport and writes answers to w.
-func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) error {
+func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) (written int, err error) {
 	ans, _, err := r.forward(q, OriginTunnel, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
 		clos(w) // close on client err
-		return err
+		return
 	}
 
-	if n, err := w.Write(ans); err != nil {
+	if written, err = w.Write(ans); err != nil {
 		clos(w) // close on write back err
-		return err
-	} else if n != rlen {
+	} else if written != rlen {
 		// do not close on incomplete writes
-		return fmt.Errorf("dns: udp: for %s incomplete write: n(%d) != r(%d)", uid, n, rlen)
+		err = fmt.Errorf("dns: udp: for %s incomplete write: n(%d) != r(%d)", uid, written, rlen)
 	}
 
-	return nil // ok
+	return
 }
 
 // reply DNS-over-UDP from a stub resolver.
-func (r *resolver) reply(c protect.Conn, uid string) {
+func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error) {
 	defer clos(c)
+
+	var rxv, txv atomic.Int64
 
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -891,21 +891,29 @@ func (r *resolver) reply(c protect.Conn, uid string) {
 				wg.Add(1)
 				defer wg.Done()
 				defer free()
-				err = r.dnsudp(q[:n], c, uid)
+				m, err := r.dnsudp(q[:n], c, uid)
 				logeif(err != nil)("dns: udp: for %s err! tot: %d, t: %s, %v",
 					uid, cnt, core.FmtTimeAsPeriod(start), err)
+				rxv.Add(int64(m))
+				txv.Add(int64(n))
+				errs = append(errs, err)
 			})
 		}
 		cnt++
 	}
 	wg.Wait()
-	log.VV("dns: udp: for %s done; tot: %d, t: %s", uid, cnt, core.FmtTimeAsPeriod(start))
+	rx = rxv.Load()
+	tx = txv.Load()
+	log.VV("dns: udp: for %s done; tot: %d (rx: %d, tx: %d), t: %s", uid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
+	return
 }
 
 // Accept a DNS-over-TCP socket from a stub resolver, and connect the socket
 // to this DNSTransport.
-func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
+func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs []error) {
 	defer clos(c)
+
+	var rxv, txv atomic.Int64
 
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -952,15 +960,21 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) {
 			wg.Add(1)
 			defer wg.Done()
 			defer free()
-			err = r.dnstcp(q[:n], c, uid)
+			m, err := r.dnstcp(q[:n], c, uid)
 			logeif(err != nil)("dns: tcp: for %s err! tot: %d, t: %s, %v",
 				uid, cnt, core.FmtTimeAsPeriod(start), err)
+			errs = append(errs, err)
+			txv.Add(int64(n))
+			rxv.Add(int64(m))
 		})
 		cnt++
 	}
 	wg.Wait()
-	log.VV("dns: tcp: for %s done; tot: %d, t: %s", uid, cnt, core.FmtTimeAsPeriod(start))
+	rx = rxv.Load()
+	tx = txv.Load()
+	log.VV("dns: tcp: for %s done; tot: %d (rx: %d, tx: %d), t: %s", uid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
 	// TODO: Cancel outstanding queries.
+	return
 }
 
 // StopAll implements TransportMult.
