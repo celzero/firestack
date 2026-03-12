@@ -935,7 +935,6 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	for _, rc := range cfg.Configs {
 		// TODO: strings.HasSuffix(rc.Cc, cc) replaced with ==?
 		if (chooseAny || strings.HasSuffix(rc.CC, cc)) && (!hasCity || rc.City == city) {
-
 			if chooseAny {
 				if _, ok := visited[rc.CC]; ok {
 					continue

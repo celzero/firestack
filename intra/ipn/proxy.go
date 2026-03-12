@@ -104,7 +104,8 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 	log.I("proxy: rpn: add: %s[%s]", typ, cc)
 
-	// cc may be typcity;cc (ref struct RpnServer.Key)
+	// cc may be "typcity;cc" (see var rpnid below)
+	// but we need cc to be "city;cc"  (ref struct RpnServer.Key)
 	cc, _ = strings.CutPrefix(cc, typ)
 
 	txt, err := acc.Conf(cc)
