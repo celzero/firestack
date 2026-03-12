@@ -77,6 +77,10 @@ type PipToken Strx
 // - next 32 bytes as client identifier (random)
 type PipMsg Strx
 
+func (s *Strx) S() string {
+	return s.s
+}
+
 // AsPipMsg typecast m to PipMsg.
 // m must be a 64 bytes hex string
 // (32b for msg + 32b for opaque-id).
