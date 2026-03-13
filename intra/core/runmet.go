@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+// from pkg.go.dev/runtime/metrics#Read
+
 const (
 	// ex: /cgo/go-to-c-calls:calls
 	MetCgo = "/cgo"
@@ -33,18 +35,24 @@ const (
 	memoizationThreshold = 10 * time.Second
 )
 
-var (
-	// Get descriptions for all supported metrics.
-	descs = metrics.All()
+type metricUnit = int
 
-	// Create a sample for each metric.
+const (
+	unitUnknown = metricUnit(iota)
+	unitSeconds
+	unitCount
+	unitPercent
+	unitBytes
+	unitGcTime
+)
+
+var (
+	descs      = metrics.All()
 	allsamples = make([]metrics.Sample, len(descs))
 
-	sb strings.Builder
-
-	mu sync.Mutex // protects allsamples, last, sb
-
+	sb       strings.Builder
 	lastcall time.Time
+	mu       sync.Mutex // protects allsamples, last, sb
 )
 
 func init() {
@@ -54,7 +62,6 @@ func init() {
 	sb.Grow(len(allsamples) * 100)
 }
 
-// from pkg.go.dev/runtime/metrics#Read
 func Metrics() string {
 	mu.Lock()
 	defer mu.Unlock()
@@ -78,17 +85,45 @@ func Metrics() string {
 			continue
 		}
 
+		unit := ""
+		u := unitUnknown
+		namesplit := strings.Split(name, ":")
+		if len(namesplit) >= 2 {
+			name = namesplit[0]
+			unit = namesplit[1]
+		}
+
+		if unit == "cpu-seconds" || unit == "seconds" {
+			u = unitSeconds
+		} else if unit == "count" ||
+			unit == "cleanups" ||
+			unit == "calls" ||
+			unit == "gc-cycles" ||
+			unit == "finalizers" ||
+			unit == "objects" ||
+			unit == "events" ||
+			unit == "threads" ||
+			unit == "goroutines" {
+			u = unitCount
+		} else if unit == "percent" {
+			u = unitPercent
+		} else if unit == "bytes" {
+			u = unitBytes
+		} else if unit == "gc-cycle" {
+			u = unitGcTime
+		}
+
 		switch value.Kind() {
 		case metrics.KindUint64:
-			s := fmt.Sprintf("%s: %d\n", name, value.Uint64())
+			s := fmt.Sprintf("%s: %s\n", name, unit4int(value.Uint64(), u))
 			sb.WriteString(s)
 		case metrics.KindFloat64:
-			s := fmt.Sprintf("%s: %f\n", name, value.Float64())
+			s := fmt.Sprintf("%s: %s\n", name, unit4float(value.Float64(), u))
 			sb.WriteString(s)
 		case metrics.KindFloat64Histogram:
 			// The histogram may be quite large, so let's just pull out
 			// a crude estimate for the median.
-			s := fmt.Sprintf("%s: hist(%s)\n", name, histoCsv(value.Float64Histogram()))
+			s := fmt.Sprintf("%s: hist(%s)\n", name, histoCsv(value.Float64Histogram(), u))
 			sb.WriteString(s)
 		case metrics.KindBad:
 			fallthrough
@@ -101,15 +136,72 @@ func Metrics() string {
 	return sb.String()
 }
 
-func histoCsv(h *metrics.Float64Histogram) string {
+func histoCsv(h *metrics.Float64Histogram, u metricUnit) string {
 	var sb strings.Builder
 	sb.Grow(20 * len(h.Buckets))
 	for i, b := range h.Buckets {
-		s := fmt.Sprintf("%f:%d", b, h.Counts[i])
-		sb.WriteString(s)
-		if i < len(h.Buckets)-1 {
+		if i >= len(h.Buckets)-1 {
+			break
+		}
+		if i > 0 {
 			sb.WriteString(",")
 		}
+		s := fmt.Sprintf("%s:%s", unit4float(b, u), unit4int(h.Counts[i], u))
+		sb.WriteString(s)
 	}
 	return sb.String()
+}
+
+func unit4int(v uint64, u metricUnit) string {
+	switch u {
+	case unitSeconds:
+		return FmtSecs(int64(v)) // may wrap?
+	case unitPercent:
+		return fmt.Sprintf("%d%", v)
+	case unitBytes:
+		return FmtBytes(v)
+	case unitGcTime:
+		return fmt.Sprintf("%d", v)
+	case unitCount:
+		return FmtWithCommas(v)
+	default:
+		return fmt.Sprintf("%d", v)
+	}
+}
+
+// FmtWithCommas formats a uint64 with comma separators every 3 digits (e.g. 1234567 -> "1,234,567").
+func FmtWithCommas(v uint64) string {
+	s := fmt.Sprintf("%d", v)
+	n := len(s)
+	if n <= 3 {
+		return s
+	}
+	// pre-allocate exact size: n digits + (n-1)/3 commas
+	b := make([]byte, n+(n-1)/3)
+	for i, j, k := n-1, len(b)-1, 0; i >= 0; i, k = i-1, k+1 {
+		if k > 0 && k%3 == 0 {
+			b[j] = ','
+			j--
+		}
+		b[j] = s[i]
+		j--
+	}
+	return string(b)
+}
+
+func unit4float(v float64, u metricUnit) string {
+	switch u {
+	case unitSeconds:
+		return FmtSecsFloat(v)
+	case unitPercent:
+		return fmt.Sprintf("%.2f%%", v)
+	case unitBytes:
+		return FmtBytes(uint64(v))
+	case unitGcTime:
+		return fmt.Sprintf("%.2f", v)
+	case unitCount:
+		return FmtWithCommas(uint64(v))
+	default:
+		return fmt.Sprintf("%.3g", v)
+	}
 }
