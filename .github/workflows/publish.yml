@@ -94,12 +94,14 @@ jobs:
           set -euo pipefail
           # Allow RUN_ID to be passed as a full GitHub Actions run URL.
           # Example: https://github.com/celzero/firestack/actions/runs/20923345284
+          # Or: https://github.com/celzero/firestack/actions/runs/23057719555/job/66975665220
           RUN_ID="${RUN_ID%%\?*}"   # strip query
           RUN_ID="${RUN_ID%%\#*}"   # strip fragment
           RUN_ID="${RUN_ID%/}"      # strip trailing slash
           case "$RUN_ID" in
             *github.com/*/actions/runs/*)
-              RUN_ID="${RUN_ID##*/}"
+              RUN_ID="${RUN_ID#*actions/runs/}"
+              RUN_ID="${RUN_ID%%/*}"
               ;;
           esac
           echo "::notice::Using Run ID: $RUN_ID (in: $RUN_ID_OG)"
