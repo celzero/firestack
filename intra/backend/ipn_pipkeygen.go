@@ -81,6 +81,16 @@ func (s *Strx) S() string {
 	return s.s
 }
 
+// gomobile does not generate funcs inherited from Strx
+func (s *PipToken) S() string {
+	return s.s
+}
+
+// gomobile does not generate funcs inherited from Strx
+func (s *PipMsg) S() string {
+	return s.s
+}
+
 // AsPipMsg typecast m to PipMsg.
 // m must be a 64 bytes hex string
 // (32b for msg + 32b for opaque-id).
