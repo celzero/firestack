@@ -129,6 +129,7 @@ var (
 	errHopGlobalProxy     = errors.New("proxy: hop must be global proxy")
 	errHopNotConnected    = errors.New("proxy: set but not connected over hop")
 	errNilWinCfg          = errors.New("proxy: win cfg nil")
+	errNilWinDevice       = errors.New("proxy: missing win device id")
 	errNilSEProxy         = errors.New("proxy: se proxy nil")
 	errNotRpnProxy        = errors.New("proxy: rpn not found")
 	errNotRpnID           = errors.New("proxy: not rpn id")
@@ -1236,23 +1237,30 @@ func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv string) bool {
 	return false
 }
 
-func (px *proxifier) EntitlementFrom(entitlementOrStateJson []byte, id string) (x.RpnEntitlement, error) {
+func (px *proxifier) EntitlementFrom(entitlementOrStateJson []byte, did, id string) (ent x.RpnEntitlement, err error) {
 	switch id {
 	case RpnWin:
-		return px.extc.MakeWsEntitlement(entitlementOrStateJson)
+		ent, err = px.extc.MakeWsEntitlement(entitlementOrStateJson, did)
+	default:
+		err = errNotRpnAcc
 	}
-	return nil, errNotRpnAcc
+	return
 }
 
 // RegisterWin implements x.Rpn.
-func (px *proxifier) RegisterWin(entitlementOrState []byte) (stateJson []byte, err error) {
+func (px *proxifier) RegisterWin(entitlementOrState []byte, did string) (stateJson []byte, err error) {
 	defer func() {
 		px.lastWinErr.Store(err) // may be nil
 	}()
+
+	if len(did) <= 0 {
+		return nil, errNilWinDevice
+	}
+
 	existingStateJson := entitlementOrState
 	restore := len(existingStateJson) > 0
 
-	win, err := px.registerWin(existingStateJson)
+	win, err := px.registerWin(existingStateJson, did)
 	if err != nil || core.IsNil(win) {
 		log.E("proxy: ws: make failed: %v", err)
 		return nil, core.JoinErr(err, errNilWinCfg)
@@ -1276,8 +1284,8 @@ func (px *proxifier) RegisterWin(entitlementOrState []byte) (stateJson []byte, e
 	return state, nil
 }
 
-func (px *proxifier) registerWin(entitlementOrStateJson []byte) (RpnAcc, error) {
-	return px.extc.MakeWsWgFrom(entitlementOrStateJson)
+func (px *proxifier) registerWin(entitlementOrStateJson []byte, did string) (RpnAcc, error) {
+	return px.extc.MakeWsWgFrom(entitlementOrStateJson, did)
 }
 
 // RegisterSE implements x.Rpn.

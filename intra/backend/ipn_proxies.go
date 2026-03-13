@@ -85,11 +85,13 @@ const ( // see ipn/proxies.go
 
 type Rpn interface {
 	// EntitlementFrom returns the RpnEntitlement represented by entitlementOrStateJson.
-	EntitlementFrom(entitlementOrStateJson []byte, rpnProviderID string) (RpnEntitlement, error)
+	// `did` is the device identifier to use for this entitlement, if applicable; and `rpnProviderID` is the RPN provider for this entitlement, if applicable.
+	// `rpnProviderID` is the RPN provider to use with this entitlement (ex: RpnWin, RpnSE, etc).
+	EntitlementFrom(entitlementOrStateJson []byte, rpnProviderID, did string) (RpnEntitlement, error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
 	// RegisterWin is alias for RegisterWin.
-	RegisterWin(entitlementOrStateJson []byte) (json []byte, err error)
+	RegisterWin(entitlementOrStateJson []byte, did string) (json []byte, err error)
 	// UnregisterWin unregisters a Windscribe installation.
 	UnregisterWin() bool
 	// UnregisterSE unregisters a SurfEasy user.
@@ -171,8 +173,10 @@ type RpnAcc interface {
 type RpnEntitlement interface {
 	// ProviderID is RPN provider for this entitlement.
 	ProviderID() string
-	// Cid is the Client identifier
+	// Cid is the Client identifier.
 	CID() string
+	// DID is the Device identifier, if any.
+	DID() string
 	// Token is the entitlement token, if any.
 	Token() string
 	// Expiry is ISO 8601 string of the expiry time of this entitlement, if any.
@@ -183,6 +187,8 @@ type RpnEntitlement interface {
 	AllowRestore() bool
 	// Test is set if this entitlement is valid only in the test domain.
 	Test() bool
+	// Json returns entitlement (but not the state) as json.
+	Json() ([]byte, error)
 }
 
 type Proxies interface {

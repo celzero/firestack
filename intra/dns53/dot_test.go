@@ -110,7 +110,7 @@ type fakeObs struct {
 
 func (*fakeObs) OnProxyAdded(string)   {}
 func (*fakeObs) OnProxyRemoved(string) {}
-func (*fakeObs) OnProxiesStopped()       {}
+func (*fakeObs) OnProxiesStopped()     {}
 
 type fakeBdg struct {
 	protect.Controller
@@ -125,10 +125,10 @@ var (
 
 func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts              { return autoNsOpts }
 func (*fakeBdg) OnUpstreamAnswer(_ *x.DNSSummary, _ string) *x.DNSOpts { return nil }
-func (*fakeBdg) OnResponse(*x.DNSSummary)                                {}
+func (*fakeBdg) OnResponse(*x.DNSSummary)                              {}
 func (*fakeBdg) OnDNSAdded(string)                                     {}
 func (*fakeBdg) OnDNSRemoved(string)                                   {}
-func (*fakeBdg) OnDNSStopped()                                           {}
+func (*fakeBdg) OnDNSStopped()                                         {}
 
 func (*fakeBdg) Route(a, b, c, d, e string) *x.Tab { return baseTab }
 func (*fakeBdg) OnComplete(*x.ServerSummary)       {}
@@ -440,8 +440,9 @@ func TestWinReaches(t *testing.T) {
 	}
 	ko(t, err)
 
+	const did = "deadbeefdeadbeefdeadbeefdeadbeef" // some device id
 	ilog.D("ws: read ent (sess? %t): %d", readWinJson, len(entjson))
-	if wreg, err := pxr.RegisterWin(entjson); err != nil {
+	if wreg, err := pxr.RegisterWin(entjson, did); err != nil {
 		t.Fatal(err)
 	} else {
 		entjson = wreg

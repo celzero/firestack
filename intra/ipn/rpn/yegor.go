@@ -128,6 +128,7 @@ var (
 	errWsNoEntitlement  = errors.New("ws: missing entitlement")
 	errWsNoToken        = errors.New("ws: missing token")
 	errWsNoCid          = errors.New("ws: missing cid")
+	errWsNoDid          = errors.New("ws: missing device id")
 	errWsNoResponse     = errors.New("ws: no response")
 	errWsNoLocHash      = errors.New("ws: no loc hash")
 	errWsNoServerList   = errors.New("ws: no server list")
@@ -702,6 +703,7 @@ type WsWgConfig struct {
 type WsEntitlement struct {
 	Kind         string `json:"kind"`          // e.g. "ws#v1"
 	Cid          string `json:"cid"`           // Client ID
+	Did          string `json:"did,omitempty"` // Device ID, if any
 	Pid          string `json:"pid,omitempty"` // Share ID
 	SessionToken string `json:"sessiontoken"`  // Encrypted session token
 	// Expiry date of the entitlement; go.dev/play/p/d2gshytEF61
@@ -716,6 +718,10 @@ var _ x.RpnEntitlement = (*WsEntitlement)(nil)
 
 func (e *WsEntitlement) ProviderID() string {
 	return x.RpnWin
+}
+
+func (e *WsEntitlement) DID() string {
+	return e.Did
 }
 
 func (e *WsEntitlement) CID() string {
@@ -742,6 +748,19 @@ func (e *WsEntitlement) Test() bool {
 	return e.TestDomain
 }
 
+func (e *WsEntitlement) Json() ([]byte, error) {
+	if e == nil {
+		return nil, errWsNoEntitlement
+	}
+	var w core.ByteWriter
+	enc := json.NewEncoder(&w)
+	if err := enc.Encode(e); err != nil {
+		return nil, fmt.Errorf("ws: entitlement encode err: %w", err)
+	}
+	// Bytes not recycled as these are crossing into cgo
+	return w.Bytes(), nil
+}
+
 func (a *WsWgConfig) Json() ([]byte, error) {
 	if a == nil {
 		return nil, errWsNoConfig
@@ -751,7 +770,7 @@ func (a *WsWgConfig) Json() ([]byte, error) {
 	if err := a.writeJson(&w); err != nil {
 		return nil, err
 	}
-	// Bytes not recycled
+	// Bytes not recycled as these are crossing into cgo
 	return w.Bytes(), nil
 }
 
@@ -1539,9 +1558,12 @@ func newWsGw(c *WsWgConfig, h *http.Client) (*WsClient, error) {
 	return a, nil
 }
 
-func (w *BaseClient) MakeWsWg(entitlement []byte) (*WsClient, error) {
+func (w *BaseClient) MakeWsWg(entitlement []byte, did string) (*WsClient, error) {
 	if len(entitlement) <= 0 {
 		return nil, errWsNoEntitlement
+	}
+	if len(did) <= 0 {
+		return nil, errWsNoDid
 	}
 
 	var ent WsEntitlement
@@ -1550,6 +1572,7 @@ func (w *BaseClient) MakeWsWg(entitlement []byte) (*WsClient, error) {
 		return nil, err
 	}
 
+	(&ent).Did = did
 	return makeWsWg(&w.h2, &ent)
 }
 
@@ -1585,27 +1608,36 @@ func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 	return newWsGw(cfg, h)
 }
 
-func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte) (x.RpnEntitlement, error) {
+func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string) (x.RpnEntitlement, error) {
 	if len(entitlementOrStateJson) <= 0 {
 		return nil, errWsNoEntitlement
+	}
+	if len(did) <= 0 {
+		return nil, errWsNoDid
 	}
 
 	var ent WsEntitlement
 	err1 := json.Unmarshal(entitlementOrStateJson, &ent)
 	if err1 == nil {
+		(&ent).Did = did
 		return &ent, nil
 	}
 	var existingConf WsWgConfig
 	err2 := json.Unmarshal(entitlementOrStateJson, &existingConf)
 	if err2 == nil && existingConf.Entitlement != nil && len(existingConf.Entitlement.SessionToken) > 0 {
-		return existingConf.Entitlement, nil
+		ent := existingConf.Entitlement
+		(ent).Did = did
+		return ent, nil
 	}
 	return nil, core.JoinErr(err1, err2)
 }
 
-func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, error) {
+func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string) (*WsClient, error) {
 	if len(entitlementOrWsConfigJson) <= 0 {
 		return nil, errWsNoJsonConfig
+	}
+	if len(did) <= 0 {
+		return nil, errWsNoDid
 	}
 
 	var existingConf WsWgConfig
@@ -1618,8 +1650,9 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte) (*WsClient, 
 		// may be this is an entitlement and not conf?
 		log.W("ws: make: unmarshal config (sz %d / hasEnt %t / hasTok %t) err? %v; retry as entitlement",
 			sz, hasEnt, hasTok, err)
-		return w.MakeWsWg(entitlementOrWsConfigJson)
+		return w.MakeWsWg(entitlementOrWsConfigJson, did)
 	}
+	(existingConf.Entitlement).Did = did
 	return w.makeWsWgFrom(&existingConf)
 }
 
