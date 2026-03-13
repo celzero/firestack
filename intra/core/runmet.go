@@ -157,7 +157,7 @@ func unit4int(v uint64, u metricUnit) string {
 	case unitSeconds:
 		return FmtSecs(int64(v)) // may wrap?
 	case unitPercent:
-		return fmt.Sprintf("%d%", v)
+		return fmt.Sprintf("%d%%", v)
 	case unitBytes:
 		return FmtBytes(v)
 	case unitGcTime:
