@@ -1197,11 +1197,14 @@ func convertToRegionalWgConfs(id *WsWgCreds, reservation *WsWgConnectData, list 
 		sorted := core.Sort(server.Groups, func(a, b WsServerGroup) int {
 			ia, _ := strconv.ParseInt(a.LinkSpeed, 10, 64)
 			ib, _ := strconv.ParseInt(b.LinkSpeed, 10, 64)
-			la := min(int(ia), wsMinServerLinkSpeed) * (wsMaxServerHealth - a.Health)
-			lb := min(int(ib), wsMinServerLinkSpeed) * (wsMaxServerHealth - b.Health)
-			if la < lb { // ascending order by Health (lower is healthier)
+			// max(..., wsMinServerLinkSpeed) preserves actual link speed (100/1000/10000 mbps)
+			// rather than clamping everything to 1 with min.
+			// Score: higher = healthier (lower load) AND faster link; best servers first.
+			la := max(int(ia), wsMinServerLinkSpeed) * (wsMaxServerHealth - a.Health)
+			lb := max(int(ib), wsMinServerLinkSpeed) * (wsMaxServerHealth - b.Health)
+			if la > lb { // descending: highest composite score (healthiest + fastest) first
 				return -1
-			} else if la > lb {
+			} else if la < lb {
 				return 1
 			}
 			return 0
