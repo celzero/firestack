@@ -27,6 +27,7 @@ import (
 	"context"
 	"os"
 	"runtime/debug"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -298,6 +299,16 @@ func PrintFlightRecord(get bool) []byte {
 func PanicAtRandom(y bool) {
 	settings.PanicAtRandom.Store(y)
 	log.I("tun: panic at random? %t", y)
+}
+
+// Crash causes a crash by panicking on an out-of-bounds slice access. For testing only.
+func Crash(afterMs int64) {
+	go func() {
+		log.I("tun: crashing in %s", core.FmtMillis(afterMs))
+		time.Sleep(time.Duration(afterMs) * time.Millisecond)
+		var i []int
+		i[10] = 1 // panic: runtime error: index out of range [10] with length 10
+	}()
 }
 
 func pipeCrashOutput(c Console) (ok bool) {
