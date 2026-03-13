@@ -1009,13 +1009,14 @@ func fixedValidWsEndpoint(test bool) string {
 	return "ca.windscribe.com"
 }
 
-func baseurl(test bool, cid string) *url.URL {
+func baseurl(test bool, cid, did string) *url.URL {
 	u := url.URL{
 		Scheme: "https",
 		Host:   svchosttest,
 	}
 	q := u.Query()
 	q.Set("cid", cid)
+	q.Set("did", did)
 	if test {
 		q.Set("rpn", "wstest")
 	} else {
@@ -1097,7 +1098,7 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 	return out, nil
 }
 
-func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) {
+func getSession(h *http.Client, cid, did, tok string, test bool) (*WsSession, error) {
 	if len(tok) <= 0 {
 		return nil, errWsNoToken
 	}
@@ -1106,7 +1107,7 @@ func getSession(h *http.Client, cid, tok string, test bool) (*WsSession, error) 
 		curl -x GET '.../Session'
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
 	*/
-	u := baseurl(test, cid).JoinPath(wssessionpath)
+	u := baseurl(test, cid, did).JoinPath(wssessionpath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: getsess: make req err: %v", err)
@@ -1387,7 +1388,7 @@ initagain:
 		initdata := url.Values{}
 		initdata.Set("wg_pubkey", pubkeybase64)
 		initdata.Set("force_init", force)
-		u := baseurl(test, cid).JoinPath(wswginitpath)
+		u := baseurl(test, cid, ent.Did).JoinPath(wswginitpath)
 		initreq, err := http.NewRequest("POST", u.String(), strings.NewReader(initdata.Encode()))
 		if err != nil {
 			return nil, nil, log.EE("ws: wgconfs: req err: %v", err)
@@ -1466,7 +1467,7 @@ initagain:
 	cdata.Set("hostname", someEndpoint)
 	cdata.Set("wg_pubkey", pubkeybase64)
 	cdata.Set("wg_ttl", wgttl)
-	u := baseurl(test, cid).JoinPath(wswgconnectpath)
+	u := baseurl(test, cid, ent.Did).JoinPath(wswgconnectpath)
 	creq, err := http.NewRequest("POST", u.String(), strings.NewReader(cdata.Encode()))
 	if err != nil {
 		return nil, nil, log.EE("ws: wgconfs: connect req err: %v", err)
@@ -1582,7 +1583,7 @@ func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 		return nil, errWsNoEntitlement
 	}
 
-	sess, err := getSession(h, ent.Cid, ent.SessionToken, ent.TestDomain)
+	sess, err := getSession(h, ent.Cid, ent.Did, ent.SessionToken, ent.TestDomain)
 	if err != nil {
 		return nil, err
 	}
@@ -1680,14 +1681,16 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, errOnNoUpdate bool) 
 	}
 
 	cid := existingEnt.Cid
+	did := existingEnt.Did
 	tokst := existingConf.tokenState()
 	existingToken := existingSess.SessionToken
 	existingLocHash := existingSess.LocHash
+	existingTestDomain := existingEnt.TestDomain
 	if existingEnt.SessionToken != existingToken {
 		log.W("ws: make: entitlement does not match session; tok? %s", tokst)
 	}
 
-	newSess, err := getSession(h, cid, existingToken, existingEnt.TestDomain)
+	newSess, err := getSession(h, cid, did, existingToken, existingTestDomain)
 	if err == nil {
 		existingConf.Session = newSess // update session with the latest info
 		refreshedSess = true
