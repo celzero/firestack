@@ -317,11 +317,12 @@ func pipeCrashOutput(c Console) (ok bool) {
 		log.E("tun: err crash output pipe: %v", err)
 		return false
 	}
-	// core.Close(r) // do not close as r isn't dup'd by client code
+	defer core.Close(r) // r isn't dup'd by client code
 	defer core.Close(w) // always close as w is dup'd by the runtime
 	if setCrashFd(w) && c.CrashFD(int(r.Fd())) {
 		return true
 	}
+	setCrashFd(nil)
 	return false
 }
 
