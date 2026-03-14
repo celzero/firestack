@@ -904,18 +904,19 @@ func (a *WsClient) Update() (newstate []byte, err error) {
 	if c == nil {
 		return nil, errWsNoConfig
 	}
+	start := time.Now()
 	b, refreshed, err := makeWsWgFrom(a.http, c, true /*err on no update*/)
 	if err != nil || !refreshed {
 		log.E("ws: update: refreshed? %t; err: %v", refreshed, err)
 		return nil, core.OneErr(err, errWsRetryUpdate)
 	}
 
-	// If configs have changed, the current proxies using those, if any,
+	// if configs have changed, the current proxies using those, if any,
 	// will need to be updated.
 	if _, err := a.shallowCopyConfig(b); err != nil {
-		log.E("ws: update: shallow copy err: %v", err)
-		return nil, err
+		return nil, log.EE("ws: update: shallow copy err: %v", err)
 	}
+	log.I("ws: update: refreshed? %t; took %v", refreshed, core.FmtTimeAsPeriod(start))
 	return a.State()
 }
 
