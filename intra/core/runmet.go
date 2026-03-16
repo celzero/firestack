@@ -132,14 +132,14 @@ func Metrics() string {
 			s := fmt.Sprintf("%s: %s\n", name, unit4float(value.Float64(), u))
 			sb.WriteString(s)
 		case metrics.KindFloat64Histogram:
-			sb.WriteString("-----------")
+			sb.WriteString("-----------\n")
 			if strings.HasPrefix(name, MetGC) {
 				s := fmt.Sprintf("%s: hist(%s)", name, histo2str(value.Float64Histogram(), u, '\n'))
 				sb.WriteString(s)
 				if strings.HasPrefix(name, MetGCHeap) {
 					s := fmt.Sprintf("%s: percentiles(%s)", name, histo2Ps(value.Float64Histogram(), u, '\n'))
 					sb.WriteString(s)
-					s = fmt.Sprintf("%s: dist(%s)", name, histo2Ms(value.Float64Histogram(), u, '\n'))
+					s = fmt.Sprintf("\n%s: dist(%s)", name, histo2Ms(value.Float64Histogram(), u, '\n'))
 					sb.WriteString(s)
 				}
 			} else if strings.HasPrefix(name, MetSched) {
@@ -150,14 +150,14 @@ func Metrics() string {
 					strings.HasPrefix(name, MetSchedPausesTotalOther) {
 					s := fmt.Sprintf("%s: percentiles(%s)", name, histo2Ps(value.Float64Histogram(), u, '\n'))
 					sb.WriteString(s)
-					s = fmt.Sprintf("%s: dist(%s)", name, histo2Ms(value.Float64Histogram(), u, '\n'))
+					s = fmt.Sprintf("\n%s: dist(%s)", name, histo2Ms(value.Float64Histogram(), u, '\n'))
 					sb.WriteString(s)
 				}
 			} else {
 				s := fmt.Sprintf("%s: hist(%s)", name, histo2str(value.Float64Histogram(), u, '\n'))
 				sb.WriteString(s)
 			}
-			sb.WriteString("-----------")
+			sb.WriteString("-----------\n")
 		case metrics.KindBad:
 			fallthrough
 		default:
@@ -385,7 +385,7 @@ func histo2Ms(h *metrics.Float64Histogram, u metricUnit, sep byte) string {
 	stddev := math.Sqrt(variance)
 
 	return fmt.Sprintf(
-		"mean=%s%bmedian=%s%bmode=%s%bavg=%s%bmin=%s%bmax=%s%bvar=%s%bstd=%s",
+		"mean=%s%smedian=%s%smode=%s%savg=%s%smin=%s%smax=%s%svar=%s%sstd=%s",
 		unit4float(mean, u),
 		sep,
 		unit4float(median, u),

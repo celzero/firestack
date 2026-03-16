@@ -73,6 +73,7 @@ func FmtSecs(s int64) string {
 }
 
 func FmtNanos(ns float64) string {
+	ns = ns * float64(time.Nanosecond)
 	return FmtPeriod(time.Duration(ns) * time.Nanosecond)
 }
 
