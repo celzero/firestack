@@ -54,7 +54,7 @@ func FmtPeriod(d time.Duration) string {
 	} else if d < time.Second {
 		return p + fmt.Sprintf("%dms", d.Milliseconds())
 	} else if d < time.Minute {
-		return p + fmt.Sprintf("%ds", int64(d.Seconds()))
+		return p + fmt.Sprintf("%fs", d.Seconds())
 	} else if d < time.Hour {
 		return p + fmt.Sprintf("%dm %ds", int64(d.Minutes()), int64(d.Seconds())%60)
 	} else if d < 24*time.Hour {
@@ -73,7 +73,6 @@ func FmtSecs(s int64) string {
 }
 
 func FmtNanos(ns float64) string {
-	ns = ns * float64(time.Nanosecond)
 	return FmtPeriod(time.Duration(ns) * time.Nanosecond)
 }
 
