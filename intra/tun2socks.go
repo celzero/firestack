@@ -26,6 +26,7 @@ package intra
 import (
 	"context"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
+	"golang.org/x/sys/unix"
 
 	"github.com/celzero/firestack/intra/log"
 )
@@ -319,6 +321,8 @@ func pipeCrashOutput(c Console) (ok bool) {
 		log.E("tun: err crash output pipe: %v", crashRWErr)
 		return false
 	}
+	pipeBuffer64k(crashWriter)
+	pipeBuffer64k(crashReader)
 	// defer core.Close(crashReader) // close iff r is dup'd by client code
 	defer core.Close(crashWriter) // always close as w is dup'd by the runtime
 	if setCrashFd(crashWriter) && c.CrashFD(int(crashReader.Fd())) {
@@ -334,4 +338,25 @@ func setCrashFd(f *os.File) (ok bool) {
 	err := debug.SetCrashOutput(f, debug.CrashOptions{})
 	logei(err)("tun: crash output file %s, err? %v", f.Name(), err)
 	return err == nil
+}
+
+func pipeBuffer64k(f *os.File) bool {
+	const b64k = 64 * 1024
+	fd := f.Fd()
+	// kernel may round this up to the nearest page size multiple?
+	x, err := unix.FcntlInt(fd, unix.F_SETPIPE_SZ, b64k)
+	if err != nil {
+		log.W("tun: err set pipe(%d) size %d: %v", fd, x, err)
+		return false
+	}
+
+	x, err = unix.FcntlInt(fd, unix.F_GETPIPE_SZ, 0)
+	if err != nil {
+		log.W("tun: err get pipe(%d) size: %v", fd, err)
+		return false
+	}
+
+	runtime.KeepAlive(f)
+	log.W("tun: pipe(%d) buffer %s", fd, core.FmtBytes(uint64(x)))
+	return true
 }
