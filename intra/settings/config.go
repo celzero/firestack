@@ -75,4 +75,5 @@ const IntraUa = "Intra"
 var PanicAtRandom = atomic.Bool{}
 
 // OwnTunFd is a global flag to indicate that the TUN fd is fully owned by netstack.
+// that is, he TUN FD won't be dup'd and will be closed after use.
 var OwnTunFd = atomic.Bool{}

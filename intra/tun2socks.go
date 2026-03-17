@@ -311,15 +311,17 @@ func Crash(afterMs int64) {
 	}()
 }
 
+// global references to keep go's finalizer from cleaning up the FDs
+var crashReader, crashWriter, crashRWErr = os.Pipe()
+
 func pipeCrashOutput(c Console) (ok bool) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		log.E("tun: err crash output pipe: %v", err)
+	if crashRWErr != nil {
+		log.E("tun: err crash output pipe: %v", crashRWErr)
 		return false
 	}
-	defer core.Close(r) // r isn't dup'd by client code
-	defer core.Close(w) // always close as w is dup'd by the runtime
-	if setCrashFd(w) && c.CrashFD(int(r.Fd())) {
+	// defer core.Close(crashReader) // close iff r is dup'd by client code
+	defer core.Close(crashWriter) // always close as w is dup'd by the runtime
+	if setCrashFd(crashWriter) && c.CrashFD(int(crashReader.Fd())) {
 		return true
 	}
 	setCrashFd(nil)
