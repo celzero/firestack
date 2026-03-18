@@ -28,6 +28,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -103,6 +104,7 @@ func SetupConsole(console Console) {
 
 	logfd := <-logch
 	crashfd := <-crashch
+	crashpiped.Store(crashfd)
 
 	log.ConsoleReady(ctx)
 
@@ -315,14 +317,15 @@ func Crash(afterMs int64) {
 
 // global references to keep go's finalizer from cleaning up the FDs
 var crashReader, crashWriter, crashRWErr = os.Pipe()
+var crashpiped atomic.Bool
 
 func pipeCrashOutput(c Console) (ok bool) {
 	if crashRWErr != nil {
 		log.E("tun: err crash output pipe: %v", crashRWErr)
 		return false
 	}
-	pipeBuffer64k(crashWriter)
-	pipeBuffer64k(crashReader)
+	pipeBuffer256k(crashWriter)
+	pipeBuffer256k(crashReader)
 	// defer core.Close(crashReader) // close iff r is dup'd by client code
 	defer core.Close(crashWriter) // always close as w is dup'd by the runtime
 	if setCrashFd(crashWriter) && c.CrashFD(int(crashReader.Fd())) {
@@ -336,27 +339,51 @@ func pipeCrashOutput(c Console) (ok bool) {
 func setCrashFd(f *os.File) (ok bool) {
 	// f is dup()ed by debug.SetCrashOutput before use
 	err := debug.SetCrashOutput(f, debug.CrashOptions{})
-	logei(err)("tun: crash output file %s, err? %v", f.Name(), err)
+	logei(err)("tun: crash output file %s, err? %v", fname(f), err)
 	return err == nil
 }
 
-func pipeBuffer64k(f *os.File) bool {
-	const b64k = 64 * 1024
+// SetCrashOutput will set the crash output file to dup(fd), and return true if successful.
+// Disables crash output if fd is less than 3.
+func SetCrashOutput(fd int) bool {
+	p := crashpiped.Swap(false)
+	ok := setCrashFd(nil)
+	// defer core.Close(crashReader) if fd not owned by the client
+	log.I("tun: closing crash out... ok? %t; was piped? %t; new fd: %d", ok, p, fd)
+	if fd >= 2 {
+		return setCrashFd(os.NewFile(uintptr(fd), "ktcfd"))
+	}
+	return false
+}
+
+func pipeBuffer256k(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+	const b256k = 4 * 64 * 1024
 	fd := f.Fd()
+	nom := f.Name()
 	// kernel may round this up to the nearest page size multiple?
-	x, err := unix.FcntlInt(fd, unix.F_SETPIPE_SZ, b64k)
+	x, err := unix.FcntlInt(fd, unix.F_SETPIPE_SZ, b256k)
 	if err != nil {
-		log.W("tun: err set pipe(%d) size %d: %v", fd, x, err)
+		log.W("tun: pipe: (%s %d) err set size %d: %v", nom, fd, x, err)
 		return false
 	}
 
 	x, err = unix.FcntlInt(fd, unix.F_GETPIPE_SZ, 0)
 	if err != nil {
-		log.W("tun: err get pipe(%d) size: %v", fd, err)
+		log.W("tun: pipe: (%s %d) err get size: %v", nom, fd, err)
 		return false
 	}
 
 	runtime.KeepAlive(f)
-	log.W("tun: pipe(%d) buffer %s", fd, core.FmtBytes(uint64(x)))
+	log.W("tun: pipe: (%s %d) buffer %s", nom, fd, core.FmtBytes(uint64(x)))
 	return true
+}
+
+func fname(f *os.File) string {
+	if f == nil {
+		return "<nil file>"
+	}
+	return f.Name()
 }
