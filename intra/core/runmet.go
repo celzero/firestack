@@ -297,7 +297,7 @@ func histo2Ps(h *metrics.Float64Histogram, u metricUnit, sep byte) string {
 //   - mode: mid-point of the bucket with the highest count
 //   - min / max: lower / upper boundary of the first / last non-zero bucket
 //   - variance / std: population variance and standard deviation (weighted)
-func histo2Ms(h *metrics.Float64Histogram, u metricUnit, sep byte) string {
+func histo2Ms(h *metrics.Float64Histogram, u metricUnit, sepb byte) string {
 	type bkt struct {
 		lo, hi, mid float64
 		count       uint64
@@ -383,9 +383,11 @@ func histo2Ms(h *metrics.Float64Histogram, u metricUnit, sep byte) string {
 	}
 	variance := varianceSum / float64(total)
 	stddev := math.Sqrt(variance)
+	sep := string(sepb)
 
 	return fmt.Sprintf(
-		"mean=%s%smedian=%s%smode=%s%savg=%s%smin=%s%smax=%s%svar=%s%sstd=%s",
+		"%smean=%s%smedian=%s%smode=%s%savg=%s%smin=%s%smax=%s%svar=%s%sstd=%s%s",
+		sep,
 		unit4float(mean, u),
 		sep,
 		unit4float(median, u),
@@ -401,6 +403,7 @@ func histo2Ms(h *metrics.Float64Histogram, u metricUnit, sep byte) string {
 		unit4float(variance, u),
 		sep,
 		unit4float(stddev, u),
+		sep,
 	)
 }
 
