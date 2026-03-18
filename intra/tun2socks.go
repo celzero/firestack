@@ -26,6 +26,7 @@ package intra
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -321,7 +322,7 @@ var crashpiped atomic.Bool
 
 func pipeCrashOutput(c Console) (ok bool) {
 	if crashRWErr != nil {
-		log.E("tun: err crash output pipe: %v", crashRWErr)
+		log.E("tun: crashout: err pipe: %v", crashRWErr)
 		return false
 	}
 	pipeBuffer256k(crashWriter)
@@ -339,19 +340,24 @@ func pipeCrashOutput(c Console) (ok bool) {
 func setCrashFd(f *os.File) (ok bool) {
 	// f is dup()ed by debug.SetCrashOutput before use
 	err := debug.SetCrashOutput(f, debug.CrashOptions{})
-	logei(err)("tun: crash output file %s, err? %v", fname(f), err)
+	logei(err)("tun: crashout: set %s, err? %v", fname(f), err)
 	return err == nil
 }
 
-// SetCrashOutput will set the crash output file to dup(fd), and return true if successful.
-// Disables crash output if fd is less than 3.
-func SetCrashOutput(fd int) bool {
+// SetCrashOutput set crash output to file at fp; returns true if so.
+// Disables crash output if fp cannot be opened; and returns false.
+func SetCrashOutput(fp string) bool {
 	p := crashpiped.Swap(false)
 	ok := setCrashFd(nil)
-	// defer core.Close(crashReader) if fd not owned by the client
-	log.I("tun: closing crash out... ok? %t; was piped? %t; new fd: %d", ok, p, fd)
-	if fd >= 2 {
-		return setCrashFd(os.NewFile(uintptr(fd), "ktcfd"))
+	// if fd not owned by client code
+	// if p { defer core.Close(crashReader)  }
+
+	fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+
+	logei(err)("tun: crashout: closed? %t; was piped? %t; f: %s; err? %v", ok, p, fp, err)
+
+	if err == nil {
+		return setCrashFd(fout)
 	}
 	return false
 }
@@ -366,18 +372,18 @@ func pipeBuffer256k(f *os.File) bool {
 	// kernel may round this up to the nearest page size multiple?
 	x, err := unix.FcntlInt(fd, unix.F_SETPIPE_SZ, b256k)
 	if err != nil {
-		log.W("tun: pipe: (%s %d) err set size %d: %v", nom, fd, x, err)
+		log.W("tun: crashout: pipe (%s %d) err set size %d: %v", nom, fd, x, err)
 		return false
 	}
 
 	x, err = unix.FcntlInt(fd, unix.F_GETPIPE_SZ, 0)
 	if err != nil {
-		log.W("tun: pipe: (%s %d) err get size: %v", nom, fd, err)
+		log.W("tun: crashout: pipe (%s %d) err get size: %v", nom, fd, err)
 		return false
 	}
 
 	runtime.KeepAlive(f)
-	log.W("tun: pipe: (%s %d) buffer %s", nom, fd, core.FmtBytes(uint64(x)))
+	log.W("tun: crashout: pipe (%s %d) buffer %s", nom, fd, core.FmtBytes(uint64(x)))
 	return true
 }
 
