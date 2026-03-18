@@ -1237,7 +1237,7 @@ func (px *proxifier) Reaches(urlOrHostPortOrIPPortCsv string) bool {
 	return false
 }
 
-func (px *proxifier) EntitlementFrom(entitlementOrStateJson []byte, did, id string) (ent x.RpnEntitlement, err error) {
+func (px *proxifier) EntitlementFrom(entitlementOrStateJson []byte, id, did string) (ent x.RpnEntitlement, err error) {
 	switch id {
 	case RpnWin:
 		ent, err = px.extc.MakeWsEntitlement(entitlementOrStateJson, did)
