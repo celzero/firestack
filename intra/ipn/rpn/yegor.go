@@ -33,6 +33,9 @@ const (
 	svchosttest = "redir.nile.workers.dev"
 	wsMyIp      = "https://checkip.windscribe.com/"
 	wsMyIp2     = "https://checkip.totallyacdn.com/"
+	// didTokenHeader is the HTTP response/request header for a device-id token
+	// issued by svchost / svchosttest. Format: "a hextoken:expiryepochsec".
+	didTokenHeader = "x-rethink-app-did-token"
 )
 
 const (
@@ -711,6 +714,9 @@ type WsEntitlement struct {
 	AccStatus        string    `json:"status"`       // "valid" | "invalid" | "banned" | "expired" | "unknown"
 	AllowCrossDevice bool      `json:"allowRestore"` // true if this entitlement can be restored
 	TestDomain       bool      `json:"test"`         // true if this is a test entitlement
+	// DidToken is the device-id token (x-rethink-app-did-token) issued by svchost,
+	// format "a hextoken:expiryepochsec".
+	DidToken string `json:"didtoken,omitempty"`
 }
 
 var _ x.RpnAcc = (*WsClient)(nil)
@@ -1051,6 +1057,45 @@ func authHeader(req *http.Request, t string) {
 	req.Header.Set("Authorization", "Bearer "+t)
 }
 
+// didHeader sets the didTokenHeader request header if tok is non-empty.
+func didHeader(req *http.Request, tok string) {
+	if req != nil && len(tok) > 0 {
+		req.Header.Set(didTokenHeader, tok)
+	}
+}
+
+func logDidToken(tok string) {
+	if len(tok) <= 0 {
+		log.W("ws: didtoken: empty token")
+		return
+	}
+	// token format is "a hextoken:expiryepochsec"; parse the epoch to log expiry.
+	parts := strings.SplitN(tok, ":", 2)
+	if len(parts) < 2 {
+		log.W("ws: didtoken: unknown format")
+		return
+	}
+	expSec, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	if err != nil {
+		log.E("ws: didtoken: cannot parse expiry epoch: %v", err)
+	}
+	expTime := time.Unix(expSec, 0)
+	log.I("ws: didtoken: expiry %s; expired? %t", fmtTime(expTime), expTime.Before(time.Now()))
+}
+
+// updateDidTokenIfNeeded reads didTokenHeader from the response, logs its expiry,
+// and – when it differs from ent.DidToken – overwrites it in ent.
+func updateDidTokenIfNeeded(ent *WsEntitlement, res *http.Response) {
+	if ent == nil || res == nil {
+		return
+	}
+	incoming := res.Header.Get(didTokenHeader)
+	logDidToken(incoming)
+	if len(incoming) > 0 && ent.DidToken != incoming {
+		ent.DidToken = incoming
+	}
+}
+
 func wsErr(res *http.Response, op string) error {
 	_, err := wsErr2(res, op)
 	return err
@@ -1099,7 +1144,11 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 	return out, nil
 }
 
-func getSession(h *http.Client, cid, did, tok string, test bool) (*WsSession, error) {
+func getSession(h *http.Client, ent *WsEntitlement) (*WsSession, error) {
+	if ent == nil {
+		return nil, errWsNoSession
+	}
+	tok := ent.SessionToken
 	if len(tok) <= 0 {
 		return nil, errWsNoToken
 	}
@@ -1108,12 +1157,13 @@ func getSession(h *http.Client, cid, did, tok string, test bool) (*WsSession, er
 		curl -x GET '.../Session'
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
 	*/
-	u := baseurl(test, cid, did).JoinPath(wssessionpath)
+	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wssessionpath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: getsess: make req err: %v", err)
 	}
 	authHeader(req, tok)
+	didHeader(req, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: getsess: req: %s tok %s", u.String(), tokst)
@@ -1124,6 +1174,7 @@ func getSession(h *http.Client, cid, did, tok string, test bool) (*WsSession, er
 		return nil, log.EE("ws: getsess: res err (nil? %t / tok? %s): %v", res == nil, tokst, err)
 	}
 	defer core.Close(res.Body)
+	updateDidTokenIfNeeded(ent, res)
 	if res.StatusCode != http.StatusOK {
 		return nil, wsErr(res, "getsess/"+tokst)
 	}
@@ -1313,6 +1364,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	if err != nil {
 		return nil, log.EE("ws: wgconfs: req err: %v", err)
 	}
+	didHeader(locreq, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: wgconfs: req: %s tok %s", u.String(), tokenState(bearer))
@@ -1324,6 +1376,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	}
 
 	defer core.Close(locres.Body)
+	updateDidTokenIfNeeded(ent, locres)
 	if locres.StatusCode != http.StatusOK {
 		return nil, wsErr(locres, "wgconfs")
 	}
@@ -1399,6 +1452,7 @@ initagain:
 		}
 		initreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		authHeader(initreq, bearer)
+		didHeader(initreq, ent.DidToken)
 
 		if settings.Debug {
 			log.V("ws: wgconfs: init req: %s; tok %s; force %s", u.String(), tokst, force)
@@ -1409,6 +1463,7 @@ initagain:
 		if err != nil || initres == nil {
 			return nil, nil, log.EE("ws: wgconfs: res err (nil? %t / tok? %s): %v", initres == nil, tokst, err)
 		}
+		updateDidTokenIfNeeded(ent, initres)
 
 		if initres.StatusCode != http.StatusOK {
 			wserr, err := wsErr2(initres, "wsinit")
@@ -1478,6 +1533,7 @@ initagain:
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(creq, sess.SessionToken)
+	didHeader(creq, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: wgconfs: connect req: %s tok %s", u.String(), tokst)
@@ -1487,6 +1543,7 @@ initagain:
 	if err != nil || cres == nil {
 		return nil, nil, log.EE("ws: wgconfs: connect res err (nil? %t / tok? %s): %v", cres == nil, tokst, err)
 	}
+	updateDidTokenIfNeeded(ent, cres)
 	if cres.StatusCode != http.StatusOK {
 		wserr, err := wsErr2(cres, "wsconnect")
 		core.Close(cres.Body)
@@ -1587,7 +1644,7 @@ func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 		return nil, errWsNoEntitlement
 	}
 
-	sess, err := getSession(h, ent.Cid, ent.Did, ent.SessionToken, ent.TestDomain)
+	sess, err := getSession(h, ent)
 	if err != nil {
 		return nil, err
 	}
@@ -1684,17 +1741,14 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, errOnNoUpdate bool) 
 		return
 	}
 
-	cid := existingEnt.Cid
-	did := existingEnt.Did
 	tokst := existingConf.tokenState()
 	existingToken := existingSess.SessionToken
 	existingLocHash := existingSess.LocHash
-	existingTestDomain := existingEnt.TestDomain
 	if existingEnt.SessionToken != existingToken {
 		log.W("ws: make: entitlement does not match session; tok? %s", tokst)
 	}
 
-	newSess, err := getSession(h, cid, did, existingToken, existingTestDomain)
+	newSess, err := getSession(h, existingEnt)
 	if err == nil {
 		existingConf.Session = newSess // update session with the latest info
 		refreshedSess = true
