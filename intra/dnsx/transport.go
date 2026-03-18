@@ -564,7 +564,14 @@ func (r *resolver) forward(q []byte, who, uid string, chosenids ...string) (res0
 		return nil, NoDNS, errOnQueryTimeout
 	}
 
+	prefuid := pref.UID
+	senduid := uid // may be prefuid when oguid is unknown
 	run := 0
+	if ogsmm.UID == core.UNKNOWN_UID_STR {
+		ogsmm.UID = prefuid
+		senduid = prefuid
+	}
+
 	smm := copySummary(ogsmm)
 
 	// TODO? do not use defer func() and do copy: go.dev/play/p/oGUJepa3VUo
@@ -634,7 +641,7 @@ runagain:
 	if smm.Latency <= 0 {
 		smm.Latency = time.Since(starttime).Seconds()
 	}
-	smm.UID = uid // reset uid as it may have been cleared by cacher
+	smm.UID = senduid // reset uid as it may have been cleared by cacher
 
 	if nonalg == nil || err != nil { // TODO: servfail?
 		if isAlgErr(err) { // alg errs not set when gw.translate is off

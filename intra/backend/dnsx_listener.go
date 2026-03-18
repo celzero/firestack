@@ -58,6 +58,9 @@ type DNSSummary struct {
 }
 
 type DNSOpts struct {
+	// uid of the app (or the stub resolver) that sent this query.
+	// May be ANDROID, DNS, MDNS etc instead of the actual app.
+	UID string
 	// csv of proxy ids to use for this query. Not all transports are proxied.
 	// For instance, dnsx.System, dnsx.Local, dnsx.Goos, dnsx.Preset, dnsx.Default
 	// are never proxied.
