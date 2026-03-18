@@ -1026,6 +1026,7 @@ func baseurl(test bool, cid, did string) *url.URL {
 	q.Set("did", did)
 	if test {
 		q.Set("rpn", "wstest")
+		q.Set("test", "") // value for the test param does not matter
 	} else {
 		q.Set("rpn", "ws")
 	}
@@ -1042,6 +1043,7 @@ func assetsurl(test bool) *url.URL {
 	q := u.Query()
 	if test {
 		q.Set("rpn", "wsassetstest")
+		q.Set("test", "") // value for the test param does not matter
 	} else {
 		q.Set("rpn", "wsassets")
 	}
