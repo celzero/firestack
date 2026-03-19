@@ -182,6 +182,9 @@ type WsErrorResponse struct {
 	Desc      string         `json:"errorDescription"`
 	LogStatus string         `json:"logStatus"`
 	Failures  map[string]any `json:"validationFailuresArray"`
+	// RPN errors
+	Error   string `json:"error"`
+	Details string `json:"details,omitempty"`
 }
 
 /*
@@ -1035,12 +1038,14 @@ func baseurl(test bool, cid, did string) *url.URL {
 	return &u
 }
 
-func assetsurl(test bool) *url.URL {
+func assetsurl(test bool, cid, did string) *url.URL {
 	u := url.URL{
 		Scheme: "https",
 		Host:   svchosttest,
 	}
 	q := u.Query()
+	q.Set("cid", cid)
+	q.Set("did", did)
 	if test {
 		q.Set("rpn", "wsassetstest")
 		q.Set("test", "") // value for the test param does not matter
@@ -1154,12 +1159,17 @@ func getSession(h *http.Client, ent *WsEntitlement) (*WsSession, error) {
 	if len(tok) <= 0 {
 		return nil, errWsNoToken
 	}
+	cid := ent.Cid
+	if len(cid) <= 0 {
+		return nil, errWsNoCid
+	}
+	did := ent.Did
 	tokst := tokenState(tok)
 	/*
 		curl -x GET '.../Session'
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
 	*/
-	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wssessionpath)
+	u := baseurl(ent.TestDomain, cid, did).JoinPath(wssessionpath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: getsess: make req err: %v", err)
@@ -1358,10 +1368,15 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	if len(bearer) <= 0 {
 		return nil, errWsNoToken
 	}
+	cid := ent.Cid
+	if len(cid) <= 0 {
+		return nil, errWsNoCid
+	}
+	did := ent.Did
 	test := ent.TestDomain
 
 	// curl -x GET '.../serverlist/mob-v2/1/<lochash>'
-	u := assetsurl(test).JoinPath(wslocpath, lochash)
+	u := assetsurl(test, cid, did).JoinPath(wslocpath, lochash)
 	locreq, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: wgconfs: req err: %v", err)
