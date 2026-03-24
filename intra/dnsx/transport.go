@@ -594,7 +594,7 @@ runagain:
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = TransportError
-		smm.Msg = errNoSuchTransport.Error()
+		smm.Msg = strings.Join([]string{id, sid, chosenids, errNoSuchTransport.Error()}, ";")
 		return nil, NoDNS, errNoSuchTransport
 	}
 	var t2 Transport

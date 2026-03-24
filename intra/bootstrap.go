@@ -275,6 +275,7 @@ func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.M
 		return dnsx.Req(tr, network, q, smm)
 	}
 	smm.Status = dnsx.TransportError // InternalError?
+	smm.Msg = strings.Join([]string{smm.Msg, errDefaultTransportNotReady.Error()}, ";")
 	return nil, errDefaultTransportNotReady
 }
 
