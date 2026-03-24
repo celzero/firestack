@@ -1423,34 +1423,41 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, serve
 
 	tokst := "sess-" + tokenState(bearer)
 
+	runkey := 0
 	keyed := 0
 keyagain:
 	useExistingCreds := existingCreds != nil && keyed == 0
+	runkey += 1
 
 	var priv x.WgKey
 	if !useExistingCreds {
 		var err error
 		priv, err = x.NewWgPrivateKey()
 		if err != nil {
-			return nil, nil, log.EE("ws: wgconfs: gen key err: %v", err)
+			return nil, nil, log.EE("ws: wgconfs: gen key #%d err: %v", runkey, err)
 		}
 	} else {
 		var err error
 		// use the existing key, which is already registered
 		priv, err = x.NewWgPrivateKeyOf(existingCreds.PrivateKey)
 		if err != nil {
-			return nil, nil, log.EE("ws: wgconfs: existing key err: %v", err)
+			return nil, nil, log.EE("ws: wgconfs: existing key #%d err: %v", runkey, err)
 		}
 	}
 	pub := priv.Mult()
 	pubkeybase64 := pub.Base64()
 
-	log.I("ws: wgconfs: gen creds: pubkey: %s, existing key? %t", trunc8(pubkeybase64), useExistingCreds)
+	log.I("ws: wgconfs: gen creds: pubkey: %s, existing key #%d? %t", trunc8(pubkeybase64), runkey, useExistingCreds)
 
 	force := "0" // reset to 0, if force init is not needed
 
+	runinit := 0
 initagain:
 	keyNeedsInit := !useExistingCreds || force == "1"
+	runinit += 1
+
+	details := fmt.Sprintf("pub: %s, keyed#%d? %t; usingExisting#%d? %t; forceinit? %t",
+		trunc8(pubkeybase64), runkey, keyNeedsInit, runinit, useExistingCreds, force == "1")
 
 	var creds *WsWgCreds
 	if keyNeedsInit {
@@ -1465,20 +1472,20 @@ initagain:
 		u := baseurl(test, cid, ent.Did).JoinPath(wswginitpath)
 		initreq, err := http.NewRequest("POST", u.String(), strings.NewReader(initdata.Encode()))
 		if err != nil {
-			return nil, nil, log.EE("ws: wgconfs: req err: %v", err)
+			return nil, nil, log.EE("ws: wgconfs: %s req err: %v", details, err)
 		}
 		initreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		authHeader(initreq, bearer)
 		didHeader(initreq, ent.DidToken)
 
 		if settings.Debug {
-			log.V("ws: wgconfs: init req: %s; tok %s; force %s", u.String(), tokst, force)
+			log.V("ws: wgconfs: %s init req: %s; tok %s; force %s", details, u.String(), tokst, force)
 		}
 
 		initres, err := h.Do(initreq)
 
 		if err != nil || initres == nil {
-			return nil, nil, log.EE("ws: wgconfs: res err (nil? %t / tok? %s): %v", initres == nil, tokst, err)
+			return nil, nil, log.EE("ws: wgconfs: %s res err (nil? %t / tok? %s): %v", details, initres == nil, tokst, err)
 		}
 		updateDidTokenIfNeeded(ent, initres)
 
@@ -1487,12 +1494,12 @@ initagain:
 			core.Close(initres.Body)
 			if wserr != nil && wserr.Code == ekeylimit {
 				if force != "1" {
-					log.I("ws: wgconfs: redo init with force for %s; err: %v", trunc8(pubkeybase64), err)
+					log.I("ws: wgconfs: redo init with force %s; err: %v", details, err)
 					force = "1"
 					goto initagain
 				}
 			}
-			log.E("ws: wgconfs: init %s, force? %t, err: %v", trunc8(pubkeybase64), force == "1", err)
+			log.E("ws: wgconfs: init %s; err: %v", details, err)
 			return nil, nil, err
 		}
 
@@ -1507,7 +1514,7 @@ initagain:
 		d := wgCreds.Data
 		creds = &d.Config
 		if d.Success != 1 {
-			return nil, nil, log.EE("ws: wgconfs: success != 1; debug: %v", d.Debug)
+			return nil, nil, log.EE("ws: wgconfs: %s success != 1; debug: %v", details, d.Debug)
 		}
 		if len(d.Config.PrivateKey) <= 0 { // private key is generated locally (by the client)
 			d.Config.PrivateKey = priv.Base64()
@@ -1522,10 +1529,10 @@ initagain:
 	}
 
 	if creds == nil || len(creds.PublicKey) <= 0 || len(creds.PrivateKey) <= 0 {
-		return nil, nil, log.EE("ws: wgconfs: missing pub/priv creds for %s, useExisting? %t", trunc8(pubkeybase64), useExistingCreds)
+		return nil, nil, log.EE("ws: wgconfs: missing pub/priv creds %s", details)
 	}
 
-	log.I("ws: wgconfs: got creds for %s, usingExisting? %t", trunc8(pubkeybase64), useExistingCreds)
+	log.I("ws: wgconfs: got creds;" + details)
 
 	someEndpoint := fixedValidWsEndpoint(test)
 	// github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/backend/utils/WindVpnController.kt#L159
@@ -1546,19 +1553,19 @@ initagain:
 	u := baseurl(test, cid, ent.Did).JoinPath(wswgconnectpath)
 	creq, err := http.NewRequest("POST", u.String(), strings.NewReader(cdata.Encode()))
 	if err != nil {
-		return nil, nil, log.EE("ws: wgconfs: connect req err: %v", err)
+		return nil, nil, log.EE("ws: wgconfs: %s connect req err: %v", details, err)
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(creq, sess.SessionToken)
 	didHeader(creq, ent.DidToken)
 
 	if settings.Debug {
-		log.V("ws: wgconfs: connect req: %s tok %s", u.String(), tokst)
+		log.V("ws: wgconfs: %s connect req: %s tok %s", details, u.String(), tokst)
 	}
 
 	cres, err := h.Do(creq)
 	if err != nil || cres == nil {
-		return nil, nil, log.EE("ws: wgconfs: connect res err (nil? %t / tok? %s): %v", cres == nil, tokst, err)
+		return nil, nil, log.EE("ws: wgconfs: %s connect res err (nil? %t / tok? %s): %v", details, cres == nil, tokst, err)
 	}
 	updateDidTokenIfNeeded(ent, cres)
 	if cres.StatusCode != http.StatusOK {
@@ -1577,15 +1584,15 @@ initagain:
 	_, err = wsRes(cres, &wgConnect, "wgconfs")
 	defer core.Close(cres.Body)
 	if err != nil {
-		return nil, nil, log.EE("ws: wgconfs: connect res err: %v", err)
+		return nil, nil, log.EE("ws: wgconfs: %s connect res err: %v", details, err)
 	}
 
 	if wgConnect.Data.Success != 1 {
-		return nil, nil, log.EE("ws: wgconfs: connect success != 1; debug: %v", wgConnect.Data.Debug)
+		return nil, nil, log.EE("ws: wgconfs: %s connect success != 1; debug: %v", details, wgConnect.Data.Debug)
 	}
 
 	if len(wgConnect.Data.Config.Address) <= 0 || len(wgConnect.Data.Config.DNS) <= 0 {
-		return nil, nil, log.EE("ws: wgconfs: connect missing config; debug: %v", wgConnect.Data.Debug)
+		return nil, nil, log.EE("ws: wgconfs: %s connect missing config; debug: %v", details, wgConnect.Data.Debug)
 	}
 
 	// TODO: if wgconnect.Data.Config.Address has not changed and useExistingCreds is true,
@@ -1593,10 +1600,10 @@ initagain:
 	regconfs, err := convertToRegionalWgConfs(creds, &wgConnect.Data, servers, test)
 
 	if err != nil || len(regconfs) <= 0 {
-		return nil, nil, log.EE("ws: wgconfs: (test? %t) no regions found for %s; %v", test, trunc8(pubkeybase64), err)
+		return nil, nil, log.EE("ws: wgconfs: (test? %t) no regions found %s; %v", test, details, err)
 	}
 
-	log.I("ws: wgconfs: (test? %t / tok? %s) found %d regions for %s", test, tokst, len(regconfs), trunc8(pubkeybase64))
+	log.I("ws: wgconfs: (test? %t / tok? %s) found %d regions %s", test, tokst, len(regconfs), details)
 	return creds, regconfs, nil
 }
 
