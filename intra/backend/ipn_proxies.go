@@ -145,6 +145,10 @@ type RpnProxy interface {
 	RpnAcc
 	// Fork adds proxy for country code, cc.
 	Fork(cc string) (Proxy, error)
+	// Redo re-forks the main proxy and all its kids.
+	Redo() (err error)
+	// PingAll pings the main proxy and all its kids.
+	PingAll() (csvpids string, err error)
 	// Purge removes proxy for country code, cc.
 	Purge(cc string) bool
 	// Get returns proxy for country code, cc.

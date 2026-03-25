@@ -1552,7 +1552,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		if !stoppedOrPaused {
 			updated = h.status.Cas(cur, s)
 		}
-		logeif(!updated)("wg: %s listener: %s; status %s => %s; end/pause? %t, ignored? %t, why: %s",
+		logeif(!updated)("wg: %s listener: %s; status %s => %s; end/pause? %t, statusupdated? %t, why: %s",
 			h.tag(), op, pxstatus(cur), pxstatus(s), stoppedOrPaused, !updated, why)
 	}()
 

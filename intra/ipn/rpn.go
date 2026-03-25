@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -363,14 +364,61 @@ func (r *rpnp) forkMain() {
 
 func (r *rpnp) forkAll() {
 	provider := r.RpnAcc.ProviderID()
-	log.I("proxy: rpn: forkAll: %s[%s]", provider, r.kidsCsv())
+	kids := r.flattenKids()
+	log.I("proxy: rpn: forkAll: %s[%v]", provider, kids)
 
 	r.forkMain()
 
-	for _, cc := range r.flattenKids() {
+	for _, cc := range kids {
 		_, err := r.fork(cc)
 		loged(err)("proxy: rpn: forkAll: forked %s[%s]; err? %v", provider, cc, err)
 	}
+}
+
+func (r *rpnp) Redo() (err error) {
+	r.forkMain()
+	r.forkAll()
+	return nil
+}
+
+func (r *rpnp) PingAll() (csvpids string, err error) {
+	start := time.Now()
+	provider := r.RpnAcc.ProviderID()
+	kids := r.flattenKids()
+	main, err := r.requireProxy()
+
+	logei(err)("proxy: rpn: pingAll: %s[%v]; got main? %t; err: %v",
+		provider, kids, main != nil, err)
+
+	if err != nil {
+		return
+	}
+
+	mainpinged := main.Ping()
+	if !mainpinged {
+		log.W("proxy: rpn: pingAll: main proxy %s failed ping", provider)
+	}
+
+	kidspinged := make([]string, 0, len(kids))
+	errs := make([]error, 0)
+	for _, cc := range kids {
+		p, rerr := r.pxr.rpnProxyFor(provider, cc)
+		if rerr != nil {
+			errs = append(errs, rerr)
+			continue
+		}
+		if !p.Ping() {
+			log.W("proxy: rpn: pingAll: proxy for %s[%s] failed ping", provider, cc)
+		} else {
+			kidspinged = append(kidspinged, cc)
+		}
+	}
+
+	err = core.JoinErr(errs...)
+	logei(err)("proxy: rpn: pingAll: %s[%v] done in %s; main pinged? %t / kids pinged? %v; err? %v",
+		provider, kids, core.FmtTimeAsPeriod(start), mainpinged, kidspinged, errs)
+
+	return strings.Join(kidspinged, ","), err
 }
 
 func (r *rpnp) PurgeAll() (n uint32) {
