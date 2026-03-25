@@ -472,6 +472,9 @@ func (r *resolver) LookupFor2(q []byte, uid string, tids ...string) ([]byte, str
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
+	if uid == core.UNKNOWN_UID_STR {
+		uid = protect.UidSelf
+	}
 	// if len(tids) == 0, use transport from preferences
 	return r.forward(q, OriginInternal, uid, tids...)
 }
@@ -594,7 +597,7 @@ runagain:
 	if t == nil || core.IsNil(t) {
 		smm.Latency = time.Since(starttime).Seconds()
 		smm.Status = TransportError
-		smm.Msg = strings.Join([]string{id, sid, chosenids, errNoSuchTransport.Error()}, ";")
+		smm.Msg = strings.Join(append(chosenids, id, sid, errNoSuchTransport.Error()), ";")
 		return nil, NoDNS, errNoSuchTransport
 	}
 	var t2 Transport

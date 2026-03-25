@@ -75,7 +75,7 @@ type ResolverSelf interface {
 	LocalLookup(q []byte) (a []byte, tid string, err error)
 	// LookupFor performs resolution for uid.
 	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
-	// Lookup performs resolution on chosen Transport.
+	// Lookup performs resolution on chosen Transport for uid.
 	LookupFor2(q []byte, uid string, chosen ...string) (a []byte, tid string, err error)
 }
 

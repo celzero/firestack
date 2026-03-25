@@ -372,7 +372,7 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 	t.pxcmu.RUnlock()
 
 	pdial := p.Dialer().Dial
-	if c != nil {
+	if c != nil { // use existing clients
 		if c3 == nil {
 			if echcfg := t.getOrCreateEchConfigIfNeeded(); echcfg != nil {
 				c3 = new(http.Client)
@@ -505,7 +505,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 	c3, c0 := t.httpClientsFor(px) // c3 may be nil
 
 	if settings.Debug {
-		log.VV("doh: using proxy %s+%s:%s ech? %t / other? %t",
+		log.VV("doh: using proxy %s+%s@%s ech? %t / other? %t",
 			px.ID(), rpid, px.GetAddr(), c3 != nil, c0 != nil)
 	}
 

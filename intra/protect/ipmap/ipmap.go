@@ -95,7 +95,8 @@ type IPMapper interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 	// LookupNetIPFor is like LookupFor
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
-	// LookupNetIPOn is like Lookup but with tids set to some preset IDs.
+	// LookupNetIPOn is like Lookup but with tids set to some preset IDs
+	// on behalf of protect.UidSelf (rethink).
 	LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
 }
 
