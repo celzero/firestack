@@ -373,7 +373,6 @@ func (r *rpnp) forkAll() {
 }
 
 func (r *rpnp) Redo() (err error) {
-	r.forkMain()
 	r.forkAll()
 	return nil
 }
