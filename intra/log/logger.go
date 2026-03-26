@@ -223,6 +223,9 @@ const similarUsrMsgThreshold = 3
 // less than 1024: github.com/golang/mobile/blob/2553ed8ce2/internal/mobileinit/mobileinit_android.go#L52
 const charsPerLine = 800
 
+// prependTrace if true, prepends trace information to log msg; appends, otherwise.
+const prependTrace = false
+
 // spamMsgThreshold is the min. no. of spammy msgs to report.
 var spammsgThreshold = [NONE + 1]uint32{
 	VVERBOSE:   256 >> 1, // 128
@@ -707,11 +710,16 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			if tracecaller(x[0]) { // x[0] == file1 without fn info
 				trace += x[0]
 			}
+		}
+		if prependTrace {
 			if len(trace) > 0 {
 				trace += ": " // end-of-trace marker
 			}
+			msg = l.msgstr(lvl, trace+msg, args...)
+		} else {
+			msg += ": " // end-of-msg marker
+			msg = l.msgstr(lvl, msg+trace, args...)
 		}
-		msg = l.msgstr(lvl, trace+msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
