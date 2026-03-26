@@ -36,6 +36,10 @@ const (
 	// didTokenHeader is the HTTP response/request header for a device-id token
 	// issued by svchost / svchosttest. Format: "a hextoken:expiryepochsec".
 	didTokenHeader = "x-rethink-app-did-token"
+
+	// alwaysInitOnUpdate always runs the /WgConfigs/init + /WgConfigs/connect flow on every config update,
+	// even if the server list didn't change.
+	alwaysInitOnUpdate = true
 )
 
 const (
@@ -1418,7 +1422,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	return wsRes(locres, &wsServerList, "wgconfs")
 }
 
-func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, servers []WsServerList, ent *WsEntitlement) (*WsWgCreds, []*RegionalWgConf, error) {
+func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, servers []WsServerList, ent *WsEntitlement, forceInit bool) (*WsWgCreds, []*RegionalWgConf, error) {
 	if sess == nil || ent == nil {
 		return nil, nil, errWsNoSession
 	}
@@ -1441,7 +1445,7 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, sess *WsSession, serve
 	runkey := 0
 	keyed := 0
 keyagain:
-	useExistingCreds := existingCreds != nil && keyed == 0
+	useExistingCreds := existingCreds != nil && keyed == 0 && !forceInit
 	runkey += 1
 
 	var priv x.WgKey
@@ -1618,7 +1622,7 @@ initagain:
 		return nil, nil, log.EE("ws: wgconfs: (test? %t) no regions found %s; %v", test, details, err)
 	}
 
-	log.I("ws: wgconfs: (test? %t / tok? %s) found %d regions %s", test, tokst, len(regconfs), details)
+	log.I("ws: wgconfs: ok (test? %t / tok? %s) found %d regions %s", test, tokst, len(regconfs), details)
 	return creds, regconfs, nil
 }
 
@@ -1694,7 +1698,7 @@ func makeWsWg(h *http.Client, ent *WsEntitlement) (*WsClient, error) {
 		return nil, err
 	}
 
-	creds, wgconfs, err := genWgConfs(h, nil, sess, servers.Data, ent)
+	creds, wgconfs, err := genWgConfs(h, nil, sess, servers.Data, ent, false /*force update*/)
 	if err != nil {
 		return nil, err
 	}
@@ -1763,7 +1767,7 @@ func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig) (*WsClient, error) {
 	return ws, err
 }
 
-func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, errOnNoUpdate bool) (ws *WsClient, refreshedSess bool, err error) {
+func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, performingUpdate bool) (ws *WsClient, refreshedSess bool, err error) {
 	existingEnt := existingConf.Entitlement
 	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
 		err = errWsNoEntitlement
@@ -1795,7 +1799,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, errOnNoUpdate bool) 
 	} else {
 		log.W("ws: make: get session err: %v; using existing; tok? %s", err, tokst)
 		newSess = existingConf.Session // use existing session
-		if errOnNoUpdate {
+		if performingUpdate {
 			return nil, refreshedSess, err
 		}
 	}
@@ -1828,9 +1832,13 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, errOnNoUpdate bool) 
 			}
 		}
 
+		// performingUpdate is set for "Update" calls only; that is, when remote api call fails to
+		// either init or init+connect, we can safely errors out on the "Update";
+		// if setup to always init+connect, then forceInit to true iff performingUpdate is also set.
+		forceInit := alwaysInitOnUpdate && performingUpdate
 		// create wg confs from new or existing server list
 		// always reconfigure (as /WgConfigs/connect must be done once every wg_ttl, which is 60m)
-		maybeNewCreds, maybeNewWgConfs, uerr := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement)
+		maybeNewCreds, maybeNewWgConfs, uerr := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement, forceInit)
 		loge(uerr)("ws: make: gen wg confs; tok? %s; downloadloc? %t / hasnewloc? %t len (%d/%d); err? %v",
 			tokst, downloadServerList, hasnew, len(existingServers), len(maybeNewServers), uerr)
 
@@ -1838,7 +1846,9 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, errOnNoUpdate bool) 
 			existingConf.Servers = maybeNewServers
 			existingConf.Configs = maybeNewWgConfs
 			existingConf.Creds = maybeNewCreds
-		} else if errOnNoUpdate {
+		} else if performingUpdate {
+			// error out early as this was meant to create an update config for later use
+			// but it itself is not the currently active config aka "existingConf"
 			return nil, refreshedSess, uerr
 		}
 	} else {
