@@ -86,7 +86,8 @@ type RpnStateless struct {
 	RpnUpdateless
 }
 
-func (RpnStateless) State() ([]byte, error)      { return nil, errRpnStateless }
+func (RpnStateless) Updated() int64                 { return neverEver.UnixMilli() }
+func (RpnStateless) State() ([]byte, error)         { return nil, errRpnStateless }
 func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless }
 
 type RpnUpdateless struct{}

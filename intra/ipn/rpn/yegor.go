@@ -682,8 +682,10 @@ type WsWgConnectResponse struct {
 type WsClient struct {
 	RpnMultiCountry
 
-	http      *http.Client
-	configExt *core.Volatile[*WsWgConfig]
+	http *http.Client
+
+	configExt           *core.Volatile[*WsWgConfig]
+	configExtUpdateTime *core.Volatile[time.Time]
 }
 
 type WsWgConfig struct {
@@ -718,7 +720,7 @@ type WsEntitlement struct {
 	AllowCrossDevice bool      `json:"allowRestore"` // true if this entitlement can be restored
 	TestDomain       bool      `json:"test"`         // true if this is a test entitlement
 	// DidToken is the device-id token (x-rethink-app-did-token) issued by svchost,
-	// format "a hextoken:expiryepochsec".
+	// format "hextoken:expiryepochsec".
 	DidToken string `json:"didtoken,omitempty"`
 }
 
@@ -830,7 +832,7 @@ func (a *WsClient) State() ([]byte, error) {
 // Created implements x.RpnAcc.
 func (a *WsClient) Created() int64 {
 	if a == nil {
-		return 0
+		return -1
 	}
 	c := a.config()
 	if c == nil {
@@ -840,10 +842,22 @@ func (a *WsClient) Created() int64 {
 	return createdAt.UnixMilli()
 }
 
+func (a *WsClient) Updated() int64 {
+	if a == nil {
+		return -1
+	}
+	c := a.config() // must have config
+	if c == nil {
+		return 0
+	}
+	updatedAt := a.configExtUpdateTime.Load()
+	return updatedAt.UnixMilli()
+}
+
 // Expires implements x.RpnAcc.
 func (a *WsClient) Expires() int64 {
 	if a == nil {
-		return 0
+		return -1
 	}
 	c := a.config()
 	if c == nil {
@@ -853,7 +867,7 @@ func (a *WsClient) Expires() int64 {
 	refreshAt, err := time.Parse(time.DateOnly, c.Session.ExpiryDate)
 	if err != nil {
 		log.W("ws: expires: cannot parse %s; err: %v", c.Session.ExpiryDate, err)
-		return 0
+		return -2
 	}
 
 	return refreshAt.UnixMilli()
@@ -939,6 +953,7 @@ func (a *WsClient) shallowCopyConfig(b *WsClient) (copied bool, err error) {
 		return false, errWsNoConfig
 	}
 	a.configExt.Store(bc)
+	a.configExtUpdateTime.Store(time.Now())
 	return true, nil
 }
 
@@ -1634,8 +1649,9 @@ func newWsGw(c *WsWgConfig, h *http.Client) (*WsClient, error) {
 		return nil, errWsBadGatewayArgs
 	}
 	a := &WsClient{
-		http:      h,
-		configExt: core.NewVolatile(c),
+		http:                h,
+		configExt:           core.NewVolatile(c),
+		configExtUpdateTime: core.NewVolatile(time.Now()),
 	}
 
 	log.I("ws: gw: for %s/%s; from: %s until: %s",

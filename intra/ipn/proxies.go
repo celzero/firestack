@@ -108,7 +108,6 @@ var (
 	errProxyPaused        = errors.New("proxy: paused")
 	errProxyRoute         = errors.New("proxy: no route to host")
 	errProxyConfig        = errors.New("proxy: invalid config")
-	errProxyReadd         = errors.New("proxy: cannot update; readd config")
 	errNoProxyResponse    = errors.New("proxy: blocked or no response")
 	errNoSig              = errors.New("proxy: auth missing sig")
 	errNoMtu              = errors.New("proxy: missing mtu")

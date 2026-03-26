@@ -165,6 +165,8 @@ type RpnAcc interface {
 	State() ([]byte, error)
 	// Created returns the time (unix millis) currently active account was created.
 	Created() int64
+	// Updated returns the time (unix millis) currently active account was updated.
+	Updated() int64
 	// Expires returns the time (unix millis) currently active account expires.
 	Expires() int64
 	// Locations returns RpnServers encapsulating this proxy's worldwide server presence.
