@@ -208,7 +208,7 @@ const qSize = 512
 const minQSize = 16
 
 // consoleChSize is the size of the console channel.
-const consoleChSize = 512
+const consoleChSize = 1024
 
 // minBytesForFullStacktrace is the size needed for a full stacktrace.
 const minBytesForFullStacktrace = 16 << 10 // 16KB
@@ -605,20 +605,22 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 		file := frame.File
 		line := frame.Line
 		fn := frame.Function
+		if len(file) <= 0 { // more is false when file is empty
+			file = fileunknown
+		} else {
+			file = shortfile(file) + sep1 + fmt.Sprint(line)
+		}
 		if len(fn) <= 0 {
 			fn = callerunknown
 		} else {
 			// ex: fn = "github.com/celzero/firestack/intra/dnsx.ChooseHealthyProxyHostPort"
 			fn = shortfile(fn)
 		}
-		if len(file) <= 0 { // more is false when file is empty
-			file = fileunknown
-		} else {
-			file = shortfile(file) + sep1 + fmt.Sprint(line) + sep2 + fn
-		}
+
+		file += sep2 + fn
 		pcs = append(pcs, pc)
 		files = append(files, file)
-		if !more || file == fileunknown || fn == callerunknown {
+		if !more {
 			break
 		}
 		skipped = until - i
@@ -627,7 +629,7 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 }
 
 func tracecaller(s string) bool {
-	if len(s) <= 0 || s == callerunknown || s == fileunknown {
+	if len(s) <= 0 || (strings.HasSuffix(s, callerunknown) && strings.HasPrefix(s, fileunknown)) {
 		return false
 	}
 	// ex: asm_arm64.s:1223>async.go:49>async.go:121>proxy.go:789
@@ -702,8 +704,8 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			}
 			fallthrough
 		default:
-			if tracecaller(file1) { // same as x[0]
-				trace += file1
+			if tracecaller(x[0]) { // x[0] == file1 without fn info
+				trace += x[0]
 			}
 			if len(trace) > 0 {
 				trace += ": " // end-of-trace marker
