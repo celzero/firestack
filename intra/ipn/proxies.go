@@ -1081,7 +1081,7 @@ func (px *proxifier) RefreshProto(l3 string, mtu int, force bool) {
 			// -> ipn.ProxyFor -> px.Lock() -> deadlock
 			if cfg, readd := curp.OnProtoChange(newlp); readd {
 				// px.addProxy -> px.add -> px.Lock() -> deadlock
-				_, err := px.addProxy(id, cfg)
+				_, err := px.forceAddProxy(id, cfg)
 				// TODO: preserve hop?
 				log.I("proxy: refreshProto (forced? %t): (%s/%s/%s) re-add; err? %v",
 					force, id, curp.Type(), curp.GetAddr(), err)

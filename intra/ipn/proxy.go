@@ -115,7 +115,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 	rpnid := typ + cc
 
-	p, err := pxr.addProxy(rpnid, txt)
+	p, err := pxr.forceAddProxy(rpnid, txt)
 	if p == nil {
 		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, core.JoinErr(err, errAddProxy)
@@ -181,7 +181,15 @@ func (pxr *proxifier) postAddRpnProxyError(acc RpnAcc) (removed bool) {
 	return pxr.unregisterRpn(acc.ProviderID()) // unregisters if it exists
 }
 
+func (pxr *proxifier) forceAddProxy(id, txt string) (p Proxy, err error) {
+	return pxr.addOrUpdateProxy(id, txt, true /*force*/)
+}
+
 func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
+	return pxr.addOrUpdateProxy(id, txt, false /*force*/)
+}
+
+func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err error) {
 	if len(id) <= 0 {
 		return nil, errAddProxy
 	}
@@ -197,20 +205,23 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 		pxr.Lock()
 		lp := pxr.lp
 		pxr.Unlock()
-		if p, _ = pxr.proxyFor(id); p != nil {
+		if force {
+			p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
+		} else if p, _ = pxr.proxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {
 					log.W("proxy: add: cannot update wg(%s); readd it!", id)
-					return nil, errProxyReadd
+				} else {
+					log.I("proxy: add: updated wg %s/%s/%s", id, lp, p.GetAddr())
+					return
 				}
-
-				log.I("proxy: add: updated wg %s/%s/%s", id, lp, p.GetAddr())
-				return
 			} // else: recreate
-		} // else: new
-		// txt is both wg ifconfig and peercfg
-		p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
+		}
+		if p == nil {
+			// txt is both wg ifconfig and peercfg
+			p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
+		}
 	} else if len(txt) <= 0 {
 		p = NewBasicProxy(id, pxr.ctx, pxr.ctl, pxr)
 		err = nil
@@ -240,17 +251,17 @@ func (pxr *proxifier) addProxy(id, txt string) (p Proxy, err error) {
 
 	if err != nil {
 		log.P("proxy: add: %s failed; cfg: %v", id, txt)
-		log.W("proxy: add: %s failed; err: %v", id, err)
+		log.W("proxy: add: %s failed; force? %t; err: %v", id, force, err)
 		return nil, err
 	} else if p == nil {
 		log.P("proxy: add: %s nil; cfg: %v", id, txt)
-		log.W("proxy: add: %s nil; txt: %d", id, len(txt))
+		log.W("proxy: add: %s nil; force? %t; txt: %d", id, force, len(txt))
 		return nil, errAddProxy
 	} else if ok := pxr.add(p); !ok {
 		return nil, errAddProxy
 	}
 
-	log.I("proxy: add: done %s/%s/%s", p.ID(), p.Type(), p.GetAddr())
+	log.I("proxy: add: force? %t; done %s/%s/%s", force, p.ID(), p.Type(), p.GetAddr())
 	return
 }
 
