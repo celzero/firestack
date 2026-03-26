@@ -275,15 +275,12 @@ func (r *rpnp) Emplace(new Proxy) (err error) {
 	newid := idstr(new)
 
 	defer func() {
-		core.Go("rpn.emplace."+oldid, func() {
-			if err != nil {
+		if err != nil {
+			core.Go("rpn.emplace."+oldid, func() {
 				n := r.PurgeAll() // purge all kids on error
-				log.I("proxy: rpn: emplace: %s[%s] failed; purged %d kids", oldid, newid, n)
-			} else if !Same(old, new) {
-				serr := old.Stop() // stop old proxy if it is different
-				log.I("proxy: rpn: emplace: %s; %s stopped; err %v", oldid, newid, serr)
-			}
-		})
+				log.E("proxy: rpn: emplace: %s[%s] failed; purged %d kids; emplace err: %v", oldid, newid, n, err)
+			})
+		}
 	}()
 
 	if oldid != newid {
