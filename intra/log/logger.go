@@ -713,11 +713,11 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		}
 		if prependTrace {
 			if len(trace) > 0 {
-				trace += ": " // end-of-trace marker
+				trace += "\t" // end-of-trace marker
 			}
 			msg = l.msgstr(lvl, trace+msg, args...)
 		} else {
-			msg += ": " // end-of-msg marker
+			msg += "\t" // end-of-msg marker
 			msg = l.msgstr(lvl, msg+trace, args...)
 		}
 		if ll {
