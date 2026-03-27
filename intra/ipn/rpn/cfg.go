@@ -58,6 +58,24 @@ type RpnAcc interface {
 	Conf(key string) (string, error)
 }
 
+type RpnMakeKind uint8
+
+func (k RpnMakeKind) Updating() bool {
+	return k&RpnMakeUpdate == 1
+}
+
+func (k RpnMakeKind) Rotate() bool {
+	return k&RpnMakeRotate == 1
+}
+
+const (
+	// RpnMakeNew uses persisted sub-account identity when available, on enrollment or account update.
+	RpnMakeNew RpnMakeKind = 0b0001
+	// RpnMakeUpdate makes new sub-account identity on enrollment or account update.
+	RpnMakeUpdate RpnMakeKind = 0b0010
+	RpnMakeRotate RpnMakeKind = 0b0100
+)
+
 var _ RpnAcc = (*WsClient)(nil)
 
 type BaseClient struct {
@@ -92,7 +110,7 @@ func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless
 
 type RpnUpdateless struct{}
 
-func (RpnUpdateless) Update() ([]byte, error) { return nil, errRpnUpdateless }
+func (RpnUpdateless) Update(bool) ([]byte, error) { return nil, errRpnUpdateless }
 
 type RpnMultiCountryServers struct {
 	all []x.RpnServer

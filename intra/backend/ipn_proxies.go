@@ -172,7 +172,7 @@ type RpnAcc interface {
 	// Locations returns RpnServers encapsulating this proxy's worldwide server presence.
 	Locations() (RpnServers, error)
 	// Update updates the account creating new state.
-	Update() (newstate []byte, err error)
+	Update(rotate bool) (newstate []byte, err error)
 }
 
 // RpnEntitlement represents access to a proxy service.

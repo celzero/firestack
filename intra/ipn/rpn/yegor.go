@@ -36,10 +36,6 @@ const (
 	// didTokenHeader is the HTTP response/request header for a device-id token
 	// issued by svchost / svchosttest. Format: "a hextoken:expiryepochsec".
 	didTokenHeader = "x-rethink-app-did-token"
-
-	// alwaysInitOnUpdate always runs the /WgConfigs/init + /WgConfigs/connect flow on every config update,
-	// even if the server list didn't change.
-	alwaysInitOnUpdate = true
 )
 
 const (
@@ -923,7 +919,7 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 }
 
 // Update implements x.RpnAcc.
-func (a *WsClient) Update() (newstate []byte, err error) {
+func (a *WsClient) Update(rotate bool) (newstate []byte, err error) {
 	if a == nil {
 		return nil, errWsNoClient
 	}
@@ -932,7 +928,11 @@ func (a *WsClient) Update() (newstate []byte, err error) {
 		return nil, errWsNoConfig
 	}
 	start := time.Now()
-	b, refreshed, err := makeWsWgFrom(a.http, c, true /*err on no update*/)
+	kind := RpnMakeUpdate
+	if rotate {
+		kind |= RpnMakeRotate
+	}
+	b, refreshed, err := makeWsWgFrom(a.http, c, kind)
 	if err != nil || !refreshed {
 		log.E("ws: update: refreshed? %t; err: %v", refreshed, err)
 		return nil, core.OneErr(err, errWsRetryUpdate)
@@ -1466,7 +1466,7 @@ keyagain:
 	pub := priv.Mult()
 	pubkeybase64 := pub.Base64()
 
-	log.I("ws: wgconfs: gen creds: pubkey: %s, existing key #%d? %t", trunc8(pubkeybase64), runkey, useExistingCreds)
+	log.I("ws: wgconfs: gen creds: pubkey: %s, existing key #%d? %t; force? %t", trunc8(pubkeybase64), runkey, useExistingCreds, forceInit)
 
 	force := "0" // reset to 0, if force init is not needed
 
@@ -1763,16 +1763,22 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string) 
 }
 
 func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig) (*WsClient, error) {
-	ws, _, err := makeWsWgFrom(&w.h2, existingConf, false)
+	ws, _, err := makeWsWgFrom(&w.h2, existingConf, RpnMakeNew)
 	return ws, err
 }
 
-func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, performingUpdate bool) (ws *WsClient, refreshedSess bool, err error) {
+func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, makekind RpnMakeKind) (ws *WsClient, refreshedSess bool, err error) {
 	existingEnt := existingConf.Entitlement
 	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
 		err = errWsNoEntitlement
 		return
 	}
+
+	performingUpdate := makekind.Updating()
+	// performingUpdate is set for "Update" calls only; that is, when remote api call fails to
+	// either init or init+connect, we can safely errors out on the "Update";
+	// if setup to always init+connect, then forceInit to true iff performingUpdate is also set.
+	forceInit := makekind.Rotate()
 
 	existingSess := existingConf.Session
 	existingCreds := existingConf.Creds
@@ -1832,10 +1838,6 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, performingUpdate boo
 			}
 		}
 
-		// performingUpdate is set for "Update" calls only; that is, when remote api call fails to
-		// either init or init+connect, we can safely errors out on the "Update";
-		// if setup to always init+connect, then forceInit to true iff performingUpdate is also set.
-		forceInit := alwaysInitOnUpdate && performingUpdate
 		// create wg confs from new or existing server list
 		// always reconfigure (as /WgConfigs/connect must be done once every wg_ttl, which is 60m)
 		maybeNewCreds, maybeNewWgConfs, uerr := genWgConfs(h, existingCreds, newSess, maybeNewServers, existingConf.Entitlement, forceInit)

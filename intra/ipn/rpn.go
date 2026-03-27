@@ -46,6 +46,8 @@ type rpnp struct {
 	kids map[string]struct{}
 }
 
+type RpnMakeKind = rpn.RpnMakeKind
+
 var _ RpnProxy = (*rpnp)(nil)
 var _ RpnAcc = (*rpnp)(nil) // (useless) assertion always succeeds, see above
 var _ Proxy = (*rpnp)(nil)  // (useless) assertion always succeeds, see above
@@ -535,8 +537,8 @@ func (r *rpnp) flattenKids() (ccs []string) {
 }
 
 // Update implements RpnAcc.
-func (r *rpnp) Update() (newState []byte, err error) {
-	newState, err = r.RpnAcc.Update()
+func (r *rpnp) Update(rotate bool) (newState []byte, err error) {
+	newState, err = r.RpnAcc.Update(rotate)
 	if err == nil {
 		core.Gx("rpn.fork."+r.ProviderID(), r.forkAll)
 	}
