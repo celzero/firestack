@@ -136,6 +136,8 @@ type wgtun struct {
 
 	rt x.IpTree // route table for this interface
 
+	uapicfg *core.Volatile[string] // stores the last UAPI-formatted peer config (for re-applying endpoints after Refresh)
+
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
 	// TODO: move status to a state-machine for all proxies
@@ -363,12 +365,28 @@ func (w *wgproxy) Refresh() (err error) {
 		if resetDevice && err == nil {
 			var newdev *device.Device
 			const useExistingCfg = ""
+			// Close the old device BEFORE creating the new one.
+			// w.Device.Down() already set bind.ipv4/ipv6 to nil, so Close() is a
+			// near no-op on the bind here. Doing it in the other order would have
+			// Close() re-enter Down() and close the bind that newdevice just opened.
+			w.Device.Close() // tun.Close() is ignored via ignoreTUNClose
 			if newdev, err = newdevice(w.wgtun, w.wgep, useExistingCfg); err == nil {
-				w.Device.Close()  // will end up calling wgtun.Close() which hopefully is ignored
 				w.Device = newdev // TODO: core.Volatile[device.Device]
-			} // newdevice calls w.Device.Up() internally
+			} else {
+				w.wgtun.ignoreTUNClose.Store(false) // next Close() must not be silently ignored
+			}
 		} else if err == nil {
 			err = w.Device.Up()
+			if err == nil {
+				// Re-apply peer config so wireguard device uses freshly resolved endpoint IPs.
+				// remote.Refresh() above may have updated IPs; Device.Up() alone does not
+				// re-call ParseEndpoint, so peers would keep sending handshakes to stale IPs.
+				if cfg := w.wgtun.uapicfg.Load(); len(cfg) > 0 {
+					if ipcerr := w.Device.IpcSet(cfg); ipcerr != nil {
+						log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.id, ipcerr)
+					}
+				}
+			}
 		}
 	}
 	// not required since wgconn:NewBind() is namespace aware
@@ -456,6 +474,8 @@ func (w *wgproxy) update(id, txt string) bool {
 		log.W("proxy: updating wg(%s) ipcset; err %v", id, ipcerr)
 		return anew
 	}
+	// w.Device is assumed to be Up
+	w.uapicfg.Store(cptxt) // persist the updated UAPI peer config
 
 	return reused
 }
@@ -713,11 +733,10 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error) {
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(wgtun.id))
 
+	curcfg := wgtun.uapicfg.Load()
 	if len(uapicfg) <= 0 {
-		uapicfg = wgtun.cfg // copy
-		if _, err := wgIfConfigOf(wgtun.id, &uapicfg); err != nil {
-			return nil, err
-		}
+		// prefer stored UAPI config which reflects latest update() changes
+		uapicfg = curcfg
 	}
 
 	err := wgdev.IpcSet(uapicfg)
@@ -736,6 +755,7 @@ func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error
 		log.E("proxy: wg: %s failed init %v", wgtun.id, err)
 		return nil, err
 	}
+	wgtun.uapicfg.Cas(curcfg, uapicfg)
 	return wgdev, nil
 }
 
@@ -846,7 +866,6 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		ctx:           ctx,
 		done:          done,
 		id:            stripPrefixIfNeeded(id),
-		cfg:           cfg,
 		addrs:         ifopts.ifaddrs,
 		ep:            ep,
 		stack:         s,
@@ -866,6 +885,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
 		refreshBa:     core.NewBarrier[bool](refreshInterval),
+		uapicfg:       core.NewVolatile(cfg),
 		since:         now(),
 	}
 	t.latestRefresh.Store(t.since)
