@@ -416,6 +416,10 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		log.W("proxy: wg: update(%s<>%s): TNT; status(%s) - marking session as un-updatable", id, w.who(), pxstatus(status))
 		return anew
 	}
+	if w.wgep.Closed() {
+		log.W("proxy: wg: update(%s<>%s): conn closed; status(%s)", id, w.who(), pxstatus(status))
+		return anew
+	}
 
 	incomingPrefersOffload := preferOffload(id)
 	if incomingPrefersOffload != w.preferOffload {

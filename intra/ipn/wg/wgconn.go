@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -117,9 +118,11 @@ type StdNetBind struct {
 	amnezia *core.Volatile[*Amnezia] // may return nil *Amnezia
 	floodBa *core.Barrier[int, netip.AddrPort]
 
-	mu         sync.Mutex     // protects following fields
-	ipv4       net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
-	ipv6       net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
+	mu   sync.Mutex     // protects following fields
+	ipv4 net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
+	ipv6 net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
+
+	// keeps wireguard's recv routine running by not returning errors yet dropping packets
 	blackhole4 bool
 	blackhole6 bool
 
@@ -128,6 +131,8 @@ type StdNetBind struct {
 
 	observer rwobserver
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
+
+	closed atomic.Bool
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
@@ -350,25 +355,39 @@ func (s *StdNetBind) Resume() bool {
 	return true
 }
 
+// Closed implements wgconn
+func (s *StdNetBind) Closed() bool {
+	return s.closed.Load()
+}
+
 func (s *StdNetBind) Close() error {
+	if s.closed.Load() {
+		log.W("wg: bind: %s already closed", s.id)
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var err1, err2 error
-	v4, v6 := s.ipv4, s.ipv6
-	if v4 != nil {
-		err1 = v4.Close()
-		s.ipv4 = nil
-	}
-	if v6 != nil {
-		err2 = v6.Close()
-		s.ipv6 = nil
-	}
-	s.blackhole4 = false
-	s.blackhole6 = false
+	if s.closed.CompareAndSwap(false, true) {
+		var err1, err2 error
+		v4, v6 := s.ipv4, s.ipv6
+		if v4 != nil {
+			err1 = v4.Close()
+			s.ipv4 = nil
+		}
+		if v6 != nil {
+			err2 = v6.Close()
+			s.ipv6 = nil
+		}
+		s.blackhole4 = false
+		s.blackhole6 = false
 
-	log.I("wg: bind: %s close; err4? %v err6? %v", s.id, err1, err2)
-	return core.JoinErr(err1, err2)
+		log.I("wg: bind: %s close; err4? %v err6? %v", s.id, err1, err2)
+		return core.JoinErr(err1, err2)
+	}
+	log.W("wg: bind: %s racing close ignored", s.id)
+	return nil
 }
 
 func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
