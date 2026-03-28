@@ -6,7 +6,10 @@
 
 package core
 
-import "reflect"
+import (
+	"fmt"
+	"reflect"
+)
 
 func Loc(x any) uintptr {
 	if x == nil {
@@ -20,6 +23,10 @@ func Loc(x any) uintptr {
 		return v.Pointer()
 	}
 	return 0
+}
+
+func LocStr(x any) string {
+	return fmt.Sprintf("%x", Loc(x))
 }
 
 // may panic or return false if x is not addressable
