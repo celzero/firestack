@@ -469,6 +469,7 @@ func (w *wgproxy) update(id, txt string) bool {
 	w.peers.Store(opts.peers) // re-assignment is okay (map entry modification is not)
 	w.allowedIPs(opts.allowed)
 	w.remote.Store(opts.eps)             // requires refresh (wg.Conn:ParseEndpoint must be re-called)
+	w.remote.Load().Refresh()            // resolve endpoints now so ParseEndpoint below sees valid IPs
 	w.dns.Store(opts.dns)                // requires refresh (client must also re-add via intra.AddDNSProxy)
 	w.desiredmtu.Store(uint32(opts.mtu)) // requires reset; [NOMTU, MAXMTU)
 	w.amnezia.Store(opts.amnezia)
