@@ -510,6 +510,12 @@ func (s *StdNetBind2) Resume() bool {
 	return true
 }
 
+func (s *StdNetBind2) Closed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ipv4 == nil && s.ipv6 == nil
+}
+
 func (s *StdNetBind2) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
