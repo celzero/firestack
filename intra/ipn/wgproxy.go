@@ -313,7 +313,7 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		didRefresh = true
 		allok = err == nil
 	} else {
-		allok, err = w.refreshBa.DoIt(w.tag(), func() (bool, error) {
+		allok, err = w.refreshBa.DoIt(w.who(), func() (bool, error) {
 			rerr := w.Refresh()
 			didRefresh = true
 			return rerr == nil, rerr
@@ -383,7 +383,7 @@ func (w *wgproxy) Refresh() (err error) {
 				// re-call ParseEndpoint, so peers would keep sending handshakes to stale IPs.
 				if cfg := w.wgtun.uapicfg.Load(); len(cfg) > 0 {
 					if ipcerr := w.Device.IpcSet(cfg); ipcerr != nil {
-						log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.wgtun.tag(), ipcerr)
+						log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.tag(), ipcerr)
 					}
 				}
 			}
@@ -416,17 +416,17 @@ func (w *wgproxy) update(id, txt string) bool {
 	const anew = false  // cannot update in-place; create new tunnel
 	status := w.status.Load()
 	if status == END {
-		log.W("proxy: wg: update(%s<>%s): END; status(%s)", id, w.tag(), pxstatus(status))
+		log.W("proxy: wg: update(%s<>%s): END; status(%s)", id, w.who(), pxstatus(status))
 		return anew
 	}
 	if status == TNT {
-		log.W("proxy: wg: update(%s<>%s): TNT; status(%s) - marking session as un-updatable", id, w.tag(), pxstatus(status))
+		log.W("proxy: wg: update(%s<>%s): TNT; status(%s) - marking session as un-updatable", id, w.who(), pxstatus(status))
 		return anew
 	}
 
 	incomingPrefersOffload := preferOffload(id)
 	if incomingPrefersOffload != w.preferOffload {
-		log.W("proxy: wg: update(%s<>%s): failed; preferOffload() %t != %t", id, w.tag(), incomingPrefersOffload, w.preferOffload)
+		log.W("proxy: wg: update(%s<>%s): failed; preferOffload() %t != %t", id, w.who(), incomingPrefersOffload, w.preferOffload)
 		return anew
 	}
 
@@ -434,27 +434,27 @@ func (w *wgproxy) update(id, txt string) bool {
 	cptxt := txt
 	opts, err := wgIfConfigOf(w.id, &cptxt)
 	if err != nil {
-		log.W("proxy: wg: update(%s<>%s): err: %v", id, w.tag(), err)
+		log.W("proxy: wg: update(%s<>%s): err: %v", id, w.who(), err)
 		return anew
 	}
 
 	if opts.willreplacepeers {
-		log.W("proxy: wg: update(%s<>%s): cannot proceed; peers will be replaced", id, w.tag())
+		log.W("proxy: wg: update(%s<>%s): cannot proceed; peers will be replaced", id, w.who())
 		return anew
 	}
 
 	if err := w.setRoutes(opts.ifaddrs); err != nil {
-		log.W("proxy: wg: update(%s<>%s): failed; setRoutes: %v", id, w.tag(), err)
+		log.W("proxy: wg: update(%s<>%s): failed; setRoutes: %v", id, w.who(), err)
 		return anew
 	}
 
 	if settings.Debug {
 		if !w.amnezia.Load().Same(opts.amnezia) {
 			log.D("proxy: wg: update(%s<>%s): failed; amnezia %v != %v",
-				id, w.tag(), opts.amnezia, w.amnezia.Load())
+				id, w.who(), opts.amnezia, w.amnezia.Load())
 		}
 		if opts.dns != nil && !opts.dns.EqualAddrs(w.dns.Load()) {
-			log.D("proxy: wg: update(%s<>%s): failed; new/mismatched dns", id, w.tag())
+			log.D("proxy: wg: update(%s<>%s): failed; new/mismatched dns", id, w.who())
 		} // nb: client code MUST re-add wg DNS, not our responsibility
 	}
 
@@ -463,7 +463,7 @@ func (w *wgproxy) update(id, txt string) bool {
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
 	log.I("proxy: wg: update: (%s<>%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
-		id, w.tag(), w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(w.peers.Load()), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
+		id, w.who(), w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(w.peers.Load()), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
 		w.remote.Load().Len() /*remote.Load may return nil*/, opts.eps.Len())
 
 	w.peers.Store(opts.peers) // re-assignment is okay (map entry modification is not)
@@ -477,7 +477,7 @@ func (w *wgproxy) update(id, txt string) bool {
 
 	ipcerr := w.Device.IpcSet(cptxt)
 	if ipcerr != nil {
-		log.W("proxy: updating wg(%s<>%s) ipcset; err %v", id, w.tag(), ipcerr)
+		log.W("proxy: updating wg(%s<>%s) ipcset; err %v", id, w.who(), ipcerr)
 		return anew
 	}
 	// w.Device is assumed to be Up
@@ -716,9 +716,9 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 
 	var wgep wgconn
 	if wgtun.preferOffload {
-		wgep = wg.NewEndpoint2(wgtun.tag(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
+		wgep = wg.NewEndpoint2(wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	} else {
-		wgep = wg.NewEndpoint(wgtun.tag(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
+		wgep = wg.NewEndpoint(wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	}
 
 	wgdev, err := newdevice(wgtun, wgep, uapicfg)
@@ -788,11 +788,11 @@ func (t *wgtun) setupReverserIfNeeded(set bool) (didSet bool) {
 }
 
 func (w *wgtun) swapVia(new Proxy) (old Proxy) {
-	return swapVia(w.tag(), new, w.viaID, w.via)
+	return swapVia(w.who(), new, w.viaID, w.via)
 }
 
 func (w *wgtun) viafor() *Proxy {
-	return viafor(w.tag(), w.viaID.Load(), w.px)
+	return viafor(w.who(), w.viaID.Load(), w.px)
 }
 
 func (w *wgtun) getVia() (v Proxy) {
@@ -812,9 +812,13 @@ func (w *wgtun) getViaIfDialed() Proxy {
 	return nil
 }
 
-// tag concats id of this proxy & status of its via.
+// who concats id of this proxy & status of its via.
+func (w *wgtun) who() string {
+	return w.id + ":" + core.LocStr(w)
+}
+
 func (w *wgtun) tag() string {
-	return w.id + ":" + core.LocStr(w) + " (" + w.viaStatus() + ")"
+	return w.who() + " (" + w.viaStatus() + ")"
 }
 
 func (w *wgtun) viaStatus() (s string) {
@@ -915,7 +919,7 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 	if err := s.CreateNIC(wgnic, ep); err != nil {
 		done()
 		ep.Close()
-		return nil, fmt.Errorf("wg: %s create nic: %v", t.tag(), err)
+		return nil, fmt.Errorf("wg: %s create nic: %v", t.who(), err)
 	}
 
 	settings.ExperimentalWireGuard.On(ctx, func(yn bool) {
@@ -1151,8 +1155,8 @@ func (tun *wgtun) Close() error {
 // TODO: use wgtun as a receiver for Stats()
 // Never returns nil.
 func (w *wgproxy) Stat() (out *x.RouterStats) {
-	log.VV("proxy: wg: %s stats: start", w.tag())
-	defer log.VV("proxy: wg: %s stats: end", w.tag())
+	start := time.Now()
+	defer log.VV("proxy: wg: %s stats: end (duration: %s)", w.tag(), core.FmtTimeAsPeriod(start))
 
 	out = new(x.RouterStats)
 
@@ -1520,7 +1524,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	}
 
 	// todo: dial into both direct & via if via cannot handle all routes?
-	who := h.tag()
+	who := h.who()
 	var v Proxy // may be nil
 	hasvia, usingvia := false, false
 	if hasvia = usevia(h.viaID); hasvia {
