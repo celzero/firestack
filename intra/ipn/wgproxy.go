@@ -477,7 +477,7 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		return anew
 	}
 	// w.Device is assumed to be Up
-	w.uapicfg.Store(cptxt) // persist the updated UAPI peer config
+	w.uapicfg.Store(txt) // persist the updated UAPI peer config
 
 	return reused
 }
