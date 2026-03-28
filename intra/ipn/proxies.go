@@ -258,8 +258,10 @@ type proxifier struct {
 
 	extc *rpn.BaseClient // external wg registration, never changes
 
+	// TODO: merge extc and sec
 	sec *seasy.SEApi // se proxy registration, never changes; may be nil
 
+	// TODO: move lastSeErr and lastWinErr into merged extc
 	lastSeErr  *core.Volatile[error] // se proxy registration error
 	lastWinErr *core.Volatile[error] // win registration error
 }
@@ -389,8 +391,9 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 			if x, typeok := p.(*exit64); typeok {
 				px.exit64 = x
 				px.p[id] = p
-				// do not addRpnProxy from here
-				// it will result in a loop of calls
+				// do not call addRpnProxy from here
+				// it will result in endless recursive
+				// calls leading back here
 				ok = true
 			}
 		case Auto:
@@ -405,7 +408,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 		ok = true
 	}
 
-	logeif(!ok)("proxy: add: proxy %s ok? %t", id, ok)
+	logeif(!ok)("proxy: add: proxy %s (%s => %s); added? %t", id, idhandle(old), idhandle(p), ok)
 	return ok
 }
 
