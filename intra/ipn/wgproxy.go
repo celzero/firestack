@@ -88,6 +88,7 @@ const (
 
 type wgifopts struct {
 	ifaddrs, allowed []netip.Prefix
+	willreplacepeers bool
 	peers            map[string]device.NoisePublicKey
 	dns              *multihost.MH
 	eps              *multihost.MHMap
@@ -99,8 +100,7 @@ type wgtun struct {
 	ctx  context.Context
 	done context.CancelFunc
 
-	id  string // id
-	cfg string // original config
+	id string // id
 
 	addrs         []netip.Prefix    // interface addresses
 	stack         *stack.Stack      // stack fakes tun device for wg
@@ -531,6 +531,10 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Interface.java#L232
 		// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/src/main/java/com/wireguard/config/Peer.java#L176
 		switch k {
+		case "replace_peers":
+			opts.willreplacepeers = v == "true" || v == "1"
+			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
+			pcfg.WriteString(line + "\n")
 		case "address": // may exist more than once
 			if err = loadIPNets(&opts.ifaddrs, v); err != nil {
 				return
