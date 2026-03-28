@@ -202,9 +202,9 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 
 	// wireguard proxies have IDs starting with "wg"
 	if isWG(id) {
-		pxr.Lock()
+		pxr.RLock()
 		lp := pxr.lp
-		pxr.Unlock()
+		pxr.RUnlock()
 		if force {
 			p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
 		} else if p, _ = pxr.proxyFor(id); p != nil {
