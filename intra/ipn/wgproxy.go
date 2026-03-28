@@ -491,16 +491,14 @@ func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 	for _, ipnet := range allowed {
 		w.rt.Set(ipnet.String(), w.id)
 	}
+	// TODO: remove IPs on peer update
 }
 
-func wglogger(id string) *device.Logger {
-	tag := WG + ":" + id
+func wglogger(w *wgtun) *device.Logger {
+	tag := WG + ":" + w.id + ":" + core.LocStr(w)
 	logger := &device.Logger{
-		Verbosef: log.Of(tag, log.N2),
+		Verbosef: log.Of(tag, log.V2),
 		Errorf:   log.Of(tag, log.E2),
-	}
-	if settings.Debug {
-		logger.Verbosef = log.Of(tag, log.V2)
 	}
 	return logger
 }
