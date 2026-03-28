@@ -91,11 +91,11 @@ func InboundTCP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort
 
 // OutboundTCP sets up a TCP forwarder h to handle TCP packets.
 // If h is nil, s uses the (built-in) default TCP forwarding logic.
-func OutboundTCP(id string, s *stack.Stack, h GTCPConnHandler) {
-	if fwd := tcpForwarder(id, s, h); fwd != nil {
+func OutboundTCP(who string, s *stack.Stack, h GTCPConnHandler) {
+	if fwd := tcpForwarder(who, s, h); fwd != nil {
 		s.SetTransportProtocolHandler(tcp.ProtocolNumber, fwd.HandlePacket)
 	} else { // unset
-		log.I("ns: tcp: %s: forwarder: nil handler; unsetting forwarder...", id)
+		log.I("ns: tcp: %s: forwarder: nil handler; unsetting forwarder...", who)
 		s.SetTransportProtocolHandler(tcp.ProtocolNumber, nil)
 	}
 }

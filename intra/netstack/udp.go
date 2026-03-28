@@ -73,11 +73,11 @@ func makeGUDPConn(who string, s *stack.Stack, r *udp.ForwarderRequest, src, dst 
 
 // OutboundUDP sets up a UDP forwarder h for outbound UDP packets.
 // If h is nil, s uses the (built-in) default UDP forwarding logic.
-func OutboundUDP(id string, s *stack.Stack, h GUDPConnHandler) {
-	if fwd := udpForwarder(id, s, h); fwd != nil {
+func OutboundUDP(who string, s *stack.Stack, h GUDPConnHandler) {
+	if fwd := udpForwarder(who, s, h); fwd != nil {
 		s.SetTransportProtocolHandler(udp.ProtocolNumber, fwd.HandlePacket)
 	} else { // unset
-		log.I("ns: udp: %s: forwarder: nil handler; unsetting forwarder...", id)
+		log.I("ns: udp: %s: forwarder: nil handler; unsetting forwarder...", who)
 		s.SetTransportProtocolHandler(udp.ProtocolNumber, nil)
 	}
 }
