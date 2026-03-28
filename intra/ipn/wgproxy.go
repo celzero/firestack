@@ -114,6 +114,7 @@ type wgtun struct {
 	since         int64             // start time in unix millis
 
 	px ProxyProvider
+
 	// mutable fields
 
 	via    *core.WeakRef[Proxy]
@@ -130,14 +131,13 @@ type wgtun struct {
 
 	rev *core.Volatile[netstack.GConnHandler] // reverser for local packets
 
-	peers   *core.Volatile[map[string]device.NoisePublicKey] // peer (remote endpoint) public keys
-	dns     *core.Volatile[*multihost.MH]                    // dns resolver for this interface
-	remote  *core.Volatile[*multihost.MHMap]                 // peer (remote endpoint) addrs
-	amnezia *core.Volatile[*wg.Amnezia]                      // amnezia/warp config, if any
+	dns     *core.Volatile[*multihost.MH]    // dns resolver for this interface
+	remote  *core.Volatile[*multihost.MHMap] // peer (remote endpoint) addrs
+	amnezia *core.Volatile[*wg.Amnezia]      // amnezia/warp config, if any
 
 	rt x.IpTree // route table for this interface
 
-	uapicfg *core.Volatile[string] // stores the last UAPI-formatted peer config (for re-applying endpoints after Refresh)
+	uapicfg *core.Volatile[string] // stores the last UAPI-formatted peer config
 
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
@@ -158,20 +158,21 @@ type wgconn interface {
 	RemoteAddr() netip.AddrPort
 	Pause() bool
 	Resume() bool
+	Closed() bool
 }
 
 var _ WgProxy = (*wgproxy)(nil)
 
 type wgproxy struct {
-	*wgtun
-	*device.Device
-	wgep wgconn
+	*wgtun                // implements Proxy and tun.Device
+	*device.Device        // administers tun.Device and conn.Bind
+	wgep           wgconn // implements conn.Bind
 }
 
 type WgProxy interface {
 	Proxy
 	tun.Device
-	update(id, txt string) bool
+	update(id, txt string) (updated bool)
 }
 
 // Handle implements Proxy.
@@ -272,22 +273,13 @@ func (w *wgproxy) Ping() bool {
 	neversent := then == 0
 	recent := then+pingThresholdMillis < now
 	if (neversent || !recent) && w.latestPing.CompareAndSwap(then, now) {
-		tracked := w.peers.Load()
-		tot := len(tracked)
-		pinged := 0
-		// or: w.Device.SendKeepalivesToPeersWithCurrentKeypair()
-		for _, k := range tracked {
-			if peer := w.Device.LookupPeer(k); peer != nil {
-				pinged++
-				// keepalive are empty packets but always padded to 16 bytes
-				// github.com/bepass-org/warp-plus/blob/12269c2761/wireguard/device/noise-protocol.go#L67
-				// github.com/wireguard/wireguard-go/blob/12269c2761/wireguard/device/send.go#L543
-				// WireGuard: Next Generation Kernel Network Tunnel, rev e2da747, section 6.5
-				peer.SendKeepalive()
-			}
-		}
-		log.D("proxy: wg: %s ping: %d/%d peers; via OK? %t", w.tag(), pinged, tot, viaOK)
-		return pinged > 0
+		// keepalive are empty packets but always padded to 16 bytes
+		// github.com/bepass-org/warp-plus/blob/12269c2761/wireguard/device/noise-protocol.go#L67
+		// github.com/wireguard/wireguard-go/blob/12269c2761/wireguard/device/send.go#L543
+		// WireGuard: Next Generation Kernel Network Tunnel, rev e2da747, section 6.5
+		w.Device.SendKeepalivesToPeersWithCurrentKeypair()
+		log.D("proxy: wg: %s ping: via OK? %t", w.tag(), viaOK)
+		return true
 	} else {
 		log.VV("proxy: wg: %s ping: skipped; soon? %t / neversent? %t / concurrent %d; via OK? %t",
 			w.tag(), !recent, neversent, then, viaOK)
@@ -412,7 +404,7 @@ func stripPrefixIfNeeded(id string) string {
 // canUpdate checks if the existing tunnel can be updated in-place;
 // that is, incoming interface config is compatible with the existing tunnel,
 // regardless of whether peer config has changed (which can be updated in-place).
-func (w *wgproxy) update(id, txt string) bool {
+func (w *wgproxy) update(id, txt string) (ok bool) {
 	const reused = true // can update in-place; reuse existing tunnel
 	const anew = false  // cannot update in-place; create new tunnel
 	status := w.status.Load()
@@ -463,11 +455,10 @@ func (w *wgproxy) update(id, txt string) bool {
 
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
-	log.I("proxy: wg: update: (%s<>%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d=>%d; dns: %d=>%d; endpoint: %d=>%d",
-		id, w.who(), w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(w.peers.Load()), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
+	log.I("proxy: wg: update: (%s<>%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d; dns: %d=>%d; endpoint: %d=>%d",
+		id, w.who(), w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
 		w.remote.Load().Len() /*remote.Load may return nil*/, opts.eps.Len())
 
-	w.peers.Store(opts.peers) // re-assignment is okay (map entry modification is not)
 	w.allowedIPs(opts.allowed)
 	w.remote.Store(opts.eps)             // requires refresh (wg.Conn:ParseEndpoint must be re-called)
 	w.remote.Load().Refresh()            // resolve endpoints now so ParseEndpoint below sees valid IPs
@@ -891,9 +882,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		viaUp:         core.NewZeroVolatile[bool](),
 		dns:           core.NewVolatile(ifopts.dns),
 		rev:           core.NewVolatile(lp.rev),
-		remote:        core.NewVolatile(ifopts.eps),   // may be nil
-		peers:         core.NewVolatile(ifopts.peers), // its entries must never be modified
-		rt:            x.NewIpTree(),                  // must be set to allowedaddrs
+		remote:        core.NewVolatile(ifopts.eps), // may be nil
+		rt:            x.NewIpTree(),                // must be set to allowedaddrs
 		amnezia:       core.NewVolatile(ifopts.amnezia),
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
@@ -1689,12 +1679,6 @@ func (w *wgproxy) resetMtu(via Proxy) error {
 }
 
 func (w *wgtun) viaCanRoute(via Proxy, dryrun bool) error {
-	pk := w.peers.Load()
-	if len(pk) <= 0 {
-		log.W("wg: %s proxy: viaCanRoute: no peers", w.tag())
-		return nil // no peers; nothing to route
-	}
-
 	weCan4 := w.IP4()
 	hopCan4 := via.Router().IP4()
 	weCan6 := w.IP6()
