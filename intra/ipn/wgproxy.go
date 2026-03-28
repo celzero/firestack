@@ -1008,18 +1008,22 @@ func (t *wgtun) setRoutes(ifaddrs []netip.Prefix) error {
 
 // implements tun.Device
 
+// Name implements tun.Device.
 func (tun *wgtun) Name() (string, error) {
 	return tun.id, nil
 }
 
+// File implements tun.Device.
 func (tun *wgtun) File() *os.File {
 	return nil
 }
 
+// Events implements tun.Device.
 func (tun *wgtun) Events() <-chan tun.Event {
 	return tun.events
 }
 
+// Read implements tun.Device.
 func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 	view, ok := <-tun.ingress
 	if !ok {
@@ -1041,6 +1045,7 @@ func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 	return 1, nil
 }
 
+// Write implements tun.Device.
 func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 	for _, buf := range bufs {
 		pkt := buf[offset:]
@@ -1202,10 +1207,12 @@ func (w *wgtun) ifaddrs() string {
 	return noaddr
 }
 
+// MTU implements tun.Device.
 func (tun *wgtun) MTU() (int, error) {
 	return calcNetMtu(int(tun.ep.MTU())), nil
 }
 
+// BatchSize implements tun.Device.
 func (tun *wgtun) BatchSize() int {
 	if tun.preferOffload {
 		return conn.IdealBatchSize
