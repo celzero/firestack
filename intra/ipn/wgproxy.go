@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -1597,6 +1598,13 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		} else if op == wg.Rcv && timedout(err) {
 			s = TZZ // writes and reads have succeeded in the recent past
 			why = "TZZ: read timeout"
+		} else if errors.Is(err, net.ErrClosed) {
+			// github.com/WireGuard/wireguard-go/blob/f333402bd9cb/device/receive.go#L112
+			// on net.ErrClosed, wg stops recieving routine for all peers; this among
+			// other things mean that the wg.Device is effectively down and would not
+			// recieve any incoming messages (nor outgoing as those use the same socket)
+			s = TNT
+			why = "TNT: closed " + string(op)
 		} else {
 			s = TKO
 			why = "TKO: " + err.Error()
