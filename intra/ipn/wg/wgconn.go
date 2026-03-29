@@ -339,6 +339,8 @@ func (s *StdNetBind) Pause() bool {
 	s.blackhole4 = true
 	s.blackhole6 = true
 
+	// by the time resume comes about, the internal wireguard send/recv routines may have been stopped
+	// or the keepalives blackholed for long enough that a new connection needs to be established.
 	log.I("wg: bind: %s pausing... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
 
 	return true
@@ -373,19 +375,23 @@ func (s *StdNetBind) Close() error {
 
 	if s.closed.CompareAndSwap(false, true) {
 		var err1, err2 error
+		var addr1, addr2 net.Addr
 		v4, v6 := s.ipv4, s.ipv6
 		if v4 != nil {
+			addr1 = v4.LocalAddr()
 			err1 = v4.Close()
 			s.ipv4 = nil
 		}
 		if v6 != nil {
+			addr2 = v6.LocalAddr()
 			err2 = v6.Close()
 			s.ipv6 = nil
 		}
+		// resume if paused, so wireguard routines calling into send/recv error out
 		s.blackhole4 = false
 		s.blackhole6 = false
 
-		log.I("wg: bind: %s close; err4? %v err6? %v", s.id, err1, err2)
+		log.I("wg: bind: %s close; addrs %s + %s; err4? %v err6? %v", s.id, addr1, addr2, err1, err2)
 		return core.JoinErr(err1, err2)
 	}
 	log.W("wg: bind: %s racing close ignored", s.id)
