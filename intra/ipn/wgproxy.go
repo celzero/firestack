@@ -753,12 +753,11 @@ func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error
 	// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L99
 	wgdev.DisableSomeRoamingForBrokenMobileSemantics()
 
-	err = wgdev.Up() // needed? tun.EventUp is already queued by makeWgTun()
-	if err != nil {
-		defer wgdev.Close()
-		log.E("proxy: wg: %s failed init %v", wgtun.tag(), err)
-		return nil, err
-	}
+	// not needed: tun.EventUp is already queued by makeWgTun()
+	// which will be consumed by wireguard's RoutineTUNEventReader
+	// started by device.NewDevice()
+	// err = wgdev.Up()
+	// TODO: wait for wgconn to open?
 	wgtun.uapicfg.Cas(curcfg, uapicfg)
 	return wgdev, nil
 }
@@ -1561,8 +1560,8 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	h.viaUp.Store(usingvia)
 	defer h.listener(wg.Opn, err)
 
-	logei(err)("wg: %s serve: %s (id? %s / via? %s %t / usingVia? %t); err? %v",
-		who, local, who, idstr(v), hasvia, usingvia, err)
+	logei(err)("wg: %s serve: %s (via? %s %t / usingVia? %t); err? %v",
+		who, local, idstr(v), hasvia, usingvia, err)
 	return
 }
 
