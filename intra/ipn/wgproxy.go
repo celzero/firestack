@@ -166,7 +166,7 @@ var _ WgProxy = (*wgproxy)(nil)
 type wgproxy struct {
 	*wgtun                // implements Proxy and tun.Device
 	*device.Device        // administers tun.Device and conn.Bind
-	wgep           wgconn // implements conn.Bind
+	wgep           wgconn // implements conn.Bind via wgconn
 }
 
 type WgProxy interface {

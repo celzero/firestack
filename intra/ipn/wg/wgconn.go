@@ -272,6 +272,8 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 }
 
 func (s *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
+	s.closed.Store(false)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
