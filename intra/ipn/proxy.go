@@ -218,7 +218,7 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 				}
 			} // else: recreate
 		}
-		if p == nil {
+		if !force && p == nil {
 			// txt is both wg ifconfig and peercfg
 			p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
 		}
