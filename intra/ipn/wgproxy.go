@@ -294,6 +294,10 @@ func waitForViaHandshake() {
 	time.Sleep(arbitraryWaitForViaHandshake)
 }
 
+func waitForDeviceUp() {
+	waitForViaHandshake()
+}
+
 // onNotOK implements Proxy.
 func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 	var didPing, viaDidRefresh, viaOK bool
@@ -354,33 +358,41 @@ func (w *wgproxy) Refresh() (err error) {
 	}
 
 	if err = w.resetMtu(via); err == nil {
-		err = w.Device.Down()
-
 		// for now, never reset since resetDeviceOnTNT is false
 		resetDevice = resetDevice && w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
-		if resetDevice && err == nil {
+		if resetDevice {
 			var newdev *device.Device
 			const useExistingCfg = ""
-			// Close the old device BEFORE creating the new one.
+			// Close the old device before creating the new one.
 			// w.Device.Down() already set bind.ipv4/ipv6 to nil, so Close() is a
 			// near no-op on the bind here. Doing it in the other order would have
 			// Close() re-enter Down() and close the bind that newdevice just opened.
 			w.Device.Close() // tun.Close() is ignored via ignoreTUNClose
+			w.events <- tun.EventUp
 			if newdev, err = newdevice(w.wgtun, w.wgep, useExistingCfg); err == nil {
 				w.Device = newdev // TODO: core.Volatile[device.Device]
 			} else {
 				w.wgtun.ignoreTUNClose.Store(false) // next Close() must not be silently ignored
 			}
-		} else if err == nil {
-			err = w.Device.Up()
-			if err == nil {
-				// Re-apply peer config so wireguard device uses freshly resolved endpoint IPs.
-				// remote.Refresh() above may have updated IPs; Device.Up() alone does not
-				// re-call ParseEndpoint, so peers would keep sending handshakes to stale IPs.
-				if cfg := w.wgtun.uapicfg.Load(); len(cfg) > 0 {
-					if ipcerr := w.Device.IpcSet(cfg); ipcerr != nil {
-						log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.tag(), ipcerr)
-					}
+		} else {
+			// err = w.Device.Down()
+			// prefer sending commands over the events channel to prevent
+			// racing Up/Down calls via Refresh and other funcs that could
+			// be called concurrenctly by client code and/or internal code.
+			w.events <- tun.EventDown
+			// err = w.Device.Up()
+			w.events <- tun.EventUp
+
+			waitForDeviceUp() // arbitrary wait for device to be up before sending ipcset
+
+			// Re-apply peer config so wireguard device uses freshly resolved endpoint IPs.
+			// remote.Refresh() above may have updated IPs; Device.Up() alone does not
+			// re-call ParseEndpoint, so peers would keep sending handshakes to stale IPs.
+			if cfg := w.wgtun.uapicfg.Load(); len(cfg) > 0 {
+				cpcfg := cfg                      // copies string
+				_, _ = wgIfConfigOf(w.id, &cpcfg) // removes non-uapi fields
+				if ipcerr := w.Device.IpcSet(cpcfg); ipcerr != nil {
+					log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.tag(), ipcerr)
 				}
 			}
 		}
