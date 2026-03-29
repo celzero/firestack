@@ -77,7 +77,7 @@ const ( // see ipn/proxies.go
 	TUP = 0
 	// proxy OK
 	TOK = -1
-	// proxy not OK
+	// proxy OK but erroring out
 	TKO = -2
 	// proxy stopped
 	END = -3
