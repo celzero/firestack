@@ -104,11 +104,22 @@ type PktDir string
 const (
 	Rcv PktDir = "recv" // data received
 	Snd PktDir = "send" // data sent
-	Not PktDir = "nott" // not transport data
+	Crc PktDir = "notr" // not transport data (recv)
+	Csn PktDir = "nots" // not transport data (send)
 	Con PktDir = "conn" // e.g. dial, announce, accept
 	Opn PktDir = "open" // open conn to the wg endpoint
 	Drp PktDir = "drop" // ignored packet
 )
+
+// Rcv or Crc
+func (op PktDir) Read() bool {
+	return op == Rcv || op == Crc
+}
+
+// Snd or Csn
+func (op PktDir) Write() bool {
+	return op == Snd || op == Csn
+}
 
 type StdNetBind struct {
 	id      string
@@ -408,7 +419,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		defer func() {
 			op := Rcv
 			if !anyTransportTyp && anyProcessed {
-				op = Not // processed packets not transport data
+				op = Crc // processed packets not transport data
 			}
 			s.observer(op, err)
 		}()
@@ -465,7 +476,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer func() {
 		op := Snd
 		if !anyTransportTyp && anyProcessed {
-			op = Not // processed packet not transport data
+			op = Csn // processed packet not transport data
 		}
 		s.observer(op, err)
 	}()

@@ -290,6 +290,12 @@ type RouterStats struct {
 	LastTx int64
 	// last (most recent) transmit in millis
 	LastRx int64
+	// last non-wg (connect/dial) error
+	LastErr string
+	// last wg recv (read) error
+	LastRxErr string
+	// last wg send (write) error
+	LastTxErr string
 	// last successful receive in millis
 	LastGoodRx int64
 	// last successful transmit in millis

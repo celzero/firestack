@@ -142,15 +142,18 @@ type wgtun struct {
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
 	// TODO: move status to a state-machine for all proxies
-	status        *core.Volatile[int] // status of this interface
-	latestRefresh atomic.Int64        // last refresh time in unix millis
-	latestPing    atomic.Int64        // last ping time in unix millis
-	latestGoodRx  atomic.Int64        // last successful rx time in unix millis
-	latestGoodTx  atomic.Int64        // last successful tx time in unix millis
-	latestRx      atomic.Int64        // last (successful or not) rx time in unix millis
-	latestTx      atomic.Int64        // last (successful or not) tx time in unix millis
-	errRx         atomic.Int64        // rx error count
-	errTx         atomic.Int64        // tx error count
+	status        *core.Volatile[int]  // status of this interface
+	latestRefresh atomic.Int64         // last refresh time in unix millis
+	latestPing    atomic.Int64         // last ping time in unix millis
+	latestErr     core.Volatile[error] // last open/dial err
+	latestRxErr   core.Volatile[error] // last rx error
+	latestTxErr   core.Volatile[error] // last tx error
+	latestGoodRx  atomic.Int64         // last successful rx time in unix millis
+	latestGoodTx  atomic.Int64         // last successful tx time in unix millis
+	latestRx      atomic.Int64         // last (successful or not) rx time in unix millis
+	latestTx      atomic.Int64         // last (successful or not) tx time in unix millis
+	errRx         atomic.Int64         // rx error count
+	errTx         atomic.Int64         // tx error count
 }
 
 type wgconn interface {
@@ -1165,6 +1168,9 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.LastOK = -3
 	out.ErrRx = w.errRx.Load()
 	out.ErrTx = w.errTx.Load()
+	out.LastErr = estr(w.latestErr.Load())
+	out.LastRxErr = estr(w.latestRxErr.Load())
+	out.LastTxErr = estr(w.latestTxErr.Load())
 	out.LastRx = w.latestRx.Load()
 	out.LastTx = w.latestTx.Load()
 	out.LastGoodRx = w.latestGoodRx.Load()
@@ -1567,6 +1573,16 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 
 func (h *wgtun) listener(op wg.PktDir, err error) {
 	s := h.status.Load()
+	if err != nil {
+		if op.Read() {
+			h.latestRxErr.Store(err)
+		} else if op.Write() {
+			h.latestTxErr.Store(err)
+		} else {
+			h.latestErr.Store(err)
+		}
+	}
+
 	if s == END || s == TPU { // stopped or paused
 		log.E("wg: %s listener: %s; status %s; ignoring1", h.tag(), op, pxstatus(s))
 		return
@@ -1595,7 +1611,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		if op == wg.Opn { // could not open conn to wg endpoint
 			s = TNT
 			why = "TNT: could not open conn"
-		} else if op == wg.Rcv && timedout(err) {
+		} else if op.Read() && timedout(err) {
 			s = TZZ // writes and reads have succeeded in the recent past
 			why = "TZZ: read timeout"
 		} else if errors.Is(err, net.ErrClosed) {
@@ -1616,7 +1632,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		} else if op == wg.Snd { // write error
 			h.errTx.Add(1)
 			h.latestTx.Store(now)
-		}
+		} // else: not a transport message
 	} else { // ok
 		s = TOK
 		why = "TOK: ok"
@@ -1824,4 +1840,11 @@ func loged(err error) log.LogFn {
 		return log.D
 	}
 	return log.N
+}
+
+func estr(err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return "<no err>"
 }

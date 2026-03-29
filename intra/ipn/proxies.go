@@ -1191,7 +1191,7 @@ func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
 	} else if b == nil {
 		return a
 	}
-	// c.Addr?
+	// c.Addr? c.Extra? c.LastErr, c.LastRxErr, c.LastTxErr
 	c.Tx = a.Tx + b.Tx
 	c.Rx = a.Rx + b.Rx
 	c.ErrRx = a.ErrRx + b.ErrRx
