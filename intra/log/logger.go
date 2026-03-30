@@ -676,20 +676,29 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	}
 
 	if ll || cc {
-		_, x, _ := callers(at+nextframe, 7, ":", "@")
+		_, x, _ := callers(at+nextframe, 9, ":", "@")
 		switch lvl {
 		case USR, STACKTRACE, NONE: // no-op
 		case VVERBOSE:
-			if len(x) >= 7 && tracecaller(x[6]) {
-				trace += x[6] + ">"
+			if len(x) >= 10 && tracecaller(x[9]) {
+				trace += x[9] + ">"
 			}
 			fallthrough
 		case VERBOSE:
-			if len(x) >= 6 && tracecaller(x[5]) {
-				trace += x[5] + ">"
+			if len(x) >= 9 && tracecaller(x[8]) {
+				trace += x[8] + ">"
 			}
 			fallthrough
 		case DEBUG, ERROR, WARN, INFO:
+			if len(x) >= 8 && tracecaller(x[7]) {
+				trace += x[7] + ">"
+			}
+			if len(x) >= 7 && tracecaller(x[6]) {
+				trace += x[6] + ">"
+			}
+			if len(x) >= 6 && tracecaller(x[5]) {
+				trace += x[5] + ">"
+			}
 			if len(x) >= 5 && tracecaller(x[4]) {
 				trace += x[4] + ">"
 			}
