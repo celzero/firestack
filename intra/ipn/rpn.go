@@ -58,6 +58,7 @@ var (
 	errRpnBadEmplace       = errors.New("proxy: rpn: emplace: bad args")
 	errRpnBadCC            = errors.New("proxy: rpn: bad country code")
 	errRpnIDsMismatch      = errors.New("proxy: rpn: provider x proxy mismatch")
+	errRpnMainProxyMissing = errors.New("proxy: rpn: cannot fork; main proxy missing")
 	errRpnMainProxyStopped = errors.New("proxy: rpn: cannot fork; main proxy stopped")
 	errRpnNotForked        = errors.New("proxy: rpn: not forked")
 )
@@ -304,13 +305,16 @@ func (r *rpnp) Fork(cc string) (x.Proxy, error) {
 func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	// do not hold lock while calling into pxr as it can callback via Emplace.
 	main, err := r.requireProxy()
-	if err != nil {
-		return nil, err
+	if err != nil || main == nil {
+		return nil, core.OneErr(err, errRpnMainProxyMissing)
 	}
 	acc := r.RpnAcc
 
 	mainpid := idstr(main)
-	if len(mainpid) <= 0 || main.Status() == END {
+	if len(mainpid) <= 0 {
+		return nil, errMissingProxyID
+	}
+	if main.Status() == END {
 		// TODO: PurgeAll?
 		return nil, errRpnMainProxyStopped
 	}
@@ -348,10 +352,10 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	return kid, err
 }
 
-func (r *rpnp) forkMain() {
+func (r *rpnp) forkMain() error {
 	main, err := r.requireProxy()
-	if err != nil {
-		return
+	if err != nil || main == nil {
+		return log.EE("proxy: rpn: forkMain: main missing; err? %v", err)
 	}
 
 	mainpid := idstr(main)
@@ -359,24 +363,30 @@ func (r *rpnp) forkMain() {
 	_, err = r.fork(mainpid) // re-adds main proxy (via Emplace)
 
 	logei(err)("proxy: rpn: forkMain: %s; err? %v", mainpid, err)
+	return err
 }
 
-func (r *rpnp) forkAll() {
+func (r *rpnp) forkAll() error {
 	provider := r.RpnAcc.ProviderID()
 	kids := r.flattenKids()
 	log.I("proxy: rpn: forkAll: %s[%v]", provider, kids)
 
-	r.forkMain()
+	errs := make([]error, 0) // may contain nil errors
+
+	e := r.forkMain()
+
+	errs = append(errs, e)
 
 	for _, cc := range kids {
-		_, err := r.fork(cc)
-		loged(err)("proxy: rpn: forkAll: forked %s[%s]; err? %v", provider, cc, err)
+		_, e := r.fork(cc)
+		loged(e)("proxy: rpn: forkAll: forked %s[%s]; err? %v", provider, cc, e)
+		errs = append(errs, e)
 	}
+	return core.JoinErr(errs...)
 }
 
 func (r *rpnp) Redo() (err error) {
-	r.forkAll()
-	return nil
+	return r.forkAll()
 }
 
 func (r *rpnp) PingAll() (csvpids string, err error) {
@@ -540,7 +550,7 @@ func (r *rpnp) flattenKids() (ccs []string) {
 func (r *rpnp) Update(rotate bool) (newState []byte, err error) {
 	newState, err = r.RpnAcc.Update(rotate)
 	if err == nil {
-		core.Gx("rpn.fork."+r.ProviderID(), r.forkAll)
+		core.Gxe("rpn.fork."+r.ProviderID(), r.forkAll)
 	}
 	return
 }
