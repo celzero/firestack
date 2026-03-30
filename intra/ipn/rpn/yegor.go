@@ -1643,9 +1643,12 @@ func (a *WsClient) kid() string {
 
 func trunc8(s string) string {
 	if len(s) <= 8 {
-		return s
+		return s[:4]
 	}
-	return s[:8] + "..."
+	if len(s) <= 16 {
+		return s[:4] + ".." + s[len(s)-4:]
+	}
+	return s[:8] + ".." + s[len(s)-8:]
 }
 
 func newWsGw(c *WsWgConfig, h *http.Client) (*WsClient, error) {
