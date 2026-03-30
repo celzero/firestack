@@ -422,13 +422,7 @@ func (w *wgproxy) Refresh() (err error) {
 			// Re-apply peer config so wireguard device uses freshly resolved endpoint IPs.
 			// remote.Refresh() above may have updated IPs; Device.Up() alone does not
 			// re-call ParseEndpoint, so peers would keep sending handshakes to stale IPs.
-			if cfg := w.wgtun.uapicfg.Load(); len(cfg) > 0 {
-				cpcfg := cfg                      // copies string
-				_, _ = wgIfConfigOf(w.id, &cpcfg) // removes non-uapi fields
-				if ipcerr := w.Device.IpcSet(cpcfg); ipcerr != nil {
-					log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.tag(), ipcerr)
-				}
-			}
+			w.redoPeers()
 		}
 	}
 	// not required since wgconn:NewBind() is namespace aware
@@ -436,6 +430,16 @@ func (w *wgproxy) Refresh() (err error) {
 	logei(err)("proxy: wg: %s: refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t / status: %s => %s; err? %v",
 		w.tag(), n, nn, viaOK, didWait, resetDevice, pxstatus(status), pxstatus(w.Status()), err)
 	return
+}
+
+func (w *wgproxy) redoPeers() {
+	if cfg := w.wgtun.uapicfg.Load(); len(cfg) > 0 {
+		cpcfg := cfg                      // copies string
+		_, _ = wgIfConfigOf(w.id, &cpcfg) // removes non-uapi fields
+		if ipcerr := w.Device.IpcSet(cpcfg); ipcerr != nil {
+			log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.tag(), ipcerr)
+		}
+	}
 }
 
 func (h *wgproxy) Dialer() protect.RDialer {
@@ -1753,6 +1757,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			log.I("wg: %s listener: %s, state: %s; refreshed %d dns / %d peers; why: %s",
 				h.tag(), op, pxstatus(s), m, n, why)
 		}
+		// TODO: h.redoPeers()
 	}
 }
 
