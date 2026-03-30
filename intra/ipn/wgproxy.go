@@ -1590,12 +1590,15 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 func (h *wgtun) listener(op wg.PktDir, err error) {
 	s := h.status.Load()
 	cur := s
-	if op.Read() {
-		h.latestRxErr.Store(err)
-	} else if op.Write() {
-		h.latestTxErr.Store(err)
-	} else {
-		h.latestErr.Store(err)
+
+	if op != wg.Clo {
+		if op.Read() {
+			h.latestRxErr.Store(err)
+		} else if op.Write() {
+			h.latestTxErr.Store(err)
+		} else {
+			h.latestErr.Store(err)
+		}
 	}
 
 	if s == END || s == TPU { // stopped or paused
