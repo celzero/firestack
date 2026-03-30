@@ -143,6 +143,7 @@ const (
 	responseHeaderTimeout = 60 * time.Second
 	tzzTimeout            = 2 * time.Minute  // time between new connections before proxies transition to idle
 	lastOKThreshold       = 10 * time.Minute // time between last OK and now before pinging & un-pinning
+	ageThreshold          = 10 * time.Second // time for proxy to start up
 	pintimeout            = 10 * time.Minute // time to keep a pin
 	alwaysPin             = true             // always pin to a proxy no matter the errors
 	maxFailingPinTrackTTl = 30 * time.Second // max period to track a failing to-be-pinned proxy
