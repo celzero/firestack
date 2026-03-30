@@ -1589,6 +1589,7 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 
 func (h *wgtun) listener(op wg.PktDir, err error) {
 	s := h.status.Load()
+	cur := s
 	if op.Read() {
 		h.latestRxErr.Store(err)
 	} else if op.Write() {
@@ -1610,15 +1611,19 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 
 	defer func() {
 		h.statusReason.Store(why)
-		cur := h.status.Load()
-		stoppedOrPaused := cur == END || cur == TPU
 		updated := false
-		if !stoppedOrPaused {
+		if cur != s {
 			updated = h.status.Cas(cur, s)
 		}
-		logeif(!updated)("wg: %s listener: %s; status %s => %s; end/pause? %t, statusupdated? %t, why: %s",
-			h.tag(), op, pxstatus(cur), pxstatus(s), stoppedOrPaused, !updated, why)
+		logeif(!updated)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",
+			h.tag(), op, pxstatus(cur), pxstatus(s), cur != s, !updated, why)
 	}()
+
+	if op == wg.Clo {
+		why = "TNT: closed; prev: " + pxstatus(s).String()
+		s = TNT
+		return
+	}
 
 	now := now()
 	age := now - h.since

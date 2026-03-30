@@ -108,6 +108,7 @@ const (
 	Csn PktDir = "nots" // not transport data (send)
 	Con PktDir = "conn" // e.g. dial, announce, accept
 	Opn PktDir = "open" // open conn to the wg endpoint
+	Clo PktDir = "clos" // close conn to the wg endpoint
 	Drp PktDir = "drop" // ignored packet
 )
 
@@ -398,6 +399,8 @@ func (s *StdNetBind) Close() error {
 		// resume if paused, so wireguard routines calling into send/recv error out
 		s.blackhole4 = false
 		s.blackhole6 = false
+
+		s.observer(Clo, nil)
 
 		log.I("wg: bind: %s close; addrs %s + %s; err4? %v err6? %v", s.id, addr1, addr2, err1, err2)
 		return core.JoinErr(err1, err2)
