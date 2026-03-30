@@ -76,6 +76,7 @@ var (
 	errNoRawConn       = errors.New("wg: bind: no raw conn")
 	errNotUDP          = errors.New("wg: bind: not a UDP conn")
 	errNoListen        = errors.New("wg: bind: listen failed")
+	errEnded           = errors.New("wg: bind: proxy ended")
 )
 
 type floodkind int
@@ -96,7 +97,7 @@ func (k floodkind) String() string {
 	}
 }
 
-type rwobserver func(op PktDir, err error)
+type rwobserver func(op PktDir, err error) (ended bool)
 type connector func(network, to string) (net.PacketConn, error)
 
 type PktDir string
@@ -144,7 +145,8 @@ type StdNetBind struct {
 	observer rwobserver
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
 
-	closed atomic.Bool
+	closed atomic.Bool // wgconn has been closed
+	ended  atomic.Bool // observer / connector are done
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
@@ -245,6 +247,10 @@ func (s *StdNetBind) RemoteAddr() netip.AddrPort {
 }
 
 func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, error) {
+	if s.ended.Load() {
+		return nil, 0, errEnded
+	}
+
 	anyaddr := anyaddr6
 	if network == "udp4" {
 		anyaddr = anyaddr4
@@ -286,6 +292,11 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 func (s *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.ended.Load() {
+		return nil, 0, errEnded
+	}
+
 	s.closed.Store(false)
 
 	var err error
@@ -339,7 +350,12 @@ again:
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
-	return fns, uint16(port), nil
+
+	var eerr error = nil
+	if s.ended.Load() {
+		eerr = errEnded
+	}
+	return fns, uint16(port), eerr
 }
 
 // Pause implements wgconn
@@ -400,7 +416,7 @@ func (s *StdNetBind) Close() error {
 		s.blackhole4 = false
 		s.blackhole6 = false
 
-		s.observer(Clo, nil)
+		s.ended.Store(s.observer(Clo, nil))
 
 		log.I("wg: bind: %s close; addrs %s + %s; err4? %v err6? %v", s.id, addr1, addr2, err1, err2)
 		return core.JoinErr(err1, err2)
@@ -421,7 +437,9 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			if !anyTransportTyp && anyProcessed {
 				op = Crc // processed packets not transport data
 			}
-			s.observer(op, err)
+			if s.observer(op, err) {
+				s.ended.Store(true)
+			}
 		}()
 
 		amnezia := s.amnezia.Load()
@@ -479,7 +497,9 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		if !anyTransportTyp && anyProcessed {
 			op = Csn // processed packet not transport data
 		}
-		s.observer(op, err)
+		if s.observer(op, err) {
+			s.ended.Store(true)
+		}
 	}()
 
 	// the peer endpoint

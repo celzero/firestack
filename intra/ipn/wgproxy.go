@@ -396,14 +396,13 @@ func (w *wgproxy) Refresh() (err error) {
 		resetDevice = resetDevice && w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
 		if resetDevice {
 			var newdev *device.Device
-			const useExistingCfg = ""
 			// Close the old device before creating the new one.
 			// w.Device.Down() already set bind.ipv4/ipv6 to nil, so Close() is a
 			// near no-op on the bind here. Doing it in the other order would have
 			// Close() re-enter Down() and close the bind that newdevice just opened.
 			w.Device.Close() // tun.Close() is ignored via ignoreTUNClose
 			w.events <- tun.EventUp
-			if newdev, err = newdevice(w.wgtun, w.wgep, useExistingCfg); err == nil {
+			if newdev, err = newdevice(w.wgtun, w.wgep); err == nil {
 				w.Device = newdev // TODO: core.Volatile[device.Device]
 			} else {
 				w.wgtun.ignoreTUNClose.Store(false) // next Close() must not be silently ignored
@@ -632,7 +631,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 				opts.peers[v] = peerkey
 			}
 			// peer config: carry over public keys
-			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, pfxsfx(v), exx)
+			log.D("proxy: wg: %s ifconfig: processing key %q=%s, err? %v", id, k, pfxsfx(v), exx)
 			pcfg.WriteString(line + "\n")
 			finalizeMH(opts.eps, currentPeer)
 			if len(v) > 8 {
@@ -749,7 +748,6 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProps, cfg string) (*wgproxy, error) {
 	ogcfg := cfg
 	opts, err := wgIfConfigOf(id, &cfg)
-	uapicfg := cfg
 	if err != nil {
 		log.E("proxy: wg: %s failure getting opts from config %v", id, err)
 		return nil, err
@@ -768,7 +766,7 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 		wgep = wg.NewEndpoint(wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	}
 
-	wgdev, err := newdevice(wgtun, wgep, uapicfg)
+	wgdev, err := newdevice(wgtun, wgep)
 	if err != nil {
 		return nil, err
 	}
@@ -785,15 +783,10 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 	return w, nil
 }
 
-func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error) {
+func newdevice(wgtun *wgtun, wgep wgconn) (*device.Device, error) {
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(wgtun))
 
-	curcfg := wgtun.uapicfg.Load()
-	if len(uapicfg) <= 0 {
-		// prefer stored UAPI config which reflects latest update() changes
-		uapicfg = curcfg
-	}
-
+	uapicfg := wgtun.uapicfg.Load()
 	err := wgdev.IpcSet(uapicfg)
 	if err != nil {
 		defer wgdev.Close()
@@ -809,7 +802,6 @@ func newdevice(wgtun *wgtun, wgep wgconn, uapicfg string) (*device.Device, error
 	// started by device.NewDevice()
 	// err = wgdev.Up()
 	// TODO: wait for wgconn to open?
-	wgtun.uapicfg.Cas(curcfg, uapicfg)
 	return wgdev, nil
 }
 
@@ -1620,9 +1612,10 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	return
 }
 
-func (h *wgtun) listener(op wg.PktDir, err error) {
+func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 	s := h.status.Load()
 	cur := s
+	ended = s == END
 
 	if op != wg.Clo {
 		if op.Read() {
@@ -1635,11 +1628,13 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	}
 
 	if s == END || s == TPU { // stopped or paused
+		h.statusReason.Store("TXX: paused or stopped")
 		log.E("wg: %s listener: %s; status %s; ignoring1", h.tag(), op, pxstatus(s))
 		return
 	}
 
 	if s == TUP && op != wg.Opn { // ignore all else but open
+		h.statusReason.Store("TUP: waiting for wgconn")
 		return
 	}
 
@@ -1647,8 +1642,9 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 
 	defer func() {
 		h.statusReason.Store(why)
-		updated := false
-		if cur != s {
+		updated := cur == s
+		ended = s == END
+		if !updated {
 			updated = h.status.Cas(cur, s)
 		}
 		logeif(!updated)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",
@@ -1759,6 +1755,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		}
 		// TODO: h.redoPeers()
 	}
+	return
 }
 
 // func Handle(), GetAddr(), Dialer(), Reaches(), Stop(),
