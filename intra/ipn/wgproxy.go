@@ -305,6 +305,18 @@ func waitForDeviceUp() {
 
 // onNotOK implements Proxy.
 func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
+	s := w.status.Load()
+	if err := candial2(s); err != nil { // stopped or paused
+		log.E("proxy: wg: %s onNotOK: %s; status %s; why? %v", w.tag(), pxstatus(s), err)
+		return
+	}
+
+	// TODO: skip on s == TUP?
+	if w.tooyoung() {
+		log.VV("proxy: wg: %s onNotOK: too young; status %s", w.tag(), pxstatus(s))
+		return
+	}
+
 	var didPing, viaDidRefresh, viaOK bool
 
 	if via := w.getViaIfDialed(); via != nil {
@@ -328,9 +340,13 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		allok = allok && w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
-	loged(err)("proxy: wg: %s; onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; err? %v",
-		w.tag(), viaDidRefresh, didRefresh, didPing, viaOK, allok, err)
+	loged(err)("proxy: wg: %s; onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; status? %s; err? %v",
+		w.tag(), viaDidRefresh, didRefresh, didPing, viaOK, allok, pxstatus(s), err)
 	return
+}
+
+func (w *wgproxy) tooyoung() bool {
+	return now()-w.since < ageThreshold.Milliseconds()
 }
 
 // Refresh implements Proxy.
@@ -341,6 +357,12 @@ func (w *wgproxy) Refresh() (err error) {
 	if err := candial2(status); err != nil {
 		log.W("proxy: wg: %s refresh failed; status(%s)", w.tag(), pxstatus(status))
 		return err
+	}
+
+	// TODO: skip on s == TUP?
+	if w.tooyoung() {
+		log.VV("proxy: wg: %s refresh skipped; too young; status(%s)", w.tag(), pxstatus(status))
+		return
 	}
 
 	w.latestRefresh.Store(now())
@@ -599,7 +621,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 				opts.peers[v] = peerkey
 			}
 			// peer config: carry over public keys
-			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, exx)
+			log.D("proxy: wg: %s ifconfig: processing key %q, err? %v", id, k, pfxsfx(v), exx)
 			pcfg.WriteString(line + "\n")
 			finalizeMH(opts.eps, currentPeer)
 			if len(v) > 8 {
@@ -1682,9 +1704,8 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	}
 
 	softrefresh := false
-	const tenSecMillis = 10 * 1000
 	// s may also be TOK (for successful handshakes but not for transport data)
-	if age > tenSecMillis && (s == TOK || s == TKO) {
+	if age > ageThreshold.Milliseconds() && (s == TOK || s == TKO) {
 		lastSuccessfulRead := h.latestGoodRead.Load()
 		lastSuccessfulWrite := h.latestGoodWrite.Load()
 		lastRead := h.latestRx.Load()
@@ -1883,4 +1904,17 @@ func estr(err error) string {
 		return err.Error()
 	}
 	return "<no err>"
+}
+
+func pfxsfx(s string) string {
+	if len(s) <= 4 {
+		return s
+	}
+	if len(s) <= 8 {
+		return s[:4]
+	}
+	if len(s) <= 16 {
+		return s[:4] + ".." + s[len(s)-4:]
+	}
+	return s[:6] + ".." + s[len(s)-6:]
 }
