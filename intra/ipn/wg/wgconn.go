@@ -423,7 +423,8 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			s.observer(op, err)
 		}()
 
-		usingamz := s.amnezia.Load().Set()
+		amnezia := s.amnezia.Load()
+		usingamz := amnezia.Set()
 		overwritten := false
 
 		numMsgs := 0
@@ -432,7 +433,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFrom(b)
 		if err == nil {
-			b, overwritten = s.amnezia.Load().recv(b, n)
+			b, overwritten = amnezia.recv(b, n)
 			numMsgs++
 		}
 
@@ -518,14 +519,15 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
+		amnezia := s.amnezia.Load()
 		anyProcessed = true
 		anyTransportTyp = anyTransportTyp || transportType(data)
 
 		datalen := len(data) // grab the length before we overwrite it
 
-		overwritten = s.amnezia.Load().send(&data)
+		overwritten = amnezia.send(&data)
 
-		if !flooded && (floodWg || s.amnezia.Load().Set()) {
+		if !flooded && (floodWg || amnezia.Set()) {
 			if datalen == device.MessageInitiationSize {
 				s.flood(uc, ep, fkHandshake) // was probably a handshake
 				flooded = true

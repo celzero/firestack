@@ -1538,7 +1538,7 @@ func (h *wgtun) Contains(ippOrCidr string) bool {
 }
 
 func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
-	if err := candial(h.status); err != nil {
+	if err := canserve(h.status); err != nil {
 		return nil, err
 	}
 

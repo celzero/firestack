@@ -744,6 +744,17 @@ func candial(state *core.Volatile[int]) error {
 	return candial2(state.Load())
 }
 
+func candserve2(st int) error {
+	if st == END {
+		return errProxyStopped
+	}
+	return nil
+}
+
+func canserve(state *core.Volatile[int]) error {
+	return candserve2(state.Load())
+}
+
 func usevia(viaID *core.Volatile[string]) bool {
 	return viaID != nil && len(viaID.Load()) > 0
 }
