@@ -82,7 +82,8 @@ const (
 
 	FAST = x.WGFAST
 
-	refreshInterval = 2 * time.Minute
+	refreshInterval    = 2 * time.Minute // refresh interval between onNotOKs
+	minRefreshInterval = 5 * time.Second // hard refresh interval; roughly one re-send handshake timeout
 
 	noviaid = ""
 )
@@ -362,7 +363,13 @@ func (w *wgproxy) Refresh() (err error) {
 	// TODO: skip on s == TUP?
 	if w.tooyoung() {
 		log.VV("proxy: wg: %s refresh skipped; too young; status(%s)", w.tag(), pxstatus(status))
-		return
+		return // TODO: err?
+	}
+
+	lastRefresh := w.latestRefresh.Load()
+	if now()-lastRefresh < minRefreshInterval.Milliseconds() {
+		log.VV("proxy: wg: %s refresh skipped; done recently; status(%s)", w.tag(), pxstatus(status))
+		return // TODO: err?
 	}
 
 	w.latestRefresh.Store(now())
