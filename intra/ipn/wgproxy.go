@@ -724,8 +724,6 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 		return nil, err
 	}
 
-	id = wgtun.id // has stripped prefixes (like FAST), if any
-
 	var wgep wgconn
 	if wgtun.preferOffload {
 		wgep = wg.NewEndpoint2(wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
