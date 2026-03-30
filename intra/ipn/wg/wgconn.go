@@ -375,11 +375,9 @@ func (s *StdNetBind) Closed() bool {
 }
 
 func (s *StdNetBind) Close() error {
-	if s.closed.Load() {
-		log.W("wg: bind: %s already closed", s.id)
-		return nil
-	}
-
+	// Do NOT do a pre-lock s.closed.Load() check here.
+	// Open() writes s.closed under s.mu; a read outside the lock races with it.
+	// The CAS below (also under s.mu) is the only correct guard.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -610,8 +608,12 @@ func (s *StdNetBind) BatchSize() int {
 
 // from: github.com/WireGuard/wireguard-go/blob/1417a47c8/conn/mark_unix.go
 func (s *StdNetBind) SetMark(mark uint32) (err error) {
+	// s.ipv4 and s.ipv6 are written by Open/Close under s.mu; read them here
+	// under the same lock to avoid a data race.
+	s.mu.Lock()
 	uc4, _ := s.ipv4.(core.ControlConn) // may be nil
 	uc6, _ := s.ipv6.(core.ControlConn) // may be nil
+	s.mu.Unlock()
 	var operr error
 	var raw4, raw6 syscall.RawConn
 	fwmarkIoctl := 36 /* unix.SO_MARK */
@@ -641,7 +643,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 			}
 		} // else: return err
 	}
-	log.I("wg: bind: %s set mark; err? %v", err, s.id)
+	log.I("wg: bind: %s set mark; err? %v", s.id, err)
 	return nil
 }
 
