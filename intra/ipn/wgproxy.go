@@ -432,13 +432,18 @@ func (w *wgproxy) Refresh() (err error) {
 }
 
 func (w *wgproxy) redoPeers() {
-	if cfg := w.wgtun.uapicfg.Load(); len(cfg) > 0 {
+	w.wgtun.ipcset(w.Device)
+}
+
+func (h *wgtun) ipcset(d *device.Device) {
+	if cfg := h.uapicfg.Load(); len(cfg) > 0 {
 		cpcfg := cfg                      // copies string
-		_, _ = wgIfConfigOf(w.id, &cpcfg) // removes non-uapi fields
-		if ipcerr := w.Device.IpcSet(cpcfg); ipcerr != nil {
-			log.W("proxy: wg: %s: refresh: re-apply ipcset failed; err %v", w.tag(), ipcerr)
-		}
+		_, _ = wgIfConfigOf(h.id, &cpcfg) // removes non-uapi fields
+		ipcerr := d.IpcSet(cpcfg)
+		logei(ipcerr)("proxy: wg: %s: ipcset: re-apply; err %v", h.tag(), ipcerr)
+		return
 	}
+	log.E("proxy: wg: %s: ipcset: missing uapicfg", h.tag())
 }
 
 func (h *wgproxy) Dialer() protect.RDialer {
@@ -786,13 +791,7 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 func newdevice(wgtun *wgtun, wgep wgconn) (*device.Device, error) {
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(wgtun))
 
-	uapicfg := wgtun.uapicfg.Load()
-	err := wgdev.IpcSet(uapicfg)
-	if err != nil {
-		defer wgdev.Close()
-		log.E("proxy: wg: %s:%s failed to ipc-set %v", wgtun.tag(), err)
-		return nil, err
-	}
+	wgtun.ipcset(wgdev) // apply initial config to device
 
 	// github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L99
 	wgdev.DisableSomeRoamingForBrokenMobileSemantics()
