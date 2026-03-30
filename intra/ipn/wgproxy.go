@@ -142,19 +142,23 @@ type wgtun struct {
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
 	// TODO: move status to a state-machine for all proxies
-	status        *core.Volatile[int]   // status of this interface
-	statusReason  core.Volatile[string] // last state transition reason
-	latestRefresh atomic.Int64          // last refresh time in unix millis
-	latestPing    atomic.Int64          // last ping time in unix millis
-	latestErr     core.Volatile[error]  // last open/dial err
-	latestRxErr   core.Volatile[error]  // last rx error
-	latestTxErr   core.Volatile[error]  // last tx error
-	latestGoodRx  atomic.Int64          // last successful rx time in unix millis
-	latestGoodTx  atomic.Int64          // last successful tx time in unix millis
-	latestRx      atomic.Int64          // last (successful or not) rx time in unix millis
-	latestTx      atomic.Int64          // last (successful or not) tx time in unix millis
-	errRx         atomic.Int64          // rx error count
-	errTx         atomic.Int64          // tx error count
+	status          *core.Volatile[int]   // status of this interface
+	statusReason    core.Volatile[string] // last state transition reason
+	latestRefresh   atomic.Int64          // last refresh time in unix millis
+	latestPing      atomic.Int64          // last ping time in unix millis
+	latestErr       core.Volatile[error]  // last open/dial err
+	latestRxErr     core.Volatile[error]  // last rx error
+	latestTxErr     core.Volatile[error]  // last tx error
+	latestRead      atomic.Int64          // last read time in unix millis
+	latestWrite     atomic.Int64          // last write time in unix millis
+	latestGoodRead  atomic.Int64          // last successful read time in unix millis
+	latestGoodWrite atomic.Int64          // last successful write time in unix millis
+	latestGoodRx    atomic.Int64          // last successful rx time in unix millis
+	latestGoodTx    atomic.Int64          // last successful tx time in unix millis
+	latestRx        atomic.Int64          // last (successful or not) rx time in unix millis
+	latestTx        atomic.Int64          // last (successful or not) tx time in unix millis
+	errRx           atomic.Int64          // rx error count
+	errTx           atomic.Int64          // tx error count
 }
 
 type wgconn interface {
@@ -1619,6 +1623,8 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	now := now()
 	age := now - h.since
 	if err != nil { // failing
+		s = TKO
+		why = "TKO: " + err.Error()
 		if op == wg.Opn { // could not open conn to wg endpoint
 			s = TNT
 			why = "TNT: could not open conn"
@@ -1632,9 +1638,6 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			// recieve any incoming messages (nor outgoing as those use the same socket)
 			s = TNT
 			why = "TNT: closed " + string(op)
-		} else {
-			s = TKO
-			why = "TKO: " + err.Error()
 		}
 
 		if op == wg.Rcv && !timedout(err) { // read error
@@ -1644,6 +1647,12 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			h.errTx.Add(1)
 			h.latestTx.Store(now)
 		} // else: not a transport message
+
+		if op.Read() {
+			h.latestRead.Store(now)
+		} else if op.Write() {
+			h.latestWrite.Store(now)
+		}
 	} else { // ok
 		s = TOK
 		why = "TOK: ok"
@@ -1656,14 +1665,20 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			h.latestTx.Store(now)
 			why = "TOK: write ok"
 		} // else: not a transport message
+
+		if op.Read() {
+			h.latestGoodRead.Store(now)
+		} else if op.Write() {
+			h.latestGoodWrite.Store(now)
+		}
 	}
 
 	softrefresh := false
 	const tenSecMillis = 10 * 1000
 	// s may also be TOK (for successful handshakes but not for transport data)
 	if age > tenSecMillis && (s == TOK || s == TKO) {
-		lastSuccessfulRead := h.latestGoodRx.Load()
-		lastSuccessfulWrite := h.latestGoodTx.Load()
+		lastSuccessfulRead := h.latestGoodRead.Load()
+		lastSuccessfulWrite := h.latestGoodWrite.Load()
 		lastRead := h.latestRx.Load()
 		lastWrite := h.latestTx.Load()
 
@@ -1691,7 +1706,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		} else if readThres || writeThres || readWriteDeviation {
 			why = fmt.Sprintf("TZZ: r !ok? %t, w !ok? %t, rw apart? %t; overriding: %s",
 				readThres, writeThres, readWriteDeviation, why)
-			s = TZZ
+			s = TNT
 			softrefresh = true
 		}
 	}
