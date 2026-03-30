@@ -142,18 +142,19 @@ type wgtun struct {
 	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
 
 	// TODO: move status to a state-machine for all proxies
-	status        *core.Volatile[int]  // status of this interface
-	latestRefresh atomic.Int64         // last refresh time in unix millis
-	latestPing    atomic.Int64         // last ping time in unix millis
-	latestErr     core.Volatile[error] // last open/dial err
-	latestRxErr   core.Volatile[error] // last rx error
-	latestTxErr   core.Volatile[error] // last tx error
-	latestGoodRx  atomic.Int64         // last successful rx time in unix millis
-	latestGoodTx  atomic.Int64         // last successful tx time in unix millis
-	latestRx      atomic.Int64         // last (successful or not) rx time in unix millis
-	latestTx      atomic.Int64         // last (successful or not) tx time in unix millis
-	errRx         atomic.Int64         // rx error count
-	errTx         atomic.Int64         // tx error count
+	status        *core.Volatile[int]   // status of this interface
+	statusReason  core.Volatile[string] // last state transition reason
+	latestRefresh atomic.Int64          // last refresh time in unix millis
+	latestPing    atomic.Int64          // last ping time in unix millis
+	latestErr     core.Volatile[error]  // last open/dial err
+	latestRxErr   core.Volatile[error]  // last rx error
+	latestTxErr   core.Volatile[error]  // last tx error
+	latestGoodRx  atomic.Int64          // last successful rx time in unix millis
+	latestGoodTx  atomic.Int64          // last successful tx time in unix millis
+	latestRx      atomic.Int64          // last (successful or not) rx time in unix millis
+	latestTx      atomic.Int64          // last (successful or not) tx time in unix millis
+	errRx         atomic.Int64          // rx error count
+	errTx         atomic.Int64          // tx error count
 }
 
 type wgconn interface {
@@ -1190,6 +1191,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.LastRefresh = w.latestRefresh.Load()
 	out.Since = w.since
 	out.Status = pxstatus(w.status.Load()).String()
+	out.StatusReason = w.statusReason.Load()
 
 	if w.status.Load() == END {
 		log.W("proxy: wg: %s stats: stopped", w.tag())
@@ -1585,14 +1587,12 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 
 func (h *wgtun) listener(op wg.PktDir, err error) {
 	s := h.status.Load()
-	if err != nil {
-		if op.Read() {
-			h.latestRxErr.Store(err)
-		} else if op.Write() {
-			h.latestTxErr.Store(err)
-		} else {
-			h.latestErr.Store(err)
-		}
+	if op.Read() {
+		h.latestRxErr.Store(err)
+	} else if op.Write() {
+		h.latestTxErr.Store(err)
+	} else {
+		h.latestErr.Store(err)
 	}
 
 	if s == END || s == TPU { // stopped or paused
@@ -1607,6 +1607,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 	why := ""
 
 	defer func() {
+		h.statusReason.Store(why)
 		cur := h.status.Load()
 		stoppedOrPaused := cur == END || cur == TPU
 		updated := false
@@ -1659,6 +1660,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 		} // else: not a transport message
 	}
 
+	softrefresh := false
 	const tenSecMillis = 10 * 1000
 	// s may also be TOK (for successful handshakes but not for transport data)
 	if age > tenSecMillis && (s == TOK || s == TKO) {
@@ -1689,13 +1691,14 @@ func (h *wgtun) listener(op wg.PktDir, err error) {
 			why = "TZZ: idling after start/refresh"
 			s = TZZ // possibly idling
 		} else if readThres || writeThres || readWriteDeviation {
-			why = fmt.Sprintf("TNT: r !ok? %t, w !ok? %t, rw apart? %t; overriding: %s",
+			why = fmt.Sprintf("TZZ: r !ok? %t, w !ok? %t, rw apart? %t; overriding: %s",
 				readThres, writeThres, readWriteDeviation, why)
-			s = TNT
+			s = TZZ
+			softrefresh = true
 		}
 	}
 
-	if s == TNT {
+	if s == TNT || softrefresh {
 		m := h.dns.Load().SoftRefresh()
 		if n := h.remote.Load().MaybeRefresh(); n > 0 {
 			log.I("wg: %s listener: %s, state: %s; refreshed %d dns / %d peers; why: %s",

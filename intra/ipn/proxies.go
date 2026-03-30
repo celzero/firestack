@@ -1205,7 +1205,8 @@ func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
 	// todo: a.Since or b.Since may be zero
 	c.Since = min(a.Since, b.Since)
 	c.Status = strings.Join([]string{a.Status, b.Status}, ";")
-	return
+	c.StatusReason = strings.Join([]string{a.StatusReason, b.StatusReason}, ";")
+	return c
 }
 
 // Contains implements x.Router.

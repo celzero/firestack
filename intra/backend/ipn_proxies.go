@@ -308,6 +308,8 @@ type RouterStats struct {
 	Since int64
 	// Current proxy status
 	Status string
+	// Current reason for Status
+	StatusReason string
 	// Extra is extra info about this router
 	Extra string
 }
