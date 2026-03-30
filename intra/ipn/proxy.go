@@ -677,17 +677,19 @@ func healthy(p Proxy) error {
 		return err
 	} // TODO: err on TNT, TKO?
 
+	// TODO: via, _ := p.Router().Via()
+
 	stat := p.Router().Stat()
 	now := now()
 	lastOK := stat.LastOK
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
 	if lastOKNeverOK || lastOKBeyondThres {
-		core.Gx("healthy.notOK."+pid, func() { p.onNotOK() }) // not ok for too long
+		core.Gx("healthy.TNT."+pid, func() { p.onNotOK() }) // not ok for too long
 		return fmt.Errorf("proxy: %s not ok; lastOK: zz? %t / thres? %t",
 			pid, lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
-		core.Gx("healthy.timeout."+pid, func() { p.onNotOK() })
+		core.Gx("healthy.TZZ."+pid, func() { p.Ping() })
 	} else if p.Status() != TOK {
 		core.Gx("healthy.TOK."+pid, func() { p.Ping() })
 	}
