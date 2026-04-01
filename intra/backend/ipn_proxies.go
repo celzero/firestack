@@ -115,7 +115,11 @@ func (o *RpnOps) SetPermaCreds(v bool) { o.permaCreds = v; o.rotateCreds = false
 func (o *RpnOps) SetForceFetchServers(v bool) { o.forceFetchServers = v }
 
 // SetPort pins a specific WireGuard port; 0 means random (default).
-func (o *RpnOps) SetPort(port uint16) { o.newPort = port }
+func (o *RpnOps) SetPort(port int32) {
+	if port >= 0 && port <= 65535 {
+		o.newPort = uint16(port)
+	}
+}
 
 // Rotate reports whether a new WG keypair should be generated.
 func (o RpnOps) Rotate() bool { return o.rotateCreds }
