@@ -6,6 +6,8 @@
 
 package backend
 
+import "fmt"
+
 const ( // see ipn/proxies.go
 	// IDs for default proxies
 
@@ -83,6 +85,52 @@ const ( // see ipn/proxies.go
 	END = -3
 )
 
+// RpnOps carries options that control the behaviour of Update and RegisterWin.
+// Fields are unexported; use the Set* methods to configure.
+type RpnOps struct {
+	rotateCreds       bool   // force a new WireGuard keypair on the next Update
+	permaCreds        bool   // use permanent WireGuard (local) addresses if available
+	forceFetchServers bool   // force server-list refresh on the next Update
+	newPort           uint16 // fixed WireGuard port; 0 = random per wsRandomPort()
+}
+
+func NewRpnOps() *RpnOps {
+	return &RpnOps{}
+}
+
+func (o *RpnOps) String() string {
+	return fmt.Sprintf("rotate: %t; perma: %t; forceFetchServers: %t; port: %d",
+		o.rotateCreds, o.permaCreds, o.forceFetchServers, o.newPort)
+}
+
+// SetRotateCreds forces generation of a new WireGuard keypair on the next Update.
+// Note: Rotate and Perma are mutually exclusive; setting one to true will set the other to false.
+func (o *RpnOps) SetRotateCreds(v bool) { o.rotateCreds = v; o.permaCreds = false }
+
+// SetPermaCreds enables/disables using the permanent WG credential set in Conf().
+// Note: Rotate and Perma are mutually exclusive; setting one to true will set the other to false.
+func (o *RpnOps) SetPermaCreds(v bool) { o.permaCreds = v; o.rotateCreds = false }
+
+// SetForceFetchServers forces the server-list refresh on the next Update.
+func (o *RpnOps) SetForceFetchServers(v bool) { o.forceFetchServers = v }
+
+// SetPort pins a specific WireGuard port; 0 means random (default).
+func (o *RpnOps) SetPort(port uint16) { o.newPort = port }
+
+// Rotate reports whether a new WG keypair should be generated.
+func (o RpnOps) Rotate() bool { return o.rotateCreds }
+
+// Perma reports whether permanent WG credentials should be used in Conf().
+func (o RpnOps) Perma() bool { return o.permaCreds }
+
+// FetchServers reports whether the server-list fetch should be forced.
+func (o RpnOps) FetchServers() bool { return o.forceFetchServers }
+
+// Port returns the pinned WireGuard port, or 0 if none is set.
+func (o RpnOps) Port() uint16 {
+	return o.newPort
+}
+
 type Rpn interface {
 	// EntitlementFrom returns the RpnEntitlement represented by entitlementOrStateJson.
 	// `did` is the device identifier to use for this entitlement, if applicable; and `rpnProviderID` is the RPN provider for this entitlement, if applicable.
@@ -90,8 +138,9 @@ type Rpn interface {
 	EntitlementFrom(entitlementOrStateJson []byte, rpnProviderID, did string) (RpnEntitlement, error)
 	// RegisterSE registers a new SurfEasy user.
 	RegisterSE() error
-	// RegisterWin is alias for RegisterWin.
-	RegisterWin(entitlementOrStateJson []byte, did string) (json []byte, err error)
+	// RegisterWin registers (or re-registers) a Windscribe account.
+	// ops may be nil to use default behaviour.
+	RegisterWin(entitlementOrStateJson []byte, did string, ops *RpnOps) (json []byte, err error)
 	// UnregisterWin unregisters a Windscribe installation.
 	UnregisterWin() bool
 	// UnregisterSE unregisters a SurfEasy user.
@@ -163,6 +212,8 @@ type RpnAcc interface {
 	Who() string
 	// State returns the state (as json) of the account.
 	State() ([]byte, error)
+	// Ops returns the RpnOps that control the behaviour of Update.
+	Ops() *RpnOps
 	// Created returns the time (unix millis) currently active account was created.
 	Created() int64
 	// Updated returns the time (unix millis) currently active account was updated.
@@ -171,8 +222,8 @@ type RpnAcc interface {
 	Expires() int64
 	// Locations returns RpnServers encapsulating this proxy's worldwide server presence.
 	Locations() (RpnServers, error)
-	// Update updates the account creating new state.
-	Update(rotate bool) (newstate []byte, err error)
+	// Update updates the account creating new state; ops may be nil to retain current RpnOps.
+	Update(ops *RpnOps) (newstate []byte, err error)
 }
 
 // RpnEntitlement represents access to a proxy service.

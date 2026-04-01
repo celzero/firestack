@@ -132,3 +132,64 @@ func (rwg *RegionalWgConf) addrCsv() string {
 	}
 	return strings.Join(addrs, ",")
 }
+
+// GenUapiConfigFrom builds an on-the-fly UAPI config string that overlays
+// the credentials from a permanent config (private key, address, DNS,
+// preshared key, allowed IPs) onto this regional config's server endpoints.
+// rwg.UapiWgConf is NOT modified; the generated string is returned directly.
+// Returns ("", false) when rwg/perma is nil or PrivateKey/Address is absent.
+func (rwg *RegionalWgConf) GenUapiConfigFrom(perma *WsWgCreds) (string, bool) {
+	if rwg == nil || perma == nil || len(perma.PrivateKey) <= 0 {
+		return "", false
+	}
+
+	addr := perma.Address
+	if len(addr) <= 0 {
+		return "", false // not a perma config
+	}
+	dns := perma.DNS
+	if len(dns) <= 0 {
+		dns = cfdns4 // fallback
+	}
+
+	// AllowedIPs from the permanent config may be comma-separated ("0.0.0.0/0, ::/0").
+	allowedips := []string{gw4}
+	if len(perma.AllowedIPs) > 0 {
+		parts := strings.Split(perma.AllowedIPs, ",")
+		allowedips = make([]string, 0, len(parts))
+		for _, p := range parts {
+			if t := strings.TrimSpace(p); len(t) > 0 {
+				allowedips = append(allowedips, t)
+			}
+		}
+	}
+
+	conf := fmt.Sprintf(`private_key=%s
+replace_peers=true
+address=%s
+dns=%s
+mtu=(auto)
+public_key=%s`,
+		toHex(perma.PrivateKey),
+		addr,
+		dns,
+		toHex(rwg.ServerPubKey),
+	)
+	if len(rwg.ServerIPPort4) > 0 {
+		conf += "\nendpoint=" + rwg.ServerIPPort4
+	}
+	if len(rwg.ServerIPPort6) > 0 {
+		conf += "\nendpoint=" + rwg.ServerIPPort6
+	}
+	if len(rwg.ServerDomainPort) > 0 {
+		conf += "\nendpoint=" + rwg.ServerDomainPort
+	}
+	if len(perma.PresharedKey) > 0 {
+		conf += "\npreshared_key=" + toHex(perma.PresharedKey)
+	}
+	for _, ip := range allowedips {
+		conf += fmt.Sprintf("\nallowed_ip=%s", ip)
+	}
+
+	return conf, true
+}

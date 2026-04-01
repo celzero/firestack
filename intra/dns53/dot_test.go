@@ -442,7 +442,7 @@ func TestWinReaches(t *testing.T) {
 
 	const did = "deadbeefdeadbeefdeadbeefdeadbeef" // some device id
 	ilog.D("ws: read ent (sess? %t): %d", readWinJson, len(entjson))
-	if wreg, err := pxr.RegisterWin(entjson, did); err != nil {
+	if wreg, err := pxr.RegisterWin(entjson, did, nil); err != nil {
 		t.Fatal(err)
 	} else {
 		entjson = wreg
