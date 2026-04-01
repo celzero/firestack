@@ -127,7 +127,7 @@ const (
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/res/raw/port_map.txt#L76
-var wswgports = []string{ /*0th & 1st pos must always be 443, 80; see wsRandomPort */ "443", "80", "53", "123", "1194", "65142"}
+var wswgports = []string{ /*0th & 1st pos used by wsRandomPort */ "65142", "1194", "53", "123", "443", "80"}
 
 var (
 	errWsBadGatewayArgs = errors.New("ws: cannot make gw; missing args")
