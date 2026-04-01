@@ -1290,7 +1290,6 @@ func skipWsServer(server WsServerList) (bool, string) {
 	return false, "" // this server is okay to use
 }
 
-// TODO: For now, hardcode to use 443 (at pos 0) or 53 (at pos 1) as it has better "anti-censorship" property.
 func wsRandomPort() string {
 	// return a random port from the list of WireGuard ports
 	// return wswgports[rand.Int32N(int32(len(wswgports)))]
@@ -1982,13 +1981,11 @@ func listKeys(h *http.Client, ent *WsEntitlement, bearer string) (*WsWgListKeysR
 
 // createPermaCreds calls POST WgConfigs/permanent to create a permanent WG config.
 // If pubkey is empty the server generates both the private and public keys.
-func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, port, pubkey string) (*WsWgPermanentConfig, error) {
+func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string) (*WsWgPermanentConfig, error) {
 	if len(bearer) <= 0 {
 		return nil, errWsNoToken
 	}
-	if len(port) <= 0 {
-		port = wsRandomPort() // some port; doesn't matter which one
-	}
+	port := wsRandomPort() // some port; doesn't matter which one
 	tokst := tokenState(bearer)
 
 	// curl --location --request POST '.../WgConfigs/permanent' \
@@ -2078,7 +2075,7 @@ func getOrCreatePermaCreds(h *http.Client, sess *WsSession, ent *WsEntitlement, 
 	}
 
 	// no public key matches or no existing creds
-	return createPermaCreds(h, ent, bearer, "443", "" /*no pubkey – server generates keypair*/)
+	return createPermaCreds(h, ent, bearer, "" /*server generates keypair*/)
 }
 
 func wsBriefPauseBeforeRetry() {
