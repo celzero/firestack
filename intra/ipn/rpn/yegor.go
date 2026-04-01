@@ -1203,6 +1203,10 @@ func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 		return nil, log.EE("ws: %s: (%d) unmarshal err: %v; body: %s", op, code, err, truncate2k(body))
 	}
 
+	if len(wsErr.Msg) <= 0 {
+		wsErr.Msg = string(truncate2k(body))
+	}
+
 	return &wsErr, log.EE("ws: %s: (%d) error %d: %s; why: %s", op, code, wsErr.Code, wsErr.Msg, wsErr.Desc)
 }
 
