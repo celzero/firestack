@@ -93,8 +93,12 @@ type ioinfo struct {
 }
 
 const (
-	retryTimeout  = 15 * time.Second
-	onFlowTimeout = 5 * time.Second
+	retryTimeout = 15 * time.Second
+
+	// onFlowTimeout takes in to account "testWithBackoff" on Kolin side (which is around 9s)
+	onFlowTimeout    = 10 * time.Second
+	onPreFlowTimeout = 5 * time.Second
+	onInFlowTimeout  = 5 * time.Second
 )
 
 var (

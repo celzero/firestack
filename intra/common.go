@@ -119,7 +119,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 	// inflow does not go through nat/alg/dns/proxy
 	fm, ok := core.Grx(h.proto+".inflow", func(_ context.Context) (*Mark, error) {
 		return h.listener.Inflow(nn, int32(uid), to.String(), from.String()), nil
-	}, onFlowTimeout)
+	}, onInFlowTimeout)
 
 	if !ok || fm == nil {
 		fm = optionsBlock // fail-safe: block everything
@@ -172,7 +172,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 
 	pre, _ := core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
 		return h.listener.Preflow(proto, int32(uid), src, dst), nil
-	}, onFlowTimeout)
+	}, onPreFlowTimeout)
 
 	hasPre := pre != nil
 	if hasPre && pre != nil /*nilaway*/ && len(pre.UID) > 0 {
