@@ -12,6 +12,9 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 type RegionalWgConf struct {
@@ -135,13 +138,22 @@ func (rwg *RegionalWgConf) GenUapiConfigFrom(creds *WsWgCreds, port string) (str
 		return "", false
 	}
 
-	addr := creds.Address
-	if len(addr) <= 0 {
-		return "", false // not a perma config
+	addr4 := rwg.ClientAddr4
+	if len(creds.Address) > 0 {
+		addr4 = creds.Address // perma address
 	}
-	dns := creds.DNS
-	if len(dns) <= 0 {
-		dns = cfdns4 // fallback
+	dns4 := rwg.ClientDNS4
+	if len(creds.DNS) > 0 {
+		dns4 = creds.DNS // perma dns
+	}
+
+	priv := creds.PrivateKey
+	pub := creds.PublicKey
+	psk := creds.PresharedKey
+
+	if len(priv) <= 0 || len(pub) <= 0 {
+		log.E("rpn: regconf: cannot gen; empty priv (%t) or pub (%t) key", len(priv) <= 0, len(pub) <= 0)
+		return "", false
 	}
 
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
@@ -164,6 +176,11 @@ func (rwg *RegionalWgConf) GenUapiConfigFrom(creds *WsWgCreds, port string) (str
 	ipp6str := changeport(rwg.ServerIPPort6, port)
 	domstr := changeport(rwg.ServerDomainPort, port)
 
+	if settings.Debug {
+		log.V("rpn: regconf: gen for %s/%s (port? %s); endpoint: %s %s %s; psk? %t; allowed: %v",
+			addr4, dns4, port, ipp4str, ipp6str, domstr, len(psk) > 0, allowedips)
+	}
+
 	// not added: listen_port, persistent_keepalive_interval
 	conf := fmt.Sprintf(`private_key=%s
 replace_peers=true
@@ -171,10 +188,10 @@ address=%s
 dns=%s
 mtu=(auto)
 public_key=%s`,
-		toHex(creds.PrivateKey),
-		addr,
-		dns,
-		toHex(rwg.ServerPubKey),
+		toHex(priv),
+		addr4,
+		dns4,
+		toHex(pub),
 	)
 	if len(rwg.ServerIPPort4) > 0 {
 		conf += "\nendpoint=" + ipp4str
@@ -185,8 +202,8 @@ public_key=%s`,
 	if len(rwg.ServerDomainPort) > 0 {
 		conf += "\nendpoint=" + domstr
 	}
-	if len(creds.PresharedKey) > 0 {
-		conf += "\npreshared_key=" + toHex(creds.PresharedKey)
+	if len(psk) > 0 {
+		conf += "\npreshared_key=" + toHex(psk)
 	}
 	for _, ip := range allowedips {
 		conf += fmt.Sprintf("\nallowed_ip=%s", ip)
