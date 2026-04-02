@@ -72,6 +72,10 @@ const (
 	// This error is a trigger to run a new "/init" API call to generate a new keypair,
 	// as you're effectively in a clean slate (how all accounts start out).
 	//
+	// Another error 1312 - "Could not select a new WireGuard interface IP" is returned
+	// by "/connect" if the "/init"d client IP was released by the server and assigned
+	// to another user?
+	//
 	// Once local (client) has keypair, do not make the "/init" call again unless on errors
 	// as described above.
 	wswginitpath = "WgConfigs/init"
@@ -116,6 +120,7 @@ const (
 const (
 	ekeylimit   = 1313
 	ekeyinvalid = 1311
+	enoaddr     = 1312
 )
 
 const (
@@ -1523,6 +1528,8 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, existingPermaCreds *Ws
 	tokst := "sess-" + tokenState(bearer)
 
 	runkey := 0
+	runinit := 0
+	runconnect := 0
 	keyed := 0
 keyagain:
 	useExistingCreds := existingCreds != nil && keyed == 0 && !forceInit
@@ -1550,7 +1557,6 @@ keyagain:
 
 	force := "0" // reset to 0, if force init is not needed
 
-	runinit := 0
 initagain:
 	keyNeedsInit := !useExistingCreds || force == "1"
 	runinit += 1
@@ -1634,6 +1640,9 @@ initagain:
 	log.I("ws: wgconfs: got creds;" + details)
 
 	someEndpoint := fixedValidWsEndpoint(test)
+
+connectagain:
+	runconnect += 1
 	// github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/backend/utils/WindVpnController.kt#L159
 	/*
 		curl -x POST '.../WgConfigs/connect' \
@@ -1652,19 +1661,20 @@ initagain:
 	u := baseurl(test, cid, ent.Did).JoinPath(wswgconnectpath)
 	creq, err := http.NewRequest("POST", u.String(), strings.NewReader(cdata.Encode()))
 	if err != nil {
-		return nil, nil, nil, log.EE("ws: wgconfs: %s connect req err: %v", details, err)
+		return nil, nil, nil, log.EE("ws: wgconfs: %s connect#%d req err: %v", details, runconnect, err)
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(creq, sess.SessionToken)
 	didHeader(creq, ent.DidToken)
 
 	if settings.Debug {
-		log.V("ws: wgconfs: %s connect req: %s tok %s", details, u.String(), tokst)
+		log.V("ws: wgconfs: %s connect#%d req: %s tok %s", details, runconnect, u.String(), tokst)
 	}
 
 	cres, err := h.Do(creq)
 	if err != nil || cres == nil {
-		return nil, nil, nil, log.EE("ws: wgconfs: %s connect res err (nil? %t / tok? %s): %v", details, cres == nil, tokst, err)
+		return nil, nil, nil, log.EE("ws: wgconfs: %s connect#%d res err (nil? %t / tok? %s): %v",
+			details, runconnect, cres == nil, tokst, err)
 	}
 	updateDidTokenIfNeeded(ent, cres)
 	if cres.StatusCode != http.StatusOK {
@@ -1675,6 +1685,9 @@ initagain:
 				keyed = 1
 				goto keyagain // try again with a non-default key
 			}
+		} else if wserr != nil && wserr.Code == enoaddr && runconnect < 2 {
+			time.Sleep(3 * time.Second) // wait a bit before retrying once
+			goto connectagain           // retry connect
 		}
 		return nil, nil, nil, err
 	}
@@ -1683,15 +1696,19 @@ initagain:
 	_, err = wsRes(cres, &wgConnect, "wgconfs")
 	defer core.Close(cres.Body)
 	if err != nil {
-		return nil, nil, nil, log.EE("ws: wgconfs: %s connect res err: %v", details, err)
+		return nil, nil, nil, log.EE("ws: wgconfs: %s connect#%d res err: %v",
+			details, runconnect, err)
 	}
 
+	// TODO: goto connectagain if runconnect < 2?
 	if wgConnect.Data.Success != 1 {
-		return nil, nil, nil, log.EE("ws: wgconfs: %s connect success != 1; debug: %v", details, wgConnect.Data.Debug)
+		return nil, nil, nil, log.EE("ws: wgconfs: %s connect#%d success != 1; debug: %v",
+			details, runconnect, wgConnect.Data.Debug)
 	}
-
+	// TODO: goto connectagain if runconnect < 2?
 	if len(wgConnect.Data.Config.Address) <= 0 || len(wgConnect.Data.Config.DNS) <= 0 {
-		return nil, nil, nil, log.EE("ws: wgconfs: %s connect missing config; debug: %v", details, wgConnect.Data.Debug)
+		return nil, nil, nil, log.EE("ws: wgconfs: %s connect#%d missing config; debug: %v",
+			details, runconnect, wgConnect.Data.Debug)
 	}
 
 	// TODO: if wgconnect.Data.Config.Address has not changed and useExistingCreds is true,
