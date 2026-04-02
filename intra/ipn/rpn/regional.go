@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -44,8 +45,7 @@ type RegionalWgConf struct {
 	ServerDomainPort string   `json:"ServerDomainPort"`
 	AllowedIPs       []string `json:"AllowedIPs"` // csv
 
-	WgConf     string `json:"wgconf"`     // generated
-	UapiWgConf string `json:"uapiwgconf"` // generated
+	UapiWgConf string `json:"uapiwgconf,omitempty"` // generated
 }
 
 func (rwg *RegionalWgConf) String() string {
@@ -67,14 +67,6 @@ func (rwg *RegionalWgConf) GenUapiConfig() (didGenerate bool) {
 	return rwg.genUapiConfig()
 }
 
-func (rwg *RegionalWgConf) genUapiConfigIfNeeded() (hasConfig bool) {
-	if len(rwg.UapiWgConf) <= 0 {
-		return rwg.genUapiConfig()
-	}
-	return true
-}
-
-// TODO: genWgConf github.com/celzero/firestack/blob/31633dc6f3/intra/ipn/warp/id.go#L260
 func (rwg *RegionalWgConf) genUapiConfig() (didGenerate bool) {
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
 	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
@@ -138,24 +130,27 @@ func (rwg *RegionalWgConf) addrCsv() string {
 // preshared key, allowed IPs) onto this regional config's server endpoints.
 // rwg.UapiWgConf is NOT modified; the generated string is returned directly.
 // Returns ("", false) when rwg/perma is nil or PrivateKey/Address is absent.
-func (rwg *RegionalWgConf) GenUapiConfigFrom(perma *WsWgCreds) (string, bool) {
-	if rwg == nil || perma == nil || len(perma.PrivateKey) <= 0 {
+func (rwg *RegionalWgConf) GenUapiConfigFrom(creds *WsWgCreds, port string) (string, bool) {
+	if rwg == nil || creds == nil || len(creds.PrivateKey) <= 0 {
 		return "", false
 	}
 
-	addr := perma.Address
+	addr := creds.Address
 	if len(addr) <= 0 {
 		return "", false // not a perma config
 	}
-	dns := perma.DNS
+	dns := creds.DNS
 	if len(dns) <= 0 {
 		dns = cfdns4 // fallback
 	}
 
-	// AllowedIPs from the permanent config may be comma-separated ("0.0.0.0/0, ::/0").
+	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Config.java#L179
+	// github.com/WireGuard/wireguard-android/blob/4ba87947ae/tunnel/src/main/java/com/wireguard/config/Interface.java#L257
+	// allowedips must be individual entries in uapi, but our custom impl can handle csv
+	// see: wgproxy.go:wgIfConfigOf => wgproxy.go:loadIPNets
 	allowedips := []string{gw4}
-	if len(perma.AllowedIPs) > 0 {
-		parts := strings.Split(perma.AllowedIPs, ",")
+	if len(creds.AllowedIPs) > 0 {
+		parts := strings.Split(creds.AllowedIPs, ",")
 		allowedips = make([]string, 0, len(parts))
 		for _, p := range parts {
 			if t := strings.TrimSpace(p); len(t) > 0 {
@@ -164,32 +159,49 @@ func (rwg *RegionalWgConf) GenUapiConfigFrom(perma *WsWgCreds) (string, bool) {
 		}
 	}
 
+	// port may be empty
+	ipp4str := changeport(rwg.ServerIPPort4, port)
+	ipp6str := changeport(rwg.ServerIPPort6, port)
+	domstr := changeport(rwg.ServerDomainPort, port)
+
+	// not added: listen_port, persistent_keepalive_interval
 	conf := fmt.Sprintf(`private_key=%s
 replace_peers=true
 address=%s
 dns=%s
 mtu=(auto)
 public_key=%s`,
-		toHex(perma.PrivateKey),
+		toHex(creds.PrivateKey),
 		addr,
 		dns,
 		toHex(rwg.ServerPubKey),
 	)
 	if len(rwg.ServerIPPort4) > 0 {
-		conf += "\nendpoint=" + rwg.ServerIPPort4
+		conf += "\nendpoint=" + ipp4str
 	}
 	if len(rwg.ServerIPPort6) > 0 {
-		conf += "\nendpoint=" + rwg.ServerIPPort6
+		conf += "\nendpoint=" + ipp6str
 	}
 	if len(rwg.ServerDomainPort) > 0 {
-		conf += "\nendpoint=" + rwg.ServerDomainPort
+		conf += "\nendpoint=" + domstr
 	}
-	if len(perma.PresharedKey) > 0 {
-		conf += "\npreshared_key=" + toHex(perma.PresharedKey)
+	if len(creds.PresharedKey) > 0 {
+		conf += "\npreshared_key=" + toHex(creds.PresharedKey)
 	}
 	for _, ip := range allowedips {
 		conf += fmt.Sprintf("\nallowed_ip=%s", ip)
 	}
 
 	return conf, true
+}
+
+func changeport(endpoint, newPort string) string {
+	if len(endpoint) <= 0 || len(newPort) <= 0 || newPort == "0" {
+		return endpoint
+	}
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return endpoint // malformed, return as is
+	}
+	return net.JoinHostPort(host, newPort)
 }

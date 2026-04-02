@@ -1019,6 +1019,10 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		usePerma = false
 		log.E("ws: conf: permacreds requested but nil; using dynamic creds")
 	}
+	portstr := ""
+	if port := a.Ops().Port(); port > 0 {
+		portstr = fmt.Sprintf("%d", port) // port may be 0
+	}
 	city := ""
 	if cccsv := strings.Split(cc, confKeySep); len(cccsv) >= 2 {
 		city = cccsv[0]
@@ -1068,10 +1072,9 @@ func (a *WsClient) Conf(cc string) (string, error) {
 			var confstr string
 			var confok bool
 			if usePerma && cfg.PermaCreds != nil {
-				confstr, confok = rc.GenUapiConfigFrom(cfg.PermaCreds)
+				confstr, confok = rc.GenUapiConfigFrom(cfg.PermaCreds, portstr)
 			} else {
-				confok = rc.genUapiConfigIfNeeded()
-				confstr = rc.UapiWgConf
+				confstr, confok = rc.GenUapiConfigFrom(cfg.Creds, portstr)
 			}
 			if confok {
 				out = append(out, confstr)
@@ -1083,7 +1086,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	}
 	if len(out) > 0 {
 		r := rand.IntN(len(out))
-		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s]", cc, city, c, len(out), chooseAny, r, ids[r])
+		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s] (port: %s)", cc, city, c, len(out), chooseAny, r, ids[r], portstr)
 		return out[r], nil
 	}
 	log.E("ws: conf: cc %s(%s) not found (tot: %d)", cc, city, tot)
