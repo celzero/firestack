@@ -1023,7 +1023,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	if cfg == nil {
 		return "", errWsNoConfig
 	}
-	usePerma := a.Ops().Perma()
+	usePerma := !disablePermaCreds && a.Ops().Perma()
 	if usePerma && cfg.PermaCreds == nil {
 		usePerma = false
 		log.E("ws: conf: permacreds requested but nil; using dynamic creds")
@@ -1529,6 +1529,11 @@ func initAndConnectCreds(h *http.Client, existingCreds *WsWgCreds, perma bool, s
 	test := ent.TestDomain
 	tokst := "sess-" + tokenState(bearer)
 
+	if perma && disablePermaCreds {
+		log.W("ws: wgconfs: perma creds disabled; skipping...")
+		return nil, nil // perma creds disabled; no API calls, no error
+	}
+
 	force := "0" // 0 when forced registration (which deletes older keys) is not needed
 
 	// For perma creds, check whether the existing pubkey is still registered on the server.
@@ -1800,10 +1805,14 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, existingPermaCreds *Ws
 	}
 
 	// attempt to generate or reuse a permanent WG config (best-effort; non-fatal)
-	permaCreds, permaErr := initAndConnectCreds(h, existingPermaCreds /*may be nil*/, true /*perma*/, sess, ent, false /*forceInit is not useful for perma*/)
-	if permaErr != nil {
-		log.W("ws: wgconfs: permacreds err (ops: %v): %v", &ops, permaErr)
-		permaCreds = existingPermaCreds // keep existing on error
+	var permaCreds *WsWgPermanentConfig
+	if !disablePermaCreds {
+		var permaErr error
+		permaCreds, permaErr = initAndConnectCreds(h, existingPermaCreds /*may be nil*/, true /*perma*/, sess, ent, false /*forceInit is not useful for perma*/)
+		if permaErr != nil || permaCreds == nil {
+			log.W("ws: wgconfs: permacreds err (ops: %v): %v", &ops, permaErr)
+			permaCreds = existingPermaCreds // keep existing on error
+		}
 	}
 
 	log.I("ws: wgconfs: ok (test? %t / tok? %s) found %d regions", test, tokst, len(regconfs))
@@ -1898,7 +1907,7 @@ func makeWsWg(h *http.Client, ent *WsEntitlement, ops x.RpnOps) (*WsClient, erro
 		Configs:     wgconfs,
 		Servers:     servers.Data,
 		Creds:       creds,
-		PermaCreds:  permaCreds,
+		PermaCreds:  permaCreds, // may be nil
 	}
 
 	return newWsGw(cfg, h, ops)
@@ -2036,7 +2045,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 			existingConf.Servers = maybeNewServers
 			existingConf.Configs = maybeNewWgConfs
 			existingConf.Creds = maybeNewCreds
-			existingConf.PermaCreds = maybeNewPermaCreds
+			existingConf.PermaCreds = maybeNewPermaCreds // may be nil
 		} else if performingUpdate {
 			// error out early as this was meant to create an update config for later use
 			// but it itself is not the currently active config aka "existingConf"
