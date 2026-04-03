@@ -147,6 +147,7 @@ var (
 	errWsNoToken        = errors.New("ws: missing token")
 	errWsNoCid          = errors.New("ws: missing cid")
 	errWsNoDid          = errors.New("ws: missing device id")
+	errWsDidMismatch    = errors.New("ws: device id mismatch")
 	errWsNoResponse     = errors.New("ws: no response")
 	errWsNoLocHash      = errors.New("ws: no loc hash")
 	errWsNoServerList   = errors.New("ws: no server list")
@@ -1837,12 +1838,12 @@ func (a *WsClient) kid() string {
 
 func trunc8(s string) string {
 	if len(s) <= 8 {
-		return s[:4]
+		return s[:3]
 	}
 	if len(s) <= 16 {
-		return s[:4] + ".." + s[len(s)-4:]
+		return s[:2] + ".." + s[len(s)-2:]
 	}
-	return s[:8] + ".." + s[len(s)-8:]
+	return s[:4] + ".." + s[len(s)-4:]
 }
 
 func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
@@ -1862,6 +1863,20 @@ func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 	return a, nil
 }
 
+// setDidIfNeeded assigns did to ent.Did. If ent.Did is already set and does not match
+// the incoming did, errWsDidMismatch is returned and ent is left unchanged.
+func setDidIfNeeded(ent *WsEntitlement, did string) error {
+	if ent == nil {
+		return errWsNoEntitlement
+	}
+	if existing := ent.Did; len(existing) > 0 && existing != did {
+		log.E("ws: did mismatch: existing %s, incoming %s", trunc8(existing), trunc8(did))
+		return errWsDidMismatch
+	}
+	ent.Did = did
+	return nil
+}
+
 func (w *BaseClient) MakeWsWg(entitlement []byte, did string, ops x.RpnOps) (*WsClient, error) {
 	if len(entitlement) <= 0 {
 		return nil, errWsNoEntitlement
@@ -1876,7 +1891,10 @@ func (w *BaseClient) MakeWsWg(entitlement []byte, did string, ops x.RpnOps) (*Ws
 		return nil, err
 	}
 
-	(&ent).Did = did
+	// TODO: if ent already has did set; then err on mismatch?
+	if err := setDidIfNeeded(&ent, did); err != nil {
+		return nil, err
+	}
 	return makeWsWg(&w.h2, &ent, ops)
 }
 
@@ -1924,14 +1942,18 @@ func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string
 	var ent WsEntitlement
 	err1 := json.Unmarshal(entitlementOrStateJson, &ent)
 	if err1 == nil {
-		(&ent).Did = did
+		if err := setDidIfNeeded(&ent, did); err != nil {
+			return nil, err
+		}
 		return &ent, nil
 	}
 	var existingConf WsWgConfig
 	err2 := json.Unmarshal(entitlementOrStateJson, &existingConf)
 	if err2 == nil && existingConf.Entitlement != nil && len(existingConf.Entitlement.SessionToken) > 0 {
 		ent := existingConf.Entitlement
-		(ent).Did = did
+		if err := setDidIfNeeded(ent, did); err != nil {
+			return nil, err
+		}
 		return ent, nil
 	}
 	return nil, core.JoinErr(err1, err2)
@@ -1957,7 +1979,9 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string, 
 			sz, hasEnt, hasTok, err)
 		return w.MakeWsWg(entitlementOrWsConfigJson, did, ops)
 	}
-	(existingConf.Entitlement).Did = did
+	if err := setDidIfNeeded(existingConf.Entitlement, did); err != nil {
+		return nil, err
+	}
 	return w.makeWsWgFrom(&existingConf, ops)
 }
 
