@@ -801,6 +801,7 @@ func newdevice(wgtun *wgtun, wgep wgconn) (*device.Device, error) {
 	// started by device.NewDevice()
 	// err = wgdev.Up()
 	// TODO: wait for wgconn to open?
+	log.I("proxy: wg: %s new device created %s", wgtun.tag(), core.LocStr(wgdev))
 	return wgdev, nil
 }
 
@@ -1709,7 +1710,6 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		}
 	}
 
-	softrefresh := false
 	// s may also be TOK (for successful handshakes but not for transport data)
 	if age > ageThreshold.Milliseconds() && (s == TOK || s == TKO) {
 		lastSuccessfulRead := h.latestGoodRead.Load()
@@ -1742,17 +1742,19 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 			why = fmt.Sprintf("TZZ: r !ok? %t, w !ok? %t, rw apart? %t; overriding: %s",
 				readThres, writeThres, readWriteDeviation, why)
 			s = TNT
-			softrefresh = true
 		}
 	}
 
-	if s == TNT || softrefresh {
-		m := h.dns.Load().SoftRefresh()
-		if n := h.remote.Load().MaybeRefresh(); n > 0 {
-			log.I("wg: %s listener: %s, state: %s; refreshed %d dns / %d peers; why: %s",
-				h.tag(), op, pxstatus(s), m, n, why)
-		}
-		// TODO: h.redoPeers()
+	if s == TNT {
+		// listener is called from wgconn and must retrun without performing blocking ops
+		core.Go("wg.listener.refresh."+h.id, func() {
+			m := h.dns.Load().SoftRefresh()
+			if n := h.remote.Load().MaybeRefresh(); n > 0 {
+				log.I("wg: %s listener: %s, state: %s; refreshed %d dns / %d peers; why: %s",
+					h.tag(), op, pxstatus(s), m, n, why)
+			}
+			// TODO: h.redoPeers()
+		})
 	}
 	return
 }

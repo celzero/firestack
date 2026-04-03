@@ -1858,7 +1858,7 @@ func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 	}
 
 	log.I("ws: gw: for %s/%s; ops: %s; from: %s until: %s",
-		a.Who(), c.tokenState(), a.ops, fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
+		a.Who(), c.tokenState(), a.Ops(), fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
 
 	return a, nil
 }

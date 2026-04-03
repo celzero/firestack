@@ -192,7 +192,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	// d.Add([]string{host}) // resolves host if needed
 	d, err := e.pm.Load().Get(s)
 	if err != nil || d == nil /*nilaway; can't happen*/ {
-		log.E("wg: bind: %s parse: invalid endpoint in(%s); err: %v", e.id, s, err)
+		log.E("wg: bind: parse: %s invalid endpoint in(%s); err: %v", e.id, s, err)
 		return nil, err
 	}
 
@@ -200,7 +200,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	ipport := d.PreferredAddr()
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind: %s parse: invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		log.E("wg: bind: parse: %s invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
@@ -259,17 +259,17 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 
 	conn, err := s.connect(network, saddr)
 	if err != nil {
-		log.E("wg: bind: %s %s: listen(%v); err: %v", s.id, network, saddr, err)
+		log.E("wg: bind: listen: %s %s: on(%v); err: %v", s.id, network, saddr, err)
 		return nil, 0, err
 	}
 	if conn == nil {
-		log.E("wg: bind: %s %s: listen(%v); conn nil", s.id, network, saddr)
+		log.E("wg: bind: listen: %s %s: on(%v); conn nil", s.id, network, saddr)
 		return nil, 0, errNoListen
 	}
 
 	laddr := conn.LocalAddr()
 	if laddr == nil {
-		log.E("wg: bind: %s %s: listen(%v); local-addr nil", s.id, network, saddr)
+		log.E("wg: bind: listen: %s %s: on(%v); local-addr nil", s.id, network, saddr)
 		return nil, 0, errNoLocalAddr
 	}
 	uaddr, err := net.ResolveUDPAddr(
@@ -283,7 +283,7 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 		return nil, 0, errNoLocalAddr
 	}
 	if settings.Debug {
-		log.VV("wg: bind: %s %s: listen(%v)", s.id, network, laddr)
+		log.VV("wg: bind: listen: %s %s: on(%v)", s.id, network, laddr)
 	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	return conn, uaddr.Port, nil
@@ -303,7 +303,7 @@ func (s *StdNetBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	var tries int
 
 	if s.ipv4 != nil || s.ipv6 != nil {
-		log.W("wg: bind: %s already open at :%d", s.id, uport)
+		log.W("wg: bind: open: %s already open at :%d", s.id, uport)
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
@@ -315,7 +315,7 @@ again:
 
 	ipv4, port, err = s.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s #%d listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
+	log.D("wg: bind: open: %s #%d listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
 	if err != nil && !no4 {
 		return nil, 0, err
 	}
@@ -324,7 +324,7 @@ again:
 	ipv6, port, err = s.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
+	log.D("wg: bind: open: %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
 	if uport == 0 && busy && tries < maxbindtries {
 		clos(ipv4)
 		tries++
@@ -345,7 +345,7 @@ again:
 		fns = append(fns, s.makeReceiveFn(ipv6))
 	}
 
-	log.I("wg: bind: %s opened port(requested %d => using %d) for v4? %t v6? %t",
+	log.I("wg: bind: open: %s opened port(requested %d => using %d) for v4? %t v6? %t",
 		s.id, uport, port, ipv4 != nil, ipv6 != nil)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
@@ -368,7 +368,7 @@ func (s *StdNetBind) Pause() bool {
 
 	// by the time resume comes about, the internal wireguard send/recv routines may have been stopped
 	// or the keepalives blackholed for long enough that a new connection needs to be established.
-	log.I("wg: bind: %s pausing... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+	log.I("wg: bind: pr: %s pausing... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
 
 	return true
 }
@@ -381,7 +381,7 @@ func (s *StdNetBind) Resume() bool {
 	s.blackhole4 = false
 	s.blackhole6 = false
 
-	log.I("wg: bind: %s resuming... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
+	log.I("wg: bind: pr: %s resuming... v4? %t v6? %t", s.id, s.ipv4 != nil, s.ipv6 != nil)
 
 	return true
 }
@@ -418,10 +418,10 @@ func (s *StdNetBind) Close() error {
 
 		s.ended.Store(s.observer(Clo, nil))
 
-		log.I("wg: bind: %s close; addrs %s + %s; err4? %v err6? %v", s.id, addr1, addr2, err1, err2)
+		log.I("wg: bind: close: %s addrs %v + %v; err4? %v err6? %v", s.id, addr1, addr2, err1, err2)
 		return core.JoinErr(err1, err2)
 	}
-	log.W("wg: bind: %s racing close ignored", s.id)
+	log.W("wg: bind: close: %s racing... ignored", s.id)
 	return nil
 }
 
@@ -608,7 +608,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 			n += sent
 
 			if err != nil {
-				log.E("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d); %v",
+				log.E("wg: bind: flood: %s %s %s: expected sent?(%v) / tot(%d); %v",
 					s.id, why, dst, expectedsent[:i], n, err)
 				return n, err
 			}
@@ -618,7 +618,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 		}
 
 		if settings.Debug {
-			log.D("wg: bind: %s flood %s %s: expected sent?(%v) / tot(%d)",
+			log.D("wg: bind: flood %s %s %s: expected sent?(%v) / tot(%d)",
 				s.id, why, dst, expectedsent, n)
 		}
 		return n, nil
@@ -643,7 +643,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	if uc4 != nil {
 		if raw4, err = uc4.SyscallConn(); err == nil {
 			if raw4 == nil {
-				log.W("wg: bind: %s setmark4: raw conn nil", s.id)
+				log.W("wg: bind: mark: %s setmark4: raw conn nil", s.id)
 				return errNoRawConn
 			}
 			if err = raw4.Control(func(fd uintptr) {
@@ -656,7 +656,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	if err == nil && uc6 != nil {
 		if raw6, err = uc6.SyscallConn(); err == nil {
 			if raw6 == nil {
-				log.W("wg: bind: %s setmark6: raw conn nil", s.id)
+				log.W("wg: bind: mark: %s setmark6: raw conn nil", s.id)
 				return errNoRawConn
 			}
 			if err = raw6.Control(func(fd uintptr) {
@@ -666,7 +666,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 			}
 		} // else: return err
 	}
-	log.I("wg: bind: %s set mark; err? %v", s.id, err)
+	log.I("wg: bind: mark: %s err? %v", s.id, err)
 	return nil
 }
 
