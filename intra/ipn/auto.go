@@ -88,9 +88,6 @@ func (h *auto) DialerHandle() (mix uintptr) {
 	if win, _ := h.pxr.mainRpnProxyOf(RpnWin); win != nil {
 		mix ^= win.DialerHandle()
 	}
-	if sep, _ := h.pxr.mainRpnProxyOf(RpnSE); sep != nil {
-		mix ^= sep.DialerHandle()
-	}
 
 	return mix
 }
@@ -113,9 +110,8 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	exit, exerr := h.pxr.ProxyFor(Exit)
 	exit64, ex64err := h.pxr.ProxyFor(Rpn64)
 	win, winerr := h.pxr.mainRpnProxyOf(RpnWin)
-	sep, seerr := h.pxr.mainRpnProxyOf(RpnSE)
 
-	pxrerrs := core.JoinErr(exerr, winerr, seerr, ex64err)
+	pxrerrs := core.JoinErr(exerr, winerr, ex64err)
 
 	if usevia(h.viaID) {
 		if v, vok := h.via.Get(); !vok {
@@ -142,7 +138,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	totdials := -1
 
 	if !parallelDial {
-		rpns := []Proxy{exit, exit64, sep, win}
+		rpns := []Proxy{exit, exit64, win}
 		healthy := core.Map(
 			core.FilterLeft(
 				rpns,
@@ -237,25 +233,6 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 				}
 				return h.dialIfHealthy(exit64, network, laddr, raddr)
 			}, func(ctx context.Context) (protect.Conn, error) {
-				const myidx = 2
-				if sep == nil {
-					return nil, seerr
-				}
-				if recent {
-					if previdx != myidx {
-						return nil, errNotPinned
-					}
-					// ip pinned to this proxy
-					return h.dialAlways(sep, network, laddr, raddr)
-				}
-
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(shortdelay * myidx): // 400ms
-				}
-				return h.dialIfHealthy(sep, network, laddr, raddr)
-			}, func(ctx context.Context) (protect.Conn, error) {
 				const myidx = 3
 				if win == nil {
 					return nil, winerr
@@ -344,7 +321,7 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 			case <-time.After(shortdelay * myidx): // 100ms
 			}
 			return h.announceIfHealthy(win, network, local)
-		}, // seasy-proxy does not support udp?
+		},
 	)
 	defer localDialStatus(h.status, err)
 
@@ -429,17 +406,14 @@ func (h *auto) Hop(p Proxy, dryrun bool) error {
 		return errProxyStopped
 	}
 
-	var sep, win Proxy
-	var waerr, seerr, winerr error
+	var win Proxy
+	var waerr, winerr error
 	old := h.swapVia(p)
 	if win, winerr = h.pxr.mainRpnProxyOf(RpnWin); win != nil {
 		winerr = win.Hop(p, dryrun)
 	}
-	if sep, seerr = h.pxr.mainRpnProxyOf(RpnSE); sep != nil {
-		seerr = sep.Hop(p, dryrun)
-	}
 
-	errs := core.JoinErr(waerr, seerr, winerr) // may be nil
+	errs := core.JoinErr(waerr, winerr) // may be nil
 
 	logei(errs)("proxy: auto: hop(%s) => %s; errs? %v",
 		idhandle(old), idhandle(p), errs)

@@ -23,7 +23,6 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/ipn/rpn"
-	"github.com/celzero/firestack/intra/ipn/seasy"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
@@ -43,7 +42,6 @@ const (
 	RpnWs    = x.RpnWs
 	Rpn64    = x.Rpn64
 	RpnH2    = x.RpnH2
-	RpnSE    = x.RpnSE
 
 	SOCKS5   = x.SOCKS5
 	HTTP1    = x.HTTP1
@@ -129,7 +127,6 @@ var (
 	errHopNotConnected    = errors.New("proxy: set but not connected over hop")
 	errNilWinCfg          = errors.New("proxy: win cfg nil")
 	errNilWinDevice       = errors.New("proxy: missing win device id")
-	errNilSEProxy         = errors.New("proxy: se proxy nil")
 	errNotRpnProxy        = errors.New("proxy: rpn not found")
 	errNotRpnID           = errors.New("proxy: not rpn id")
 	errNotRpnAcc          = errors.New("proxy: not rpn account")
@@ -160,7 +157,6 @@ var _ Proxy = (*auto)(nil)
 var _ Proxy = (*socks5)(nil)
 var _ Proxy = (*http1)(nil)
 var _ Proxy = (*wgproxy)(nil)
-var _ Proxy = (*seproxy)(nil)
 var _ Proxy = (*ground)(nil)
 var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
@@ -259,11 +255,6 @@ type proxifier struct {
 
 	extc *rpn.BaseClient // external wg registration, never changes
 
-	// TODO: merge extc and sec
-	sec *seasy.SEApi // se proxy registration, never changes; may be nil
-
-	// TODO: move lastSeErr and lastWinErr into merged extc
-	lastSeErr  *core.Volatile[error] // se proxy registration error
 	lastWinErr *core.Volatile[error] // win registration error
 }
 
@@ -301,7 +292,6 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 		hp: make(map[string][]string),
 
 		rp:         make(map[string]RpnProxy),
-		lastSeErr:  core.NewZeroVolatile[error](),
 		lastWinErr: core.NewZeroVolatile[error](),
 	}
 
@@ -315,11 +305,6 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	pxr.uidPins = core.NewSieve2K[string, netip.AddrPort, string](pctx, pintimeout)
 
 	pxr.extc = rpn.NewExtClient(pxr.base)
-	if se, serr := seasy.NewSEasyClient(pxr.base); serr != nil {
-		pxr.lastSeErr.Store(serr)
-	} else {
-		pxr.sec = se
-	}
 
 	pxr.add(pxr.exit)     // fixed
 	pxr.add(pxr.base)     // fixed
@@ -1296,40 +1281,9 @@ func (px *proxifier) registerWin(entitlementOrStateJson []byte, did string, ops 
 	return px.extc.MakeWsWgFrom(entitlementOrStateJson, did, ops)
 }
 
-// RegisterSE implements x.Rpn.
-func (px *proxifier) RegisterSE() (err error) {
-	defer func() {
-		px.lastSeErr.Store(err) // err may be nil, which unsets lastSeErr
-	}()
-
-	sec := px.sec
-	if sec == nil {
-		return core.JoinErr(errMissingSEClient, px.lastSeErr.Load())
-	}
-
-	sep, err := NewSEasyProxy(px.ctx, px.ctl, px, sec)
-
-	if err != nil || sep == nil {
-		log.E("proxy: se: make failed: %v", err)
-		return core.JoinErr(err, errNilSEProxy)
-	}
-
-	if p, err := px.addRpnProxy2(sep, sep); p == nil || err != nil { // unlikely
-		return core.JoinErr(err, errAddProxy)
-	}
-
-	log.I("proxy: se: registered: %s", sep.Who())
-	return nil
-}
-
 // UnregisterWin implements x.Rpn.
 func (px *proxifier) UnregisterWin() bool {
 	return px.unregisterRpn(RpnWin)
-}
-
-// UnregisterSE implements x.Rpn.
-func (px *proxifier) UnregisterSE() bool {
-	return px.unregisterRpn(RpnSE)
 }
 
 func (px *proxifier) unregisterRpn(provider string) bool {
@@ -1367,52 +1321,6 @@ func (px *proxifier) Pip() (x.RpnProxy, error) {
 // Exit64 implements x.Rpn.
 func (px *proxifier) Exit64() (x.RpnProxy, error) {
 	return px.mainRpnProxyOf(Rpn64)
-}
-
-// SE implements x.Rpn.
-func (px *proxifier) SE() (x.RpnProxy, error) {
-	sep, err := px.mainRpnProxyOf(RpnSE)
-	if sep == nil {
-		return nil, core.JoinErr(err, px.lastSeErr.Load())
-	}
-	return sep, err
-}
-
-// TestSE implements x.Rpn.
-func (px *proxifier) TestSE() (string, error) {
-	return px.testSE()
-}
-
-func (px *proxifier) testSE() (string, error) {
-	sec := px.sec
-	if sec == nil {
-		return "", core.OneErr(px.lastSeErr.Load(), errNilSEProxy)
-	}
-
-	const maxpings = 5
-	oks := make([]string, 0, maxpings)
-	notoks := make([]string, 0, maxpings)
-	for i, v := range shuffle(sec.Addrs()) {
-		if i > maxpings {
-			break
-		}
-		ippstr := v.String()
-		// base can route back into netstack (settings.LoopingBack)
-		// in which  case all endpoints will "seem" reachable.
-		// exit, however, never routes back into netstack and has
-		// the true, unhindered path to the underlying network.
-		if Reaches(px.exit, ippstr, "tcp") {
-			oks = append(oks, ippstr)
-		} else {
-			notoks = append(notoks, ippstr)
-		}
-	}
-
-	if len(oks) <= 0 {
-		log.E("proxy: se: no reachable addrs among %v", notoks)
-		return "", core.JoinErr(errNoSuitableAddress, px.lastSeErr.Load())
-	}
-	return strings.Join(oks, ","), nil
 }
 
 // TestWin implements x.Rpn.

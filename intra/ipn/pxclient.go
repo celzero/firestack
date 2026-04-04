@@ -400,6 +400,5 @@ func (h *auto) Client() x.Client    { return newProxyClient(h) }
 func (h *socks5) Client() x.Client  { return newProxyClient(h) }
 func (h *http1) Client() x.Client   { return newProxyClient(h) }
 func (h *wgproxy) Client() x.Client { return newProxyClient(h) }
-func (h *seproxy) Client() x.Client { return newProxyClient(h) }
 func (h *pipws) Client() x.Client   { return newProxyClient(h) }
 func (h *piph2) Client() x.Client   { return newProxyClient(h) }

@@ -33,8 +33,6 @@ const ( // see ipn/proxies.go
 	RpnH2 = PIPH2 + RPN
 	// RPN Exit hopping over NAT64 (built-in)
 	Rpn64 = NAT64 + RPN
-	// RPN SurfEasy (must be registered by Rpn.RegisterSE)
-	RpnSE = SE + RPN
 	// Orbot: Base Tor-as-a-SOCKS5 proxy
 	OrbotS5 = "OrbotSocks5"
 	// Orbot: Base Tor-as-a-HTTP/1.1 proxy
@@ -62,8 +60,6 @@ const ( // see ipn/proxies.go
 	PIPWS = "pipws"
 	// A NAT64 router (prefix)
 	NAT64 = "nat64"
-	// SurfEasy proxy (prefix)
-	SE = "se"
 	// Rethink Proxy Network (suffix)
 	RPN = "rpn"
 
@@ -138,21 +134,15 @@ func (o RpnOps) Port() uint16 {
 type Rpn interface {
 	// EntitlementFrom returns the RpnEntitlement represented by entitlementOrStateJson.
 	// `did` is the device identifier to use for this entitlement, if applicable; and `rpnProviderID` is the RPN provider for this entitlement, if applicable.
-	// `rpnProviderID` is the RPN provider to use with this entitlement (ex: RpnWin, RpnSE, etc).
+	// `rpnProviderID` is the RPN provider to use with this entitlement (ex: RpnWin, etc).
 	EntitlementFrom(entitlementOrStateJson []byte, rpnProviderID, did string) (RpnEntitlement, error)
-	// RegisterSE registers a new SurfEasy user.
-	RegisterSE() error
 	// RegisterWin registers (or re-registers) a Windscribe account.
 	// ops may be nil to use default behaviour.
 	RegisterWin(entitlementOrStateJson []byte, did string, ops *RpnOps) (json []byte, err error)
 	// UnregisterWin unregisters a Windscribe installation.
 	UnregisterWin() bool
-	// UnregisterSE unregisters a SurfEasy user.
-	UnregisterSE() bool
 	// TestWin connects to the Windscribe gateway and returns its IP if reachable.
 	TestWin() (ips string, errs error)
-	// TestSE connects to some SurfEasy IPs and returns reachable ones.
-	TestSE() (ips string, errs error)
 	// TestExit64 connects to public NAT64 endpoints and returns reachable ones.
 	TestExit64() (ips string, errs error)
 	// Win returns a Windscribe WireGuard proxy.
@@ -162,8 +152,6 @@ type Rpn interface {
 	// Exit64 returns a Exit proxy hopping over preset publicly-available
 	// NAT64 proxies.
 	Exit64() (nat64 RpnProxy, err error)
-	// SE returns a SurfEasy proxy.
-	SE() (se RpnProxy, err error)
 }
 
 type Proxy interface {

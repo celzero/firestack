@@ -145,46 +145,6 @@ func TestDot(t *testing.T) {
 	log.Output(10, xdns.Ans(ans6))
 }
 
-func TestSEProxy(t *testing.T) {
-	netr := &fakeResolver{}
-	ctx := context.TODO()
-	ctl := &fakeCtl{}
-	obs := &fakeObs{}
-	bdg := &fakeBdg{Controller: ctl}
-	pxr := NewProxifier(ctx, ctl, obs)
-	ilog.SetLevel(0)
-	settings.Debug = true
-	dialers.Mapper(netr)
-
-	_ = xdns.NetAndProxyID("tcp", Base)
-	tm := settings.NewTunMode(
-		settings.DNSModePort,
-		settings.BlockModeNone,
-		settings.PtModeAuto,
-	)
-
-	tr, _ := dns53.NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
-	dtr, _ := dns53.NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
-
-	natpt := x64.NewNatPt(tm, bdg)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
-	resolv.Add(tr)
-
-	if err := pxr.RegisterSE(); err != nil {
-		t.Fatal(err)
-	}
-	if ips, err := pxr.TestSE(); err != nil {
-		t.Fatal(err)
-	} else {
-		ilog.D("se: %v", ips)
-	}
-
-	se, _ := pxr.ProxyFor(RpnSE)
-	if ok := Reaches(se, "google.com", "tcp"); !ok {
-		t.Fail()
-	}
-	t.Log("proxy reaches")
-}
 
 func TestProxyReaches(t *testing.T) {
 	netr := &fakeResolver{}
