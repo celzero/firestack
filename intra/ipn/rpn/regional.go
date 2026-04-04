@@ -128,12 +128,12 @@ func (rwg *RegionalWgConf) addrCsv() string {
 	return strings.Join(addrs, ",")
 }
 
-// GenUapiConfigFrom builds an on-the-fly UAPI config string that overlays
+// MakeUapiConfig builds an on-the-fly UAPI config string that overlays
 // the credentials from a permanent config (private key, address, DNS,
 // preshared key, allowed IPs) onto this regional config's server endpoints.
 // rwg.UapiWgConf is NOT modified; the generated string is returned directly.
 // Returns ("", false) when rwg/perma is nil or PrivateKey/Address is absent.
-func (rwg *RegionalWgConf) GenUapiConfigFrom(creds *WsWgCreds, port string) (string, bool) {
+func (rwg *RegionalWgConf) MakeUapiConfig(creds *WsWgCreds, port string) (string, bool) {
 	if rwg == nil || creds == nil || len(creds.PrivateKey) <= 0 {
 		return "", false
 	}
@@ -147,12 +147,12 @@ func (rwg *RegionalWgConf) GenUapiConfigFrom(creds *WsWgCreds, port string) (str
 		dns4 = creds.DNS // perma dns
 	}
 
-	priv := creds.PrivateKey
-	pub := creds.PublicKey
+	clientpriv := creds.PrivateKey
 	psk := creds.PresharedKey
+	peerpub := rwg.ServerPubKey
 
-	if len(priv) <= 0 || len(pub) <= 0 {
-		log.E("rpn: regconf: cannot gen; empty priv (%t) or pub (%t) key", len(priv) <= 0, len(pub) <= 0)
+	if len(clientpriv) <= 0 || len(peerpub) <= 0 {
+		log.E("rpn: regconf: cannot gen; empty priv (%t) or peer pub (%t) key", len(clientpriv) <= 0, len(peerpub) <= 0)
 		return "", false
 	}
 
@@ -188,18 +188,18 @@ address=%s
 dns=%s
 mtu=(auto)
 public_key=%s`,
-		toHex(priv),
+		toHex(clientpriv),
 		addr4,
 		dns4,
-		toHex(pub),
+		toHex(peerpub),
 	)
-	if len(rwg.ServerIPPort4) > 0 {
+	if len(ipp4str) > 0 {
 		conf += "\nendpoint=" + ipp4str
 	}
-	if len(rwg.ServerIPPort6) > 0 {
+	if len(ipp6str) > 0 {
 		conf += "\nendpoint=" + ipp6str
 	}
-	if len(rwg.ServerDomainPort) > 0 {
+	if len(domstr) > 0 {
 		conf += "\nendpoint=" + domstr
 	}
 	if len(psk) > 0 {

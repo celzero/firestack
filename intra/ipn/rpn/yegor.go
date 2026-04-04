@@ -1082,9 +1082,9 @@ func (a *WsClient) Conf(cc string) (string, error) {
 			var confstr string
 			var confok bool
 			if usePerma && cfg.PermaCreds != nil {
-				confstr, confok = rc.GenUapiConfigFrom(cfg.PermaCreds, portstr)
+				confstr, confok = rc.MakeUapiConfig(cfg.PermaCreds, portstr)
 			} else {
-				confstr, confok = rc.GenUapiConfigFrom(cfg.Creds, portstr)
+				confstr, confok = rc.MakeUapiConfig(cfg.Creds, portstr)
 			}
 			if confok {
 				out = append(out, confstr)
