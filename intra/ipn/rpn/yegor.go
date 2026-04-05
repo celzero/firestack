@@ -117,6 +117,13 @@ const (
 	wsMaxPermaWgKeys     = 5
 
 	disablePermaCreds = true
+
+	// managedPermaCreds selects a server-managed keypair strategy for permanent creds.
+	// When true, the keypair is generated entirely by the server (no local key-gen and no
+	// /WgConfigs/init call). The server-generated keypair is always returned by
+	// /WgConfigs/list_keys, so liveness can be checked without any /init round-trip.
+	// When false (default), the existing locally-generated key + /init + /permanent flow is used.
+	managedPermaCreds = false
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/constants/NetworkErrorCodes.kt
@@ -1509,10 +1516,13 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 
 // initAndConnectCreds registers creds via /WgConfigs/init and then either:
 //   - dynamic creds (perma=false): reserves a WireGuard interface via /WgConfigs/connect.
-//   - perma creds (perma=true): registers the init'd pubkey via /WgConfigs/permanent.
+//   - perma creds (perma=true, managedPermaCreds=false): registers the init'd pubkey via
+//     /WgConfigs/permanent.  The keypair is generated locally; /WgConfigs/init is required.
+//   - managed perma creds (perma=true, managedPermaCreds=true): delegates entirely to
+//     managedPermaCredsFn; no local key-gen and no /WgConfigs/init call is performed.
 //
-// For perma=true, if existingCreds is non-nil and its pubkey is still present in
-// /WgConfigs/list_keys, existingCreds is returned as-is (no /init or /permanent needed).
+// For perma=true (non-managed), if existingCreds is non-nil and its pubkey is still present
+// in /WgConfigs/list_keys, existingCreds is returned as-is (no /init or /permanent needed).
 // If the key is no longer listed, a fresh /init + /permanent cycle is performed.
 // The /init error handling is identical for both dynamic and perma paths.
 func initAndConnectCreds(h *http.Client, existingCreds *WsWgCreds, perma bool, sess *WsSession, ent *WsEntitlement, forceInit bool) (*WsWgCreds, error) {
@@ -1533,6 +1543,12 @@ func initAndConnectCreds(h *http.Client, existingCreds *WsWgCreds, perma bool, s
 	if perma && disablePermaCreds {
 		log.W("ws: wgconfs: perma creds disabled; skipping...")
 		return nil, nil // perma creds disabled; no API calls, no error
+	}
+
+	// Managed perma creds: server generates both priv+pub; no /init call required.
+	// list_keys always includes remotely-generated keys, so liveness is cheap to verify.
+	if perma && managedPermaCreds {
+		return managedPermaCredsFn(h, existingCreds, ent, bearer)
 	}
 
 	force := "0" // 0 when forced registration (which deletes older keys) is not needed
@@ -2123,6 +2139,43 @@ func listKeys(h *http.Client, ent *WsEntitlement, bearer string) (*WsWgListKeysR
 	return &out, nil
 }
 
+// managedPermaCredsFn implements the managed-perma-creds flow (managedPermaCreds=true).
+// The server generates both the private and public key; no /WgConfigs/init is needed.
+// If existingCreds are still present in /WgConfigs/list_keys they are reused directly.
+// Otherwise /WgConfigs/permanent is called without a pubkey so the server creates a fresh
+// keypair. Remotely-generated keypairs are always included in subsequent list_keys responses.
+func managedPermaCredsFn(h *http.Client, existingCreds *WsWgPermanentConfig, ent *WsEntitlement, bearer string) (*WsWgPermanentConfig, error) {
+	if len(bearer) <= 0 {
+		return nil, errWsNoToken
+	}
+	tokst := tokenState(bearer)
+
+	// If we already have remotely-generated creds, verify they are still active.
+	if existingCreds != nil && len(existingCreds.PublicKey) > 0 {
+		for range 2 {
+			keys, kerr := listKeys(h, ent, bearer)
+			if kerr != nil || keys == nil {
+				log.E("ws: wgconfs: perma(managed): list keys err (nil? %t / tok? %s): %v", keys == nil, tokst, kerr)
+				wsBriefPauseBeforeRetry()
+				continue
+			}
+			for _, k := range keys.Data.PubKeys {
+				if k == existingCreds.PublicKey {
+					log.I("ws: wgconfs: perma(managed): existing key %s active (%s); reusing", trunc8(existingCreds.PublicKey), tokst)
+					return existingCreds, nil
+				}
+			}
+			// key not found in list; fall through to generate a new remote keypair
+			log.I("ws: wgconfs: perma(managed): existing key %s missing from list_keys (%s); regenerating", trunc8(existingCreds.PublicKey), tokst)
+			break
+		}
+	}
+
+	// Let the server generate both the private and public keys.
+	// No pubkey is supplied; the returned creds include PrivateKey from the server.
+	return createPermaCreds(h, ent, bearer, "" /*no pubkey: server generates keypair*/)
+}
+
 // createPermaCreds calls POST WgConfigs/permanent to create a permanent WG config.
 // If pubkey is empty the server generates both the private and public keys.
 func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string) (*WsWgPermanentConfig, error) {
@@ -2131,7 +2184,7 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 	}
 	port := wsRandomPort() // some port; doesn't matter which one
 	tokst := tokenState(bearer)
-
+	managed := len(pubkey) <= 0
 	// curl --location --request POST '.../WgConfigs/permanent' \
 	// --header 'Authorization: Bearer <token>' \
 	// --data-urlencode 'port=443' \
@@ -2145,19 +2198,19 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wswgpermanentpath)
 	req, err := http.NewRequest("POST", u.String(), strings.NewReader(data.Encode()))
 	if err != nil {
-		return nil, log.EE("ws: conf: perma: req err: %v", err)
+		return nil, log.EE("ws: conf: perma: (m? %t) req err: %v", managed, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(req, bearer)
 	didHeader(req, ent.DidToken)
 
 	if settings.Debug {
-		log.V("ws: conf: perma: req: %s tok %s; port %s", u.String(), tokst, port)
+		log.V("ws: conf: perma: (m? %t) req: %s tok %s; port %s", managed, u.String(), tokst, port)
 	}
 
 	res, err := h.Do(req)
 	if err != nil || res == nil {
-		return nil, log.EE("ws: conf: perma: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
+		return nil, log.EE("ws: conf: perma: (m? %t) do err (nil? %t / tok? %s): %v", managed, res == nil, tokst, err)
 	}
 	defer core.Close(res.Body)
 	updateDidTokenIfNeeded(ent, res)
@@ -2171,11 +2224,11 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 		return nil, err
 	}
 	if out.Data.Success != 1 {
-		return nil, log.EE("ws: conf: perma: success != 1; tok? %s; debug: %v", tokst, out.Data.Debug)
+		return nil, log.EE("ws: conf: perma: (m? %t) success != 1; tok? %s; debug: %v", managed, tokst, out.Data.Debug)
 	}
 
 	cfg := out.Data.Config
-	log.I("ws: conf: perma: ok (tok? %s); pubkey: %s", tokst, trunc8(cfg.PublicKey))
+	log.I("ws: conf: perma: ok (m? %t / tok? %s); pubkey: %s", managed, tokst, trunc8(cfg.PublicKey))
 	return &cfg, nil
 }
 
