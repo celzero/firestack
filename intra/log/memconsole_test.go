@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -139,9 +138,9 @@ func TestMemconsoleWriteRead(t *testing.T) {
 				t.Logf("[fd=%d off=%d] %s", fd, off, line)
 				n++
 			}*/
-			t.Logf("---- drain: fd=%d start=%d end=%d n=%d (%s) %x", fd, start, end, n, s, &b[start])
-			t.Log(unsafe.String(&b[start], n))
+			// t.Log(unsafe.String(&b[start], n))
 			got.Add(int64(n))
+			t.Logf("---- drain: fd=%d start=%d end=%d n=%d (%s) %x", fd, start, end, n, s, &b[start])
 			return n
 		},
 	})
@@ -156,7 +155,7 @@ func TestMemconsoleWriteRead(t *testing.T) {
 		s := sb.String()
 		nwritten.Add(int64(len(s)))
 		mc.Log(INFO, Logmsg(s))
-		time.Sleep(3 * time.Millisecond)
+		//time.Sleep(1 * time.Millisecond)
 	}
 
 	// Flush any partial buffer that has not filled up yet.
@@ -178,9 +177,11 @@ func TestMemconsoleWriteRead(t *testing.T) {
 	written := nwritten.Load() // bytes submitted
 	drops := mc.Drops()        // overflow events; each loses memNumSlots slots
 	cons := mc.Consumed()
+	waited, vainwaited := mc.Waited()
+	bufsize := mc.BufSize()
 	want := written - int64(drops) // bytes expected to have been drained
-	fmt.Printf("--- got %d / %d bytes (drops=%d overflow-events, ~%d bytes lost / cons: %d)\n",
-		received, written, drops, want, cons)
+	t.Logf("--- got %d / %d bytes (drops=%d overflow-events, ~%d bytes written %d%% / cons: %d); sz: %d; waited: %d (vain: %d)\n",
+		received, written, drops, want, 100*drops/uint64(written), cons, bufsize, waited, vainwaited)
 	if received < want {
 		t.Errorf("expected %d bytes drained (written=%d drops=%d*%d), got %d / cons %d",
 			want, written, drops, memNumSlots, received, cons)

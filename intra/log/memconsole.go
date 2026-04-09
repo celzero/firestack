@@ -40,14 +40,18 @@ const (
 // If false, log lines are silently discarded.
 const overwriteOnFull = true
 
+const waitOnFull = true
+
+const waitPeriodOnFull = 3 * time.Millisecond
+
 // buffer: (pageSize / slotSize) slots * memSlotSize bytes each.
-// On a 4 KiB page: 4096 / 800 = 5 slots => memBufSize = 8 + 5*800 = 4008 B ≈ 1 page.
+// On a 4 KiB page: 4096 / 800 = 5 slots => memBufSize = 8 + 5*800 = 4008 B ~ 1 page.
 // memBufSize is the total region passed to Ftruncate/Mmap.
 var (
-	nofpages    = 8
-	memSlotSize = charsPerLine                                // 800 bytes per slot
-	memNumSlots = nofpages * unix.Getpagesize() / memSlotSize // slots that fit in one page
-	memBufSize  = memHdrSize + memNumSlots*memSlotSize        // ≈ 1 page
+	nofpages    = 16
+	memSlotSize = charsPerLine                                          // 800 bytes per slot
+	memNumSlots = nofpages * unix.Getpagesize()/memSlotSize // slots that fit in one page
+	memBufSize  = memHdrSize + memNumSlots*memSlotSize                  // ~1 page
 )
 
 // mcbuf is a fixed-slot shared-memory region backed by a memfd.
@@ -66,7 +70,7 @@ var (
 //
 // The Go writer owns writes; after consume returns the Go side resets the buffer.
 type mcbuf struct {
-	fd   *os.File // memfd; Go retains ownership so the GC keeps the fd open
+	fd   *os.File // memfd; Go retains ownership
 	data []byte   // mmap region (PROT_READ|PROT_WRITE, MAP_SHARED)
 }
 
@@ -116,6 +120,8 @@ type Memconsole struct {
 	draining  [2]atomic.Bool // true while Drain() is executing for bufs[i]
 	drops     atomic.Uint64  // dropped bytes
 	consumed  atomic.Uint64  // consumed bytes
+	totwait   atomic.Uint64  // wait count for drains to complete when full
+	vainwait  atomic.Uint64  // wait count for drains to complete that were not useful
 	ticking   atomic.Bool    // true while a lazy ticker goroutine is running
 	closed    atomic.Bool
 }
@@ -206,6 +212,7 @@ func (mc *Memconsole) write(lvl LogLevel, msg Logmsg) {
 		return
 	}
 
+	waited := false
 	lpfx := lvl.s()
 	p := unsafe.StringData(msg)
 	all := unsafe.Slice(p, len(msg))
@@ -222,6 +229,14 @@ rollover:
 			r := mc.reader
 			go mc.consume(r, idx, logfd, start, end)
 		} else { // the other buffer's consume is wip; cannot swap in
+			if !waited && waitOnFull {
+				waited = true
+				mc.totwait.Add(1)
+				time.Sleep(waitPeriodOnFull) // back off and wait for the other buffer to be consumed
+				goto rollover
+			} else {
+				mc.vainwait.Add(1)
+			}
 			if overwriteOnFull { // ring-within-buffer: overwrite slots
 				// TODO: write overwrite status to header?
 				count := mc.slotIdx * memSlotSize
@@ -375,6 +390,8 @@ func (mc *Memconsole) Flush() {
 func (mc *Memconsole) Drops() uint64 { return mc.drops.Load() }
 
 func (mc *Memconsole) Consumed() uint64 { return mc.consumed.Load() }
+
+func (mc *Memconsole) Waited() (uint64, uint64) { return mc.totwait.Load(), mc.vainwait.Load() }
 
 // SetReader installs r as the consumer of the Memconsole's shared-memory
 // buffers.  Drain(fd, start, end) is called synchronously (but without
