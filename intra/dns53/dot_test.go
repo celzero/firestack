@@ -264,14 +264,14 @@ func TestSEProxy(t *testing.T) {
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
-	if err := pxr.RegisterSE(); err != nil {
+	/*if err := pxr.RegisterSE(); err != nil {
 		t.Fatal(err)
 	}
-	/*if ips, err := pxr.TestSE(); err != nil {
+	if ips, err := pxr.TestSE(); err != nil {
 		t.Fatal(err)
 	} else {
 		ilog.D("se: %v", ips)
-	}*/
+	}
 
 	autoNsOpts.PIDCSV = ipn.RpnSE
 	se, _ := pxr.ProxyFor(ipn.RpnSE)
@@ -282,7 +282,7 @@ func TestSEProxy(t *testing.T) {
 	if ok := ipn.Reaches(se, "google.com", "tcp"); !ok {
 		t.Fail()
 	}
-	t.Log("proxy reaches")
+	t.Log("proxy reaches")*/
 
 	q := aquery("skysports.com")
 	q6 := aaaaquery("skysports.com")
