@@ -16,6 +16,22 @@ type Console interface {
 	Log(int32, string)
 	LogFD(readAfterDup int) bool
 	CrashFD(readUntilEOF int) bool
+	// LogMemFD hands off the shared-memory and that back the double-buffered log data.
+	// fd1 and fd2 can be mapped; but must be dup(2)'d before use.
+	// size is the max length (in bytes) of each region the receiver should mmap.
+	// Return a LogConsumer if the implementation will consume the data from these regions.
+	// nil causes fallback to LogFD or the synchronous Console adapter.
+	LogMemFD(fd1, fd2, size int) LogConsumer
+}
+
+type LogConsumer interface {
+	// fd is shared memory; start and end are the byte offsets [start, end)
+	// of the valid data within the mapped memory. Return the number
+	// of bytes consumed.
+	Drain(fd, start, end int) int
+	// Close is called when the Writer is wrapping things up. The client
+	// code can delay returning from this callback to stall the Writer a bit.
+	OnClose() (closed bool)
 }
 
 // Controller provides a way to bind and protect socket file descriptors.

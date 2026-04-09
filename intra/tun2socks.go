@@ -77,24 +77,40 @@ func SetupConsole(console Console) {
 	logch := make(chan bool, 1)
 	crashch := make(chan bool, 1)
 	go func() {
-		logfd := false
-		if r, c, err := log.NewFilebased(); err == nil {
-			closeall := func() {
-				core.Close(c)
-				core.Close(r)
-			}
-			if logfd = console.LogFD(int(r.Fd())); logfd {
-				log.SetConsole(ctx, c)
-				context.AfterFunc(ctx, closeall)
+		logfd, memfd := false, false
+		var cons x.LogConsumer
+		// memfd double-buffer (shared memory, zero kernel copy).
+		if mc, merr := log.NewMemoryBased(); merr == nil {
+			mfd1, mfd2 := mc.FDs()
+			if cons = console.LogMemFD(mfd1, mfd2, mc.BufSize()); cons != nil {
+				log.SetConsole(ctx, mc)
+				mc.SetReader(log.MemReader(cons))
+				context.AfterFunc(ctx, func() { core.Close(mc) })
+				memfd = true
 			} else {
-				closeall()
+				core.Close(mc)
 			}
 		}
-		if !logfd {
+		if !memfd {
+			if r, c, err := log.NewFilebased(); err == nil {
+				closeall := func() {
+					core.Close(c)
+					core.Close(r)
+				}
+				if logfd = console.LogFD(int(r.Fd())); logfd {
+					log.SetConsole(ctx, c)
+					context.AfterFunc(ctx, closeall)
+					logfd = true
+				} else {
+					closeall()
+				}
+			}
+		}
+		if !logfd && !memfd {
 			log.SetConsole(ctx, &clogAdapter{console})
 		}
-		log.D("tun: <<< console >>>; log out ok; fd? %t", logfd)
-		logch <- logfd
+		log.D("tun: <<< console >>>; log out ok; memfd? %t / logfd? %t", memfd, logfd)
+		logch <- memfd || logfd
 	}()
 
 	go func() {
@@ -103,13 +119,13 @@ func SetupConsole(console Console) {
 		log.D("tun: <<< console >>>; crash out ok; fd? %t", crashfd)
 	}()
 
-	logfd := <-logch
+	fd := <-logch
 	crashfd := <-crashch
 	crashpiped.Store(crashfd)
 
 	log.ConsoleReady(ctx)
 
-	log.I("tun: <<< console >>>; logger: ok; fds (log? %t / crash? %t)", logfd, crashfd)
+	log.I("tun: <<< console >>>; logger: ok; fds (logfd? %t / crash? %t)", fd, crashfd)
 }
 
 // Connect creates firestack-administered tunnel.

@@ -57,6 +57,12 @@ type Console interface {
 	Log(level LogLevel, msg Logmsg)
 }
 
+// MemReader is the consumer side of a Memconsole double-buffer.
+type MemReader interface {
+	Drain(fd, start, end int) int
+	OnClose() bool
+}
+
 type FilebasedConsole interface {
 	Console
 	io.Closer
