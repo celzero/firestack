@@ -103,7 +103,7 @@ jobs:
     - name: 📝 SBOM submission
       if: success()
       continue-on-error: true
-      uses: advanced-security/spdx-dependency-submission-action@v0.1.1
+      uses: advanced-security/spdx-dependency-submission-action@v0.2.0
       with:
         filePath: "_manifest/spdx_2.2/"
 
