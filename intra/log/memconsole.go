@@ -114,8 +114,9 @@ type Memconsole struct {
 	lastFlush time.Time      // wall time of the most recent consume initiation
 	reader    MemReader      // installed via SetReader
 	draining  [2]atomic.Bool // true while Drain() is executing for bufs[i]
-	drops     atomic.Uint64
-	ticking   atomic.Bool // true while a lazy ticker goroutine is running
+	drops     atomic.Uint64  // dropped bytes
+	consumed  atomic.Uint64  // consumed bytes
+	ticking   atomic.Bool    // true while a lazy ticker goroutine is running
 	closed    atomic.Bool
 }
 
@@ -221,11 +222,13 @@ rollover:
 			r := mc.reader
 			go mc.consume(r, idx, logfd, start, end)
 		} else { // the other buffer's consume is wip; cannot swap in
-			mc.drops.Add(1)
 			if overwriteOnFull { // ring-within-buffer: overwrite slots
 				// TODO: write overwrite status to header?
+				count := mc.slotIdx * memSlotSize
+				mc.drops.Add(uint64(count))
 				mc.slotIdx = 0
 			} else { // drop write
+				mc.drops.Add(uint64(yank))
 				mc.mu.Unlock()
 				return
 			}
@@ -340,7 +343,8 @@ func (mc *Memconsole) consume(r MemReader, idx, logfd, start, end int) {
 	defer mc.draining[idx].Store(false)
 	defer mc.bufs[idx].setCountLocked(0)
 
-	r.Drain(logfd, start, end)
+	n := r.Drain(logfd, start, end)
+	mc.consumed.Add(uint64(n))
 }
 
 // Flush drains the currently active buffer and flips to the other buffer.
@@ -370,6 +374,8 @@ func (mc *Memconsole) Flush() {
 // was discarded (overwriteOnFull=false).
 func (mc *Memconsole) Drops() uint64 { return mc.drops.Load() }
 
+func (mc *Memconsole) Consumed() uint64 { return mc.consumed.Load() }
+
 // SetReader installs r as the consumer of the Memconsole's shared-memory
 // buffers.  Drain(fd, start, end) is called synchronously (but without
 // mc.mu held) each time a buffer fills up or the periodic ticker fires;
@@ -396,7 +402,10 @@ func (mc *Memconsole) Close() error {
 		return nil
 	}
 
+	mc.mu.Lock()
+
 	if !mc.closed.CompareAndSwap(false, true) {
+		mc.mu.Unlock()
 		return nil // already closed
 	}
 
@@ -404,12 +413,13 @@ func (mc *Memconsole) Close() error {
 	// already holding mu will complete first; subsequent ones see closed=true.
 	if mc.slotIdx > 0 {
 		other := mc.active ^ 1
+		mc.mu.Unlock()
 		for mc.draining[other].Load() {
 			runtime.Gosched() // wait for concurrent drain to finish so we can swap in the active buffer
 		}
+		mc.mu.Lock()
 	}
 
-	mc.mu.Lock()
 	idx, logfd, start, end := mc.swapBuffersLocked()
 	r := mc.reader
 	mc.reader = nil

@@ -39,7 +39,7 @@ func (r *testMemReader) Drain(fd, start, end int) int {
 	}
 	s := sb.String()
 	if d := r.drain; d != nil {
-		d(fd, start, end, s)
+		return d(fd, start, end, s)
 	}
 	return 0
 }
@@ -99,7 +99,8 @@ func TestMemconsoleWriteRead(t *testing.T) {
 	}
 
 	// got accumulates the slot count across all Drain calls.
-	var got atomic.Int64
+	// nwritten tracks total slots submitted by the write loop.
+	var got, nwritten atomic.Int64
 	done := make(chan struct{}, 1)
 
 	mc.SetReader(&testMemReader{
@@ -125,7 +126,7 @@ func TestMemconsoleWriteRead(t *testing.T) {
 				t.Logf("----- drain after close: fd=%d start=%d end=%d (%s)", fd, start, end, s)
 				// return 0
 			}
-			n := (end - start) / memSlotSize
+			n := (end - start)
 			/*for off := start; off+memSlotSize <= end; off += memSlotSize {
 				slot := b[off : off+memSlotSize]
 				// Trim at the first newline; fall back to stripping NUL padding.
@@ -139,19 +140,23 @@ func TestMemconsoleWriteRead(t *testing.T) {
 				n++
 			}*/
 			t.Logf("---- drain: fd=%d start=%d end=%d n=%d (%s) %x", fd, start, end, n, s, &b[start])
-			t.Log(unsafe.String(&b[start], end-start))
-			got.Add(int64(1))
-			return end
+			t.Log(unsafe.String(&b[start], n))
+			got.Add(int64(n))
+			return n
 		},
 	})
 
 	// Write total log lines.
 	for i := range total {
 		var sb strings.Builder
-		for x := range 1000 {
+		n := 1000
+		for x := range n {
 			fmt.Fprintf(&sb, "test log line %04d:%04d the quick brown fox jumps over the lazy dog\n", i, x)
 		}
-		mc.Log(INFO, sb.String())
+		s := sb.String()
+		nwritten.Add(int64(len(s)))
+		mc.Log(INFO, Logmsg(s))
+		time.Sleep(3 * time.Millisecond)
 	}
 
 	// Flush any partial buffer that has not filled up yet.
@@ -169,11 +174,15 @@ func TestMemconsoleWriteRead(t *testing.T) {
 
 	<-done
 
-	received := int(got.Load())
-	drops := int(mc.Drops())
-	want := total - drops
-	fmt.Printf("--- read %d / %d lines (drops=%d)\n", received, total, drops)
-	if received != want {
-		t.Logf("expected %d lines (total=%d drops=%d), got %d", want, total, drops, received)
+	received := got.Load()     // bytes drained
+	written := nwritten.Load() // bytes submitted
+	drops := mc.Drops()        // overflow events; each loses memNumSlots slots
+	cons := mc.Consumed()
+	want := written - int64(drops) // bytes expected to have been drained
+	fmt.Printf("--- got %d / %d bytes (drops=%d overflow-events, ~%d bytes lost / cons: %d)\n",
+		received, written, drops, want, cons)
+	if received < want {
+		t.Errorf("expected %d bytes drained (written=%d drops=%d*%d), got %d / cons %d",
+			want, written, drops, memNumSlots, received, cons)
 	}
 }
