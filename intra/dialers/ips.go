@@ -107,7 +107,7 @@ func Confirmed(hostOrIP string) (zz netip.Addr) {
 // CachedAddrs returns addresses for hostOrIP from cache. Use Resolve() to bypass cache.
 func CachedAddrs(hostOrIP string) []netip.Addr {
 	ipset := ipm.GetAny(hostOrIP)
-	if ipset != nil || !ipset.Empty() {
+	if ipset != nil && !ipset.Empty() {
 		return ipset.Addrs()
 	}
 	return nil
