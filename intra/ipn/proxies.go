@@ -741,6 +741,7 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 		} // Ingress do not have a fast path
 	}
 
+	timeout := getproxytimeout
 	if isRPN(id) {
 		rpn, _ := core.Grx("pxr.mainRpnProxyFor: "+id, func(_ context.Context) (RpnProxy, error) {
 			// id here must be non-countrycode "rpn provider"
@@ -749,11 +750,13 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 				return p, nil
 			}
 			return nil, errNotRpnID
-		}, getproxytimeout/2)
+		}, timeout/2)
 		if rpn != nil && core.IsNotNil(rpn) {
+			// ping or refresh, in case dns layer is asking for this proxy
 			_ = healthy(rpn)
 			return rpn, nil
 		} // else: search for id in px.p, which includes rpn+cc proxies
+		timeout /= 2
 	}
 
 	// go.dev/play/p/xCug1W3OcMH
@@ -762,7 +765,7 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 		defer px.RUnlock()
 
 		return px.p[id], nil
-	}, getproxytimeout)
+	}, timeout)
 
 	if !completed {
 		log.W("proxy: for: %s; timeout!", id)
@@ -774,7 +777,8 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 		return nil, errProxyNotFound
 	}
 	if isWG(idstr(p)) {
-		_ = healthy(p) // ping or refresh
+		// ping or refresh, in case dns layer is asking for this proxy
+		_ = healthy(p)
 	}
 	return p, nil
 }
