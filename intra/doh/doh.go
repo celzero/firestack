@@ -280,9 +280,29 @@ func (t *transport) echVerifyFn() func(tls.ConnectionState) error {
 	return nil // delegate to stdlib
 }
 
+func asDialContext(d protect.DialFn) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		type r struct {
+			c   net.Conn
+			err error
+		}
+		ch := make(chan r, 1)
+		go func() {
+			c, err := d(network, addr)
+			ch <- r{c, err}
+		}()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case r := <-ch:
+			return r.c, r.err
+		}
+	}
+}
+
 func h2(d protect.DialFn, c *tls.Config) *http.Transport {
 	return &http.Transport{
-		Dial:                d,
+		DialContext:         asDialContext(d),
 		ForceAttemptHTTP2:   true,
 		IdleConnTimeout:     3 * time.Minute,
 		TLSHandshakeTimeout: 7 * time.Second,
