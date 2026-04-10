@@ -133,6 +133,11 @@ var (
 	errNotRemote          = errors.New("proxy: not a remote proxy")
 )
 
+var (
+	ErrProxyNotFound   = errProxyNotFound
+	ErrGetProxyTimeout = errGetProxyTimeout
+)
+
 const (
 	udptimeoutsec         = 5 * 60                    // 5m
 	tcptimeoutsec         = (2 * 60 * 60) + (40 * 60) // 2h40m

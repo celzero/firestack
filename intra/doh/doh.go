@@ -133,11 +133,17 @@ func NewOdohTransport(ctx context.Context, id, endpoint, target string, addrs []
 func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs []string, px ipn.ProxyProvider) (*transport, error) {
 	isodoh := typ == dnsx.ODOH
 
-	var renewed bool
+	var renewed, getrelayretried bool
 	var relay string
 	if px != nil {
-		if p, _ := px.ProxyFor(id); p != nil {
+	getrelay:
+		if p, err := px.ProxyFor(id); p != nil {
 			relay = p.ID()
+		} else if !getrelayretried && errors.Is(err, ipn.ErrGetProxyTimeout) {
+			getrelayretried = true
+			goto getrelay
+		} else {
+			log.I("doh: %s not perma proxied: %v", id, err)
 		}
 	}
 
@@ -333,7 +339,7 @@ func (t *transport) purgeProxyClients() {
 	// to not hold mutex for purges, the map is cloned; and
 	// the delete operation is interleaved between iterations.
 	// The logic does leave room for race conditions, but
-	// that's okay as httpClientFor will eventually create new
+	// that's okay as httpClientsFor will eventually create new
 	// /clients for proxies that are wrongfully racy-purged.
 	rmclient := func(id string, pt *proxytransport) (deleted bool) {
 		if len(id) <= 0 {
@@ -363,7 +369,7 @@ func (t *transport) purgeProxyClients() {
 			continue
 		} else if pxtr.p == nil {
 			rmclient(id, pxtr)
-		} else if orig, err := t.proxies.ProxyFor(id); err != nil {
+		} else if orig, err := t.proxies.ProxyFor(id); errors.Is(err, ipn.ErrProxyNotFound) {
 			rmclient(id, pxtr)
 			log.W("doh: purge proxy clients: %s %v", id, err)
 			continue
@@ -375,7 +381,7 @@ func (t *transport) purgeProxyClients() {
 				// potential data race where ProxyFor returns a new proxy
 				// and px.clients also has updated to the newer one, but
 				// all has older one. That's okay as the next
-				// httpClientFor call will make a new pxtransport.
+				// httpClientsFor call will make a new pxtransport.
 				rmclient(id, pxtr)
 				continue
 			}
