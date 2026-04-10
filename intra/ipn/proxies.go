@@ -690,7 +690,14 @@ func (px *proxifier) clearpins() (int, int) {
 // ProxyFor returns the proxy for the given id or an error.
 // As a special case, if it takes longer than getproxytimeout, it returns an error.
 // ProxyFor implements Proxies.
-func (px *proxifier) ProxyFor(id string) (Proxy, error) {
+func (px *proxifier) ProxyFor(id string) (_ Proxy, err error) {
+	start := time.Now()
+	waited := false
+	defer func() {
+		logev(err)("proxy: for: %s; found? %t; waited? %t; dur: %s; err? %v",
+			id, err == nil, waited, core.FmtTimeAsPeriod(start), err)
+	}()
+
 	p, err := px.proxyFor(id)
 	if !errors.Is(err, errProxyNotFound) || !isWellknown(id) {
 		// return proxy not found for non-wellknown proxy ids immediately without waiting
@@ -703,8 +710,13 @@ func (px *proxifier) ProxyFor(id string) (Proxy, error) {
 		return p, err
 	}
 
-	log.W("proxy: for: %s; not found; waiting for %ds...", id, maxWaitPeriodSec)
-	time.Sleep(time.Duration(maxWaitPeriodSec) * time.Second)
+	next := time.Duration(maxWaitPeriodSec)*time.Second - time.Since(start)
+	log.W("proxy: for: %s; not found; waited for %s (will wait: %s)...", id, core.FmtTimeAsPeriod(start), core.FmtPeriod(next))
+	if next > 0 {
+		waited = true
+		time.Sleep(next)
+	}
+
 	return px.proxyFor(id)
 }
 
