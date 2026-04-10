@@ -80,7 +80,7 @@ func newUndelegatedDomainTrie() x.RadixTree {
 // IPMapper is an interface for resolving hostnames to IP addresses.
 // For internal used by firestack.
 type IPMapper interface {
-	// Shorthand for Lookup(q, protect.UidSelf)
+	// Shorthand for Lookup(q, protect.UidSelf, dnsx.Default)
 	LocalLookup(q []byte) ([]byte, error)
 	// Lookup resolves q over one of the tids. If tids is empty, either
 	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
@@ -236,7 +236,7 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 
 // Implements IPMapper.
 func (m *ipmap) LocalLookup(q []byte) ([]byte, error) {
-	return m.Lookup(q, protect.UidSelf)
+	return m.Lookup(q, protect.UidSelf, x.Default)
 }
 
 // Implements IPMapper.

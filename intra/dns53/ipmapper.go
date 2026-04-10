@@ -75,7 +75,7 @@ func str2ip(host string) (netip.Addr, error) {
 
 // Implements IPMapper.
 func (m *ipmapper) LocalLookup(q []byte) ([]byte, error) {
-	return m.Lookup(q, protect.UidSelf)
+	return m.Lookup(q, protect.UidSelf, dnsx.Default)
 }
 
 // Implements IPMapper.
