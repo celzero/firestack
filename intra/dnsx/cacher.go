@@ -576,6 +576,9 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 		out.Server = s.Server
 		out.PID = s.PID
 		out.RPID = s.RPID
+	} else if len(out.PID) <= 0 {
+		out.PID = s.PID
+		out.RPID = s.RPID
 	}
 	if out.Latency <= 0 {
 		out.Latency = s.Latency
