@@ -55,15 +55,19 @@ import (
 	"github.com/miekg/dns"
 )
 
-const dohmimetype = "application/dns-message"
+const (
+	dohmimetype = "application/dns-message"
 
-const DohPortU16 = uint16(443)
+	DohPortU16 = uint16(443)
 
-const maxEOFTries = uint8(2)
+	maxEOFTries = uint8(2)
 
-const purgethreshold = 1 * time.Minute
+	purgethreshold = 1 * time.Minute
 
-const echRetryPeriod = 8 * time.Hour
+	echRetryPeriod = 8 * time.Hour
+
+	avoidEchForFixedRelays = true
+)
 
 var errNoClient error = errors.New("no doh client")
 
@@ -349,6 +353,9 @@ func (t *transport) purgeProxyClients() {
 }
 
 func (t *transport) getOrCreateEchConfigIfNeeded() *tls.Config {
+	if avoidEchForFixedRelays && len(t.relay) > 0 && ipn.Remote(t.relay) {
+		return nil
+	}
 	echcfg := t.echconfig.Load()
 	if echcfg != nil {
 		return echcfg
