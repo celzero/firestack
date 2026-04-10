@@ -49,9 +49,9 @@ const waitPeriodOnFull = 3 * time.Millisecond
 // memBufSize is the total region passed to Ftruncate/Mmap.
 var (
 	nofpages    = 16
-	memSlotSize = charsPerLine                                          // 800 bytes per slot
-	memNumSlots = nofpages * unix.Getpagesize()/memSlotSize // slots that fit in one page
-	memBufSize  = memHdrSize + memNumSlots*memSlotSize                  // ~1 page
+	memSlotSize = charsPerLine                                // 800 bytes per slot
+	memNumSlots = nofpages * unix.Getpagesize() / memSlotSize // slots that fit in one page
+	memBufSize  = memHdrSize + memNumSlots*memSlotSize        // ~1 page
 )
 
 // mcbuf is a fixed-slot shared-memory region backed by a memfd.
@@ -288,10 +288,10 @@ rollover:
 // ticker is a one-shot timer goroutine started by the first-write after each
 // buffer reset. It fires once after memFlushInterval and calls periodicFlush.
 func (mc *Memconsole) ticker() {
-	defer mc.ticking.Store(false)
 	t := time.NewTimer(memFlushInterval)
 	defer t.Stop()
 	<-t.C
+	mc.ticking.Store(false) // TODO: may be racy; mutex it?
 	mc.periodicFlush()
 }
 
