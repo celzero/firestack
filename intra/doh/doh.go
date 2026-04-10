@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -327,16 +328,43 @@ func (t *transport) purgeProxyClients() {
 		log.I("doh: purge proxy clients: race...")
 		return
 	}
-	t.pxcmu.Lock()
-	defer t.pxcmu.Unlock()
-	for id, pxtr := range t.pxclients {
+
+	// ProxyFor might take multiple seconds to return; and so,
+	// to not hold mutex for purges, the map is cloned; and
+	// the delete operation is interleaved between iterations.
+	// The logic does leave room for race conditions, but
+	// that's okay as httpClientFor will eventually create new
+	// /clients for proxies that are wrongfully racy-purged.
+	rmclient := func(id string, pt *proxytransport) (deleted bool) {
+		if len(id) <= 0 {
+			return
+		}
+
+		t.pxcmu.Unlock()
+		defer t.pxcmu.Lock()
+		p := pt.p
+		cur := t.pxclients[id]
+		if p == nil {
+			delete(t.pxclients, id)
+			return true
+		} else if cur != nil && cur.p != nil && cur.p.Handle() == p.Handle() {
+			delete(t.pxclients, id)
+			return true
+		}
+		return false
+	}
+	all := func() map[string]*proxytransport {
+		t.pxcmu.RLock()
+		defer t.pxcmu.RUnlock()
+		return maps.Clone(t.pxclients)
+	}
+	for id, pxtr := range all() {
 		if pxtr == nil {
 			continue
 		} else if pxtr.p == nil {
-			delete(t.pxclients, id)
-			continue
+			rmclient(id, pxtr)
 		} else if orig, err := t.proxies.ProxyFor(id); err != nil {
-			delete(t.pxclients, id)
+			rmclient(id, pxtr)
 			log.W("doh: purge proxy clients: %s %v", id, err)
 			continue
 		} else {
@@ -344,7 +372,11 @@ func (t *transport) purgeProxyClients() {
 			note := log.V
 			if diff {
 				note = log.I
-				delete(t.pxclients, id)
+				// potential data race where ProxyFor returns a new proxy
+				// and px.clients also has updated to the newer one, but
+				// all has older one. That's okay as the next
+				// httpClientFor call will make a new pxtransport.
+				rmclient(id, pxtr)
 				continue
 			}
 			note("doh: purge proxy clients: remove? %t %s", diff, id)
@@ -387,16 +419,25 @@ func (t *transport) getOrCreateEchConfigIfNeeded() *tls.Config {
 	return echcfg
 }
 
-func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
-	pid := p.ID()
+func (t *transport) httpClientsFor(pid string) (c3, c *http.Client, p ipn.Proxy, err error) {
 	t.pxcmu.RLock()
 	pxtr, ok := t.pxclients[pid]
-	same := pxtr != nil && pxtr.p.Handle() == p.Handle()
-	if ok && same {
+	if ok {
 		c = pxtr.c
 		c3 = pxtr.c3
+		p = pxtr.p
 	}
 	t.pxcmu.RUnlock()
+
+	if p == nil || core.IsNil(p) {
+		p, err = t.prepare(pid)
+	}
+	if err != nil || p == nil || core.IsNil(p) {
+		return nil, nil, nil, core.OneErr(err, dnsx.ErrNoProxyProvider)
+	}
+
+	// check if retained proxies are stale & must to be purged
+	defer core.Gx("doh.purgepx", t.purgeProxyClients)
 
 	pdial := p.Dialer().Dial
 	if c != nil { // use existing clients
@@ -407,7 +448,7 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 				t.updateHttpClientsFor(p, c, c3)
 			}
 		}
-		return c3, c // c3 may be nil
+		return c3, c, p, nil
 	}
 
 	var client http.Client
@@ -421,10 +462,7 @@ func (t *transport) httpClientsFor(p ipn.Proxy) (c3, c *http.Client) {
 	// last writer wins
 	t.updateHttpClientsFor(p, &client, client3)
 
-	// check if other proxies need to be purged
-	core.Gx("doh.purgepx", t.purgeProxyClients)
-
-	return client3, &client
+	return client3, &client, p, nil
 }
 
 // updateHttpClientsFor only updates non-nil http clients dialing via Proxy p.
@@ -523,13 +561,12 @@ func (t *transport) fetch(pid string, req *http.Request) (*http.Response, string
 }
 
 func (t *transport) multifetch(req *http.Request, pid string) (res *http.Response, rpid string, echdialer bool, err error) {
-	px, err := t.prepare(pid)
-	if err != nil || px == nil {
-		return nil, "", false, core.OneErr(err, dnsx.ErrNoProxyProvider)
+	c3, c0, px, err := t.httpClientsFor(pid) // c3 may be nil on non err
+	if err != nil {
+		return nil, "", false, err
 	}
 
 	rpid = ipn.ViaID(px)
-	c3, c0 := t.httpClientsFor(px) // c3 may be nil
 
 	if settings.Debug {
 		log.VV("doh: using proxy %s+%s@%s ech? %t / other? %t",
@@ -584,7 +621,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 		}
 	}
 	if !sent && err == nil { // should never happen
-		log.E("doh: fetch: no client sent request %d", len(clients))
+		log.E("doh: %s fetch: no client sent request %d", t.id, len(clients))
 	}
 	return nil, rpid, false, core.OneErr(err, errNoClient)
 }
@@ -593,7 +630,6 @@ func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
 	userelay := len(t.relay) > 0
 	hasproxy := t.proxies != nil
 	useproxy := len(pid) != 0 // if pid == dnsx.NetNoProxy, then px is ipn.Block
-	useech := t.echconfig.Load() != nil
 
 	if userelay || useproxy {
 		if userelay { // relay takes precedence
@@ -606,7 +642,7 @@ func (t *transport) prepare(pid string) (px ipn.Proxy, err error) {
 		}
 	} else {
 		err = dnsx.ErrNoProxyProvider
-		log.W("doh: no proxy %s ech? %t; err: %v", pid, useech, err)
+		log.W("doh: %s prep: no proxy %s; err: %v", t.id, pid, err)
 	}
 	return
 }
@@ -857,8 +893,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		smm.Msg = err.Error()
 	}
 	if settings.Debug {
-		log.V("doh: (p/px/via/can? %s/%s/%s/%t); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, via: %s, err? %v",
-			network, pid, rpid, canproxy, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, err)
+		log.V("doh: (p/px/via/can? %s/%s/%s/%t); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, px: %s, dur: %s, err? %v",
+			network, pid, rpid, canproxy, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, core.FmtPeriod(elapsed), err)
 	}
 	return r, err
 }
