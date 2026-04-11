@@ -121,7 +121,7 @@ android: $(BUILDDIR)/android/tun2socks.aar
 
 intra: $(BUILDDIR)/intra/tun2socks.aar
 
-intradebug: $(BUILDDIR)/intra/tun2socks-debug.aar
+intradebug: $(BUILDDIR)/intra/tun2socks-debug.aar debugsymbols
 
 debugsymbols: $(DEBUG_SYMBOLS_ZIP)
 
