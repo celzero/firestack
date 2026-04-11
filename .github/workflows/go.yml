@@ -110,6 +110,7 @@ jobs:
         filePath: "_manifest/spdx_2.2/"
 
     - name: 💿 Obj
+      continue-on-error: true
       if: ${{ steps.make.outcome == 'success' }}
       run: |
         wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.0.8/go-size-analyzer_1.0.8_linux_amd64.deb -O gsa.deb
