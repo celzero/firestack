@@ -32,6 +32,14 @@ ANDROID23_DEBUG=-androidapi 23 -target=android -tags='android,debuglog' -work
 WINDOWS_BUILDDIR=$(BUILDDIR)/windows
 LINUX_BUILDDIR=$(BUILDDIR)/linux
 
+# NDK llvm-objcopy for extracting / stripping debug symbols from .so files
+# ANDROID_NDK_HOME is exported by make-aar (or set in the environment)
+NDK_ROOT ?= $(ANDROID_NDK_HOME)
+LLVM_OBJCOPY ?= $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy
+ARCHS = armeabi-v7a arm64-v8a x86 x86_64
+DEBUG_SYMBOLS_DIR = $(BUILDDIR)/intra/debug-symbols
+DEBUG_SYMBOLS_ZIP = $(BUILDDIR)/intra/tun2socks-debug-symbols.zip
+
 # stack traces are not affected by ldflags -s -w: github.com/golang/go/issues/25035#issuecomment-495004689
 # trimpath: github.com/skycoin/skycoin/issues/719
 ANDROID_BUILD_CMD=env PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
@@ -84,7 +92,28 @@ $(GOMOBILE): go.mod
 $(XGO): go.mod
 	env GOBIN=$(GOBIN) go install github.com/crazy-max/xgo
 
-.PHONY: android intra linux apple windows clean clean-all
+# Extract per-arch debug symbols from the unstripped debug AAR, then strip the
+# .so files in-place and repack the AAR. The resulting AAR is stripped (smaller
+# for distribution) and the symbol files are bundled into a separate zip.
+# ref: github.com/tailscale/tailscale-android/commit/24d737834a1ff57eaa1daeb52708c918c7cd2e48
+$(DEBUG_SYMBOLS_ZIP): $(BUILDDIR)/intra/tun2socks-debug.aar
+	mkdir -p $(DEBUG_SYMBOLS_DIR)
+	@set -e; \
+	tmpdir=$$(mktemp -d); \
+	trap "rm -rf $$tmpdir" EXIT; \
+	unzip -q $< -d $$tmpdir; \
+	for arch in $(ARCHS); do \
+		so=$$tmpdir/jni/$$arch/libgojni.so; \
+		[ -f $$so ] || continue; \
+		mkdir -p $(DEBUG_SYMBOLS_DIR)/jni/$$arch; \
+		$(LLVM_OBJCOPY) --only-keep-debug $$so $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so; \
+		$(LLVM_OBJCOPY) --strip-debug --strip-unneeded $$so; \
+		echo "stripped $$arch/libgojni.so, debug symbols -> jni/$$arch/libgojni.so"; \
+	done; \
+	rm -f $<; (cd $$tmpdir && zip -qr $< .); \
+	(cd $(DEBUG_SYMBOLS_DIR) && zip -qr $@ jni/)
+
+.PHONY: android intra linux apple windows debugsymbols clean clean-all
 
 all: android intra linux apple windows
 
@@ -93,6 +122,8 @@ android: $(BUILDDIR)/android/tun2socks.aar
 intra: $(BUILDDIR)/intra/tun2socks.aar
 
 intradebug: $(BUILDDIR)/intra/tun2socks-debug.aar
+
+debugsymbols: $(DEBUG_SYMBOLS_ZIP)
 
 apple: $(BUILDDIR)/apple/Tun2socks.xcframework
 

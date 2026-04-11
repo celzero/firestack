@@ -30,6 +30,7 @@ jobs:
     env:
       FOUT: firestack.aar
       FOUTDBG: firestack-debug.aar
+      FOUTSYM: firestack-debug-symbols.zip
 
     steps:
     - name: 🥏 Checkout code
@@ -73,6 +74,7 @@ jobs:
           firestack.aar
           firestack-debug.aar
           build/intra/tun2socks-sources.jar
+          firestack-debug-symbols.zip
         retention-days: 52 # 0-90; 90 is max
         if-no-files-found: error # error, warn (default), ignore
         compression-level: 9 # 0-9; 9 is max

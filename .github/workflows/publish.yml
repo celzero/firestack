@@ -71,6 +71,11 @@ jobs:
       SBOM_PREFIX: "firestack-sbom-"
       SBOM_MANIFEST: "manifest.spdx.json"
       SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
+      # debug symbols zip produced by the debugsymbols Make target
+      FOUTSYM: firestack-debug-symbols.zip
+      SYM_PATTERN: "firestack-debug-symbols-*"
+      SYM_PREFIX: "firestack-debug-symbols-"
+      SYM_DIR: sym
 
     permissions:
       contents: read
@@ -139,6 +144,15 @@ jobs:
           run-id: ${{ steps.runmeta.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ env.DIST_DIR }}
+
+      - name: ⬇️ Download debug symbols
+        id: dlsym
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ${{ env.SYM_PATTERN }}
+          run-id: ${{ steps.runmeta.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.SYM_DIR }}
 
       - name: 🔐 Verify build provenance
         if: ${{ inputs.verify_attestation == true || github.event.event_name == 'workflow_call' }}
@@ -336,3 +350,34 @@ jobs:
           # auth required for publishing_type=automatic
           curl -D - -X POST -H "Authorization: Bearer ${tok}" \
             "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
+
+      # github.com/celzero/rethink-app/blob/main/.github/workflows/sym.yml
+      # firebase.google.com/docs/crashlytics/android/get-started-ndk
+      - name: 🔥 Upload symbols to Firebase
+        continue-on-error: true
+        shell: bash
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          # comma-separated list of Firebase app IDs (alpha, debug, prod)
+          FIREBASE_APP_IDS: ${{ secrets.FIREBASE_ALPHA_DEBUG_PROD_APP_ID_CSV }}
+          VCSVER: ${{ steps.runmeta.outputs.vcsver }}
+        run: |
+          set -euo pipefail
+          echo "::notice::Uploading NDK debug symbols for ${VCSVER} to Firebase Crashlytics"
+
+          npm install -g firebase-tools
+
+          ls -ltr "${SYM_DIR}/"
+          # symbols zip contains jni/<arch>/libgojni.so (debug-info only)
+          # firebase cli expects: firebase crashlytics:symbols:upload --app=<id> <dir-with-jni-subdirs>
+          # ref: firebase.google.com/docs/crashlytics/android/get-started-ndk#step-4
+          unzip -q "${SYM_DIR}/${FOUTSYM}" -d syms
+          ls -ltr syms/jni/
+          IFS=',' read -ra APP_IDS <<< "${FIREBASE_APP_IDS}"
+          for app_id in "${APP_IDS[@]}"; do
+            app_id="$(echo "$app_id" | tr -d '[:space:]')"
+            echo "::notice::Uploading symbols for app ${app_id:0:8}...${app_id: -4}"
+            firebase crashlytics:symbols:upload \
+              --app="${app_id}" \
+              syms/jni/
+          done
