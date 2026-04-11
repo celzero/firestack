@@ -346,8 +346,8 @@ func (t *transport) purgeProxyClients() {
 			return
 		}
 
-		t.pxcmu.Unlock()
-		defer t.pxcmu.Lock()
+		t.pxcmu.Lock()
+		defer t.pxcmu.Unlock()
 		p := pt.p
 		cur := t.pxclients[id]
 		if p == nil {
