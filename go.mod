@@ -13,12 +13,10 @@ require (
 )
 
 require (
-	github.com/Snawoot/opera-proxy v1.5.0
 	github.com/cloudflare/odoh-go v1.0.0
 	github.com/coder/websocket v1.8.14
 	github.com/crazy-max/xgo v0.31.0
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
-	github.com/noql-net/certpool v0.0.0-20240719060413-a5ed62ecc62a
 	github.com/tailscale/depaware v0.0.0-20251001183927-9c2ad255ef3f
 	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
@@ -30,7 +28,6 @@ require (
 
 require (
 	git.schwanenlied.me/yawning/x448.git v0.0.0-20170617130356-01b048fb03d6 // indirect
-	github.com/Snawoot/go-http-digest-auth-client v1.1.3 // indirect
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/poly1305 v0.0.0-20180717145839-3fee0db0b635 // indirect
 	github.com/cisco/go-hpke v0.0.0-20210215210317-01c430f1f302 // indirect
