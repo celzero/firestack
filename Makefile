@@ -110,8 +110,11 @@ $(DEBUG_SYMBOLS_ZIP): $(BUILDDIR)/intra/tun2socks-debug.aar
 		$(LLVM_OBJCOPY) --strip-debug --strip-unneeded $$so; \
 		echo "stripped $$arch/libgojni.so, debug symbols -> jni/$$arch/libgojni.so"; \
 	done; \
+	ls -Rltr $$tmpdir; \
 	rm -f $<; (cd $$tmpdir && zip -qr $< .); \
-	(cd $(DEBUG_SYMBOLS_DIR) && zip -qr $@ jni/)
+	(cd $(DEBUG_SYMBOLS_DIR) && zip -qr $@ jni/) \
+	&& echo "created debug symbols zip: $@" \
+	ls -Rltr ${DEBUG_SYMBOLS_DIR}
 
 .PHONY: android intra linux apple windows debugsymbols clean clean-all
 
