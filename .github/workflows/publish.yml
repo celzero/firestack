@@ -71,11 +71,8 @@ jobs:
       SBOM_PREFIX: "firestack-sbom-"
       SBOM_MANIFEST: "manifest.spdx.json"
       SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
-      # debug symbols zip produced by the debugsymbols Make target
+      # debug symbols zip produced by the debugsymbols Make target; bundled with AAR artifact
       FOUTSYM: firestack-debug-symbols.zip
-      SYM_PATTERN: "firestack-debug-symbols-*"
-      SYM_PREFIX: "firestack-debug-symbols-"
-      SYM_DIR: sym
 
     permissions:
       contents: read
@@ -144,15 +141,6 @@ jobs:
           run-id: ${{ steps.runmeta.outputs.run_id }}
           github-token: ${{ github.token }}
           path: ${{ env.DIST_DIR }}
-
-      - name: ⬇️ Download debug symbols
-        id: dlsym
-        uses: actions/download-artifact@v7
-        with:
-          pattern: ${{ env.SYM_PATTERN }}
-          run-id: ${{ steps.runmeta.outputs.run_id }}
-          github-token: ${{ github.token }}
-          path: ${{ env.SYM_DIR }}
 
       - name: 🔐 Verify build provenance
         if: ${{ inputs.verify_attestation == true || github.event.event_name == 'workflow_call' }}
@@ -367,11 +355,11 @@ jobs:
 
           npm install -g firebase-tools
 
-          ls -ltr "${SYM_DIR}/"
+          ls -ltr "${DIST_DIR}/"
           # symbols zip contains jni/<arch>/libgojni.so (debug-info only)
           # firebase cli expects: firebase crashlytics:symbols:upload --app=<id> <dir-with-jni-subdirs>
           # ref: firebase.google.com/docs/crashlytics/android/get-started-ndk#step-4
-          unzip -q "${SYM_DIR}/${FOUTSYM}" -d syms
+          unzip -q "${DIST_DIR}/${FOUTSYM}" -d syms
           ls -ltr syms/jni/
           IFS=',' read -ra APP_IDS <<< "${FIREBASE_APP_IDS}"
           for app_id in "${APP_IDS[@]}"; do
