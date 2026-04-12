@@ -111,10 +111,10 @@ jobs:
       continue-on-error: true
       if: ${{ steps.make.outcome == 'success' }}
       run: |
-        wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.12.3/go-size-analyzer_1.12.3_linux_amd64.deb -O gsa.deb
-        echo "fb01be619ed752b0b1e3f270d7384326a02c8e73c2948f46b8ad85157d86ee42  gsa.deb" | sha256sum -c -
+        wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.12.3/go-size-analyzer_1.12.3_linux_amd64v3.deb -O gsa.deb
+        echo "c77c542d149a9958c850b18619e99456ff4b5b88d9d2062b0d2df83cbca069dc  gsa.deb" | sha256sum -c -
         sudo dpkg -i gsa.deb
-        # s/tun2socks*.aar/firestack*.aar; see: make-aar
+        # tun2socks*.aar/firestack*.aar; see: make-aar
         #
         # Archive:  firestack.aar
         # inflating: AndroidManifest.xml
