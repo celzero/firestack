@@ -51,10 +51,6 @@ jobs:
       PACK: aar
       # final out from make-aar
       FOUT: firestack.aar
-      FOUTDBG: firestack-debug.aar
-      # artifact classifier; full unused
-      CLASSFULL: full
-      CLASSDBG: debug
       # artifact bytecode sources
       SOURCES: build/intra/tun2socks-sources.jar
       # POM for Maven Central
@@ -155,13 +151,12 @@ jobs:
           # need to go one dir further for download-artifact v4 not v7
           # ART_DIR="${ART_DIR}/${ARTIFACT_PREFIX}${SHA}"
           # ls -ltr "${ART_DIR}/"
-          for file in "$ART_DIR/${FOUT}" "$ART_DIR/${FOUTDBG}"; do
-            if [ ! -f "$file" ]; then
-              echo "::error::missing artifact $file" >&2
-              exit 12
-            fi
-            gh attestation verify "$file" -R "$REPO"
-          done
+          file="$ART_DIR/${FOUT}"
+          if [ ! -f "$file" ]; then
+            echo "::error::missing artifact $file" >&2
+            exit 12
+          fi
+          gh attestation verify "$file" -R "$REPO"
 
           if [ -n "${ARTIFACT_SUBJECTS:-}" ]; then
             jq -c '.[]' <<<"${ARTIFACT_SUBJECTS}" | while read -r subject; do
@@ -216,15 +211,14 @@ jobs:
             sbom_file=$(find "${SBOM_DIR}" -name "${SBOM_MANIFEST}" -print -quit)
             digest=$(cat < $(find "${SBOM_DIR}" -name "${SBOM_MANIFEST}.sha256" -print -quit))
 
-            # iterate in ART_DIR for artifacts then verify sbom attestations
-            for file in "$ART_DIR/${FOUT}" "$ART_DIR/${FOUTDBG}"; do
-              if [ ! -f "$file" ]; then
-                echo "::error::missing artifact $file for SBOM attestation check" >&2
-                exit 13
-              fi
-              gh attestation verify "$file" -R "$REPO" --predicate-type "${SBOM_PREDICATE}"
-              echo "Verified SBOM attestation for artifact $file"
-            done
+            # verify sbom attestation for the main artifact
+            file="$ART_DIR/${FOUT}"
+            if [ ! -f "$file" ]; then
+              echo "::error::missing artifact $file for SBOM attestation check" >&2
+              exit 13
+            fi
+            gh attestation verify "$file" -R "$REPO" --predicate-type "${SBOM_PREDICATE}"
+            echo "Verified SBOM attestation for artifact $file"
           fi
 
           if [ -z "$sbom_file" ]; then
@@ -264,16 +258,12 @@ jobs:
           # maven.pkg.github.com/celzero/firestack/com/github/celzero/firestack/<commit>/firestack-<commit>.aar
           # github.com/deelaa-marketplace/commons-workflow/blob/637dc111/flows/publish-api.yml#L49
           # github.com/markocto/cf-octopub/blob/bba2de2c/github/script/action.yaml#L118
-          # publish both stripped and debug
           mvn deploy:deploy-file \
             -DgroupId="${GROUP_GITHUB}" \
             -DartifactId="${ARTIFACT}" \
             -Dversion="$VCSVER" \
             -Dpackaging="${PACK}" \
             -Dfile="${DIST_DIR}/${FOUT}" \
-            -Dfiles="${DIST_DIR}/${FOUTDBG}" \
-            -Dtypes="${PACK}" \
-            -Dclassifiers=${CLASSDBG} \
             -DrepositoryId="${REPO_GITHUB}" \
             -Dsources="${DIST_DIR}/${SOURCES}" \
             -Durl="https://maven.pkg.github.com/${REPOSITORY}"
@@ -316,18 +306,6 @@ jobs:
             -DpomFile=${POM_OSSRH} \
             -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
             -Dsources="${DIST_DIR}/${SOURCES}" \
-            -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
-
-          mvn gpg:sign-and-deploy-file \
-            -DgroupId="${GROUP_OSSRH}" \
-            -DartifactId="${ARTIFACT}" \
-            -Dversion="$VCSVER" \
-            -Dpackaging="${PACK}" \
-            -Dfile="${DIST_DIR}/${FOUTDBG}" \
-            -Dclassifier=${CLASSDBG} \
-            -DrepositoryId="${REPO_OSSRH}" \
-            -DgeneratePom=false \
-            -Dgpg.keyname=C3F3F4A160BB2CFFB5528699F19CE6642C40085C \
             -Durl="https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
 
           # central.sonatype.org/publish/publish-portal-api/#authentication-authorization

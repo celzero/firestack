@@ -29,7 +29,6 @@ jobs:
       publish: ${{ steps.post-build.outputs.publish }}
     env:
       FOUT: firestack.aar
-      FOUTDBG: firestack-debug.aar
       FOUTSYM: firestack-debug-symbols.zip
 
     steps:
@@ -50,7 +49,7 @@ jobs:
         # GET triggers a build; api: docs.jitpack.io/api/#builds
         curl https://jitpack.io/api/builds/com.github.celzero/firestack/${VCSVER} | jq || true
 
-        # outputs firestack.aar and firestack-debug.aar; also see: "Obj" below
+        # outputs firestack.aar (stripped) + firestack-debug-symbols.zip; also see: "Obj" below
         ./make-aar nogo debug
       shell: bash
 
@@ -72,7 +71,6 @@ jobs:
         name: firestack-aar-${{ github.sha }} # must be unique
         path: |
           firestack.aar
-          firestack-debug.aar
           build/intra/tun2socks-sources.jar
           firestack-debug-symbols.zip
         retention-days: 52 # 0-90; 90 is max
@@ -254,7 +252,7 @@ jobs:
         VCSVER="${GITHUB_SHA:0:10}"
 
         subjects='[]'
-        for key in FOUT FOUTDBG; do
+        for key in FOUT; do
           artifact="${!key}"
           if [ ! -f "$artifact" ]; then
             echo "::error::missing artifact ${artifact}"

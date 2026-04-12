@@ -16,15 +16,11 @@ set -eux
 PACK="${PACK:-aar}"
 # final out
 FOUT="${FOUT:-firestack.aar}"
-FOUTDBG="${FOUTDBG:-firestack-debug.aar}"
 FOUTSYM="${FOUTSYM:-firestack-debug-symbols.zip}"
 # build out
 BOUT="${BOUT:-build/intra/tun2socks.aar}"
 BOUTDBG="${BOUTDBG:-build/intra/tun2socks-debug.aar}"
 BOUTSYM="${BOUTSYM:-build/intra/tun2socks-debug-symbols.zip}"
-# artifact classifier
-CLASSFULL="${CLASSFULL:-full}" # unused
-CLASSDBG="${CLASSDBG:-debug}"
 # artifact bytecode sources
 SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 # android sdk/ndk versions (ANDROID_NDK_LATEST_HOME is set on github)
@@ -88,11 +84,10 @@ go env
 # gomobile aar
 
 if [ "$ARG2" = "debug" ]; then
-  # default: with debug builds
-  make clean && make intra && make intradebug
-  # rename
-  mv ./"$BOUT" ./"$FOUT"
-  mv ./"$BOUTDBG" ./"$FOUTDBG"
+  # build debug only: Makefile strips debug info from .aar and packs it into symbols zip
+  make clean && make intradebug
+  # rename stripped debug build to firestack.aar
+  mv ./"$BOUTDBG" ./"$FOUT"
   mv ./"$BOUTSYM" ./"$FOUTSYM"
 else
   make clean && make intra
