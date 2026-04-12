@@ -33,11 +33,3 @@ mvn install:install-file \
 # -DgroupId=com.github.celzero
 # -DartifactId=firestack
 # -Dsources=build/intra/tun2socks-sources.jar
-mvn -X install:install-file \
-    -Dfile=${FOUTDBG} \
-    -Dpackaging=${PACK} \
-    -Dversion=${VERSION} \
-    -DgroupId=${GROUP} \
-    -DartifactId=${ARTIFACT} \
-    -Dclassifier=${CLASSDBG} \
-    -Dsources=${SOURCES}

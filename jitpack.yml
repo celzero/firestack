@@ -2,12 +2,8 @@ jdk:
   - openjdk14
 env:
   PACK: "aar"
-  CLASSFULL: "full"
-  CLASSDBG: "debug"
   FOUT: "firestack.aar"
-  FOUTDBG: "firestack-debug.aar"
   BOUT: "build/intra/tun2socks.aar"
-  BOUTDBG: "build/intra/tun2socks-debug.aar"
   SOURCES: "build/intra/tun2socks-sources.jar"
   NDKVER: "28.2.13676358"
   SDKVER: "36"
