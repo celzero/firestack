@@ -88,6 +88,7 @@ type RpnOps struct {
 	permaCreds        bool   // use permanent WireGuard (local) addresses if available
 	forceFetchServers bool   // force server-list refresh on the next Update
 	newPort           uint16 // fixed WireGuard port; 0 = random per wsRandomPort()
+	dnsConfig         string // csv of DNS filter presets: "family", "security", "social", "privacy", "all", "none", "default"
 }
 
 func NewRpnOps() *RpnOps {
@@ -95,8 +96,8 @@ func NewRpnOps() *RpnOps {
 }
 
 func (o *RpnOps) String() string {
-	return fmt.Sprintf("rotate: %t; perma: %t; forceFetchServers: %t; port: %d",
-		o.rotateCreds, o.permaCreds, o.forceFetchServers, o.newPort)
+	return fmt.Sprintf("rotate: %t; perma: %t; forceFetchServers: %t; port: %d; dns: %s",
+		o.rotateCreds, o.permaCreds, o.forceFetchServers, o.newPort, o.dnsConfig)
 }
 
 // SetRotateCreds forces generation of a new WireGuard keypair on the next Update.
@@ -117,6 +118,13 @@ func (o *RpnOps) SetPort(port int32) {
 	}
 }
 
+// SetDNSConfig sets the DNS filter preset configuration.
+// v is a csv of filter presets: "family", "security", "social", "privacy", "all", "none", "default".
+// "none" and "default" are aliases that disable all filters. Leave it empty for no-op.
+func (o *RpnOps) SetDNSConfig(v string) {
+	o.dnsConfig = v
+}
+
 // Rotate reports whether a new WG keypair should be generated.
 func (o RpnOps) Rotate() bool { return o.rotateCreds }
 
@@ -129,6 +137,11 @@ func (o RpnOps) FetchServers() bool { return o.forceFetchServers }
 // Port returns the pinned WireGuard port, or 0 if none is set.
 func (o RpnOps) Port() uint16 {
 	return o.newPort
+}
+
+// DNSConfig returns the DNS filter preset configuration csv.
+func (o RpnOps) DNSConfig() string {
+	return o.dnsConfig
 }
 
 type Rpn interface {

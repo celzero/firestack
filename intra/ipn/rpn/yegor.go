@@ -97,6 +97,12 @@ const (
 	// wswglistkeyspath lists all active permanent WireGuard configs for the account (max 5).
 	// GET with Bearer token client-supplied.
 	wswglistkeyspath = "WgConfigs/list_keys"
+	// wsgetfilterspath fetches the current Robert DNS filter list.
+	// GET with Bearer session token; returns all filters and their enabled/disabled status.
+	wsgetfilterspath = "Robert/filters"
+	// wssetfilterpath enables or disables a single Robert DNS filter.
+	// PUT with Bearer session token.
+	wssetfilterpath = "Robert/filter"
 	// TTL reservation time using param "wg_ttl", not for longer than an hour, if needed.
 	// github.com/Windscribe/Android-App/blob/3f9c2ab98a70fa/base/src/main/java/com/windscribe/vpn/repository/WgConfigRepository.kt#L143
 	wgttl = "3600" // an hour in seconds
@@ -161,6 +167,7 @@ var (
 	errWsBadServerList  = errors.New("ws: invalid server list")
 	errWsRetryUpdate    = errors.New("ws: retry update")
 	errWsNoCcConfig     = errors.New("ws: not available in that location")
+	errWsNoFilters      = errors.New("ws: no filter list")
 )
 
 /*
@@ -733,6 +740,87 @@ type WsWgListKeysData struct {
 type WsWgListKeysResponse struct {
 	Data     WsWgListKeysData `json:"data"`
 	Metadata WsMetadata       `json:"metadata"`
+}
+
+// WsFilter represents a single Robert DNS filter entry.
+type WsFilter struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	ID          string `json:"id"`
+	// Status is 1 when the filter is enabled, 0 when disabled.
+	Status int `json:"status"`
+}
+
+type WsFiltersData struct {
+	Filters []WsFilter `json:"filters"`
+	Success int        `json:"success"`
+}
+
+type WsFiltersResponse struct {
+	Data     WsFiltersData `json:"data"`
+	Metadata WsMetadata    `json:"metadata"`
+}
+
+// WsFilterSetRequest is the JSON body for PUT Robert/filter.
+type WsFilterSetRequest struct {
+	Filter string `json:"filter"`
+	Status int    `json:"status"`
+}
+
+type WsFilterSetData struct {
+	Success int `json:"success"`
+}
+
+type WsFilterSetResponse struct {
+	Data     WsFilterSetData `json:"data"`
+	Metadata WsMetadata      `json:"metadata"`
+}
+
+// Robert DNS filter IDs as returned by the API.
+const (
+	wsFilterMalware     = "malware"
+	wsFilterAds         = "ads"
+	wsFilterSocial      = "social"
+	wsFilterPorn        = "porn"
+	wsFilterGambling    = "gambling"
+	wsFilterFakeNews    = "fakenews"
+	wsFilterCompetitors = "competitors"
+	wsFilterCrypto      = "cryptominers"
+)
+
+// wsAllFilterIDs is the ordered list of every known Robert DNS filter ID.
+var wsAllFilterIDs = []string{
+	wsFilterMalware, wsFilterAds, wsFilterSocial, wsFilterPorn,
+	wsFilterGambling, wsFilterFakeNews, wsFilterCompetitors, wsFilterCrypto,
+}
+
+// wsDNSPresetFilters maps each named preset to the filter IDs it enables.
+// "none" and "default" are not in the map; their absence means "enable nothing".
+var wsDNSPresetFilters = map[string][]string{
+	"family":   {wsFilterMalware, wsFilterPorn, wsFilterGambling, wsFilterFakeNews},
+	"security": {wsFilterMalware, wsFilterCrypto, wsFilterFakeNews},
+	"social":   {wsFilterSocial},
+	"privacy":  {wsFilterAds},
+	"all":      wsAllFilterIDs,
+}
+
+// dnsConfigToFilters converts a csv of DNS preset names (e.g. "family,privacy")
+// into a set of filter IDs that should be enabled. "none" and "default" disable
+// all filters; absent presets leave the set unchanged.
+func dnsConfigToFilters(dnsConfig string) map[string]bool {
+	enabled := make(map[string]bool)
+	for _, part := range strings.Split(dnsConfig, ",") {
+		preset := strings.TrimSpace(strings.ToLower(part))
+		switch preset {
+		case "none", "default", "":
+			// no filters enabled for these presets; leave enabled unchanged
+		default:
+			for _, fid := range wsDNSPresetFilters[preset] {
+				enabled[fid] = true
+			}
+		}
+	}
+	return enabled
 }
 
 type WsClient struct {
@@ -2075,6 +2163,11 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 			}
 		}
 
+		// sync Robert DNS filters with the desired preset configuration (best-effort; non-fatal).
+		if dnsConfig := ops.DNSConfig(); len(dnsConfig) > 0 {
+			go syncDNSFilters(h, existingEnt, newSess, dnsConfig)
+		} // else: no-op
+
 		// create wg confs from new or existing server list
 		// always reconfigure (as /WgConfigs/connect must be done once every wg_ttl, which is 60m)
 		maybeNewCreds, maybeNewPermaCreds, maybeNewWgConfs, uerr := genWgConfs(h, existingCreds, existingConf.PermaCreds, newSess, maybeNewServers, existingConf.Entitlement, ops)
@@ -2137,6 +2230,137 @@ func listKeys(h *http.Client, ent *WsEntitlement, bearer string) (*WsWgListKeysR
 	pubkeys := core.Map(out.Data.PubKeys, func(pub string) string { return trunc8(pub) })
 	log.I("ws: listkeys: ok (tok? %s); %d keys: %v", tokst, len(out.Data.PubKeys), pubkeys)
 	return &out, nil
+}
+
+// getDNSFilters returns the current DNS filter list.
+func getDNSFilters(h *http.Client, ent *WsEntitlement, bearer string) ([]WsFilter, error) {
+	if len(bearer) <= 0 {
+		return nil, errWsNoToken
+	}
+	tokst := tokenState(bearer)
+	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wsgetfilterspath)
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		return nil, log.EE("ws: getfilters: req err: %v", err)
+	}
+	authHeader(req, bearer)
+	didHeader(req, ent.DidToken)
+
+	if settings.Debug {
+		log.V("ws: getfilters: req: %s tok %s", u.String(), tokst)
+	}
+
+	res, err := h.Do(req)
+	if err != nil || res == nil {
+		return nil, log.EE("ws: getfilters: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
+	}
+	defer core.Close(res.Body)
+	updateDidTokenIfNeeded(ent, res)
+	if res.StatusCode != http.StatusOK {
+		return nil, wsErr(res, "getrob/"+tokst)
+	}
+
+	var out WsFiltersResponse
+	if _, err = wsRes(res, &out, "getrob/"+tokst); err != nil {
+		return nil, err
+	}
+	if len(out.Data.Filters) <= 0 {
+		return nil, log.EE("ws: getfilters: %v; tok? %s", errWsNoFilters, tokst)
+	}
+	log.I("ws: getfilters: ok (tok? %s); %d filters", tokst, len(out.Data.Filters))
+	return out.Data.Filters, nil
+}
+
+// setDNSFilter enables or disables on a DNS filterID.
+func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, enable bool) error {
+	if len(bearer) <= 0 {
+		return errWsNoToken
+	}
+	status := 0
+	if enable {
+		status = 1
+	}
+	tokst := tokenState(bearer)
+	body, err := json.Marshal(WsFilterSetRequest{Filter: filterID, Status: status})
+	if err != nil {
+		return log.EE("ws: setfilter: marshal err: %v", err)
+	}
+
+	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wssetfilterpath)
+	req, err := http.NewRequest("PUT", u.String(), strings.NewReader(string(body)))
+	if err != nil {
+		return log.EE("ws: setfilter: req err: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	authHeader(req, bearer)
+	didHeader(req, ent.DidToken)
+
+	if settings.Debug {
+		log.V("ws: setfilter: %s status=%d req: %s tok %s", filterID, status, u.String(), tokst)
+	}
+
+	res, err := h.Do(req)
+	if err != nil || res == nil {
+		return log.EE("ws: setfilter: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
+	}
+	defer core.Close(res.Body)
+	updateDidTokenIfNeeded(ent, res)
+	if res.StatusCode != http.StatusOK {
+		return wsErr(res, "setrob("+filterID+")/"+tokst)
+	}
+
+	var out WsFilterSetResponse
+	if _, err = wsRes(res, &out, "setrob("+filterID+")/"+tokst); err != nil {
+		return err
+	}
+	if out.Data.Success != 1 {
+		return log.EE("ws: setfilter: %s status=%d success!=1; tok? %s", filterID, status, tokst)
+	}
+	log.I("ws: setfilter: ok %s status=%d (tok? %s)", filterID, status, tokst)
+	return nil
+}
+
+// syncDNSFilters reconciles the Robert DNS filters on the server with the desired state
+// derived from dnsConfig (a csv of presets such as "family,privacy").
+// It fetches the current filter states once, then issues one PUT per filter that
+// needs to change. The call is a no-op when dnsConfig is empty.
+func syncDNSFilters(h *http.Client, ent *WsEntitlement, sess *WsSession, dnsConfig string) error {
+	if len(dnsConfig) <= 0 {
+		return nil
+	}
+	if sess == nil || ent == nil {
+		return errWsNoSession
+	}
+	bearer := sess.SessionToken
+	if len(bearer) <= 0 {
+		return errWsNoToken
+	}
+
+	desired := dnsConfigToFilters(dnsConfig)
+
+	all, err := getDNSFilters(h, ent, bearer)
+	if err != nil {
+		return err
+	}
+
+	if settings.Debug {
+		log.D("ws: syncfilters: desired: %s => %v; all: %d", dnsConfig, desired, len(all))
+	}
+
+	errs := make([]error, 0)
+	for _, f := range all {
+		wantEnabled := desired[f.ID]
+		isEnabled := f.Status == 1
+		if wantEnabled == isEnabled {
+			continue // already in the desired state
+		}
+		if serr := setDNSFilter(h, ent, bearer, f.ID, wantEnabled); serr != nil {
+			errs = append(errs, fmt.Errorf("ws: syncfilters: %s => %t; err: %v", f.ID, wantEnabled, serr))
+		} else {
+			log.I("ws: syncfilters: %s => %t (tok? %s)", f.ID, wantEnabled, tokenState(bearer))
+		}
+	}
+	return core.JoinErr(errs...)
 }
 
 // managedPermaCredsFn implements the managed-perma-creds flow (managedPermaCreds=true).
