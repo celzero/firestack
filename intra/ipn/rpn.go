@@ -547,7 +547,10 @@ func (r *rpnp) flattenKids() (ccs []string) {
 // Update implements RpnAcc.
 func (r *rpnp) Update(ops *x.RpnOps) (newState []byte, err error) {
 	newState, err = r.RpnAcc.Update(ops)
-	if err == nil {
+	if len(newState) <= 0 && err == nil {
+		// updated and no state change
+		return nil, nil
+	} else if err == nil {
 		core.Gxe("rpn.fork."+r.ProviderID(), r.forkAll)
 	}
 	return

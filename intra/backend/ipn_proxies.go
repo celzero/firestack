@@ -89,6 +89,7 @@ type RpnOps struct {
 	forceFetchServers bool   // force server-list refresh on the next Update
 	newPort           uint16 // fixed WireGuard port; 0 = random per wsRandomPort()
 	dnsConfig         string // csv of DNS filter presets: "family", "security", "social", "privacy", "all", "none", "default"
+	forceInit         bool   // when false, skips expensive ops unless absolutely required.
 }
 
 func NewRpnOps() *RpnOps {
@@ -96,8 +97,8 @@ func NewRpnOps() *RpnOps {
 }
 
 func (o *RpnOps) String() string {
-	return fmt.Sprintf("rotate: %t; perma: %t; forceFetchServers: %t; port: %d; dns: %s",
-		o.rotateCreds, o.permaCreds, o.forceFetchServers, o.newPort, o.dnsConfig)
+	return fmt.Sprintf("rotate: %t; perma: %t; forceFetchServers: %t; port: %d; dns: %s; forceInit: %t",
+		o.rotateCreds, o.permaCreds, o.forceFetchServers, o.newPort, o.dnsConfig, o.forceInit)
 }
 
 // SetRotateCreds forces generation of a new WireGuard keypair on the next Update.
@@ -125,6 +126,10 @@ func (o *RpnOps) SetDNSConfig(v string) {
 	o.dnsConfig = v
 }
 
+// SetForceInit controls whether Update forces expensive re-setup.  When false,
+// expensive ops are skipped if called within some threshold of the previous call.
+func (o *RpnOps) SetForceInit(v bool) { o.forceInit = v }
+
 // Rotate reports whether a new WG keypair should be generated.
 func (o RpnOps) Rotate() bool { return o.rotateCreds }
 
@@ -143,6 +148,9 @@ func (o RpnOps) Port() uint16 {
 func (o RpnOps) DNSConfig() string {
 	return o.dnsConfig
 }
+
+// ForceInit returns false if expensive update ops may be skipped if approp.
+func (o RpnOps) ForceInit() bool { return o.forceInit }
 
 type Rpn interface {
 	// EntitlementFrom returns the RpnEntitlement represented by entitlementOrStateJson.
