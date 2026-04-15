@@ -129,6 +129,19 @@ jobs:
         # /usr/bin/jar
         unzip ${FOUT}
         which jar && jar tf ./classes.jar
+
+        # eu-unstrip: merge debug-only SOs (from FOUTSYM) back into the stripped SOs
+        sudo apt-get install -y --no-install-recommends elfutils
+        unzip -q "${FOUTSYM}" -d debugsyms
+
+        stripped="jni/arm64-v8a/libgojni.so"
+        debug="debugsyms/jni/arm64-v8a/libgojni.so"
+        if [ -f "$stripped" ] && [ -f "$debug" ]; then
+          eu-unstrip "$stripped" "$debug" -o "$stripped"
+          echo "restored symbols: arm64-v8a/libgojni.so:"
+          ls -ltr "$stripped" && readelf -s "$stripped" | head -20
+        fi
+
         gsa jni/arm64-v8a/*.so -f text --verbose
 
         #pip install sqlelf

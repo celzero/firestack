@@ -69,6 +69,7 @@ jobs:
       SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
       # debug symbols zip produced by the debugsymbols Make target; bundled with AAR artifact
       FOUTSYM: firestack-debug-symbols.zip
+      ARCHS: armeabi-v7a arm64-v8a x86 x86_64
 
     permissions:
       contents: read
@@ -337,12 +338,38 @@ jobs:
 
           npm install -g firebase-tools
 
-          ls -ltr "${DIST_DIR}/"
-          # symbols zip contains jni/<arch>/libgojni.so (debug-info only)
-          # firebase cli expects: firebase crashlytics:symbols:upload --app=<id> <dir-with-jni-subdirs>
-          # ref: firebase.google.com/docs/crashlytics/android/get-started-ndk#step-4
-          unzip -q "${DIST_DIR}/${FOUTSYM}" -d syms
-          ls -ltr syms/jni/
+          # eu-unstrip (elfutils) merges a stripped SO with its debug-only companion
+          # back into a full ELF that Breakpad dump_syms can process.
+          sudo apt-get install -y --no-install-recommends elfutils
+
+          ls -Rltr "${DIST_DIR}/"
+
+          # extract debug-only SOs from the symbols zip
+          unzip -q "${DIST_DIR}/${FOUTSYM}" -d debugsyms
+          ls -Rltr debugsyms/jni/
+
+          # extract stripped SOs from the distribution AAR (it is a zip)
+          unzip -q "${DIST_DIR}/${FOUT}" -d stripped_aar
+          ls -Rltr stripped_aar/jni/
+
+          # merge stripped + debug-only => full unstripped ELF for dump_syms
+          mkdir -p syms/jni
+          for arch in $ARCHS; do
+            stripped="stripped_aar/jni/${arch}/libgojni.so"
+            debug="debugsyms/jni/${arch}/libgojni.so"
+            merged="syms/jni/${arch}/libgojni.so"
+            if [ ! -f "$stripped" ] || [ ! -f "$debug" ]; then
+              echo "::warning::skipping ${arch}: stripped=$stripped debug=$debug"
+              continue
+            fi
+            mkdir -p "syms/jni/${arch}"
+            eu-unstrip "$stripped" "$debug" -o "$merged"
+            echo "merged ${arch}/libgojni.so for Firebase"
+          done
+
+          echo "symbols merged; extracted:"
+          ls -Rltr syms/jni/
+
           IFS=',' read -ra APP_IDS <<< "${FIREBASE_APP_IDS}"
           for app_id in "${APP_IDS[@]}"; do
             app_id="$(echo "$app_id" | tr -d '[:space:]')"
