@@ -21,6 +21,7 @@ FOUTSYM="${FOUTSYM:-firestack-debug-symbols.zip}"
 # build out
 BOUT="${BOUT:-build/intra/tun2socks.aar}"
 BSRC="${BSRC:-build/intra/tun2socks-sources.jar}"
+BSRCDBG="${BSRCDBG:-build/intra/tun2socks-debug-sources.jar}"
 BOUTDBG="${BOUTDBG:-build/intra/tun2socks-debug.aar}"
 BOUTSYM="${BOUTSYM:-build/intra/tun2socks-debug-symbols.zip}"
 # android sdk/ndk versions (ANDROID_NDK_LATEST_HOME is set on github)
@@ -85,13 +86,15 @@ go env
 
 if [ "$ARG2" = "debug" ]; then
   # build debug only: Makefile strips debug info from .aar and packs it into symbols zip
-  make clean && make intradebug
+  make clean && make 
+  ls -Rltr build
   # rename stripped debug build to firestack.aar
   mv ./"$BOUTDBG" ./"$FOUT"
   mv ./"$BOUTSYM" ./"$FOUTSYM"
-  mv ./"$BSRC" ./"$FSRC"
+  mv ./"$BSRCDBG" ./"$FSRC"
 else
   make clean && make intra
+  ls -Rltr build
   # rename
   mv ./"$BOUT" ./"$FOUT"
   mv ./"$BSRC" ./"$FSRC"

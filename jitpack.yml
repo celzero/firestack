@@ -1,10 +1,6 @@
 jdk:
   - openjdk14
 env:
-  PACK: "aar"
-  FOUT: "firestack.aar"
-  BOUT: "build/intra/tun2socks.aar"
-  BSRC: "build/intra/tun2socks-sources.jar"
   NDKVER: "28.2.13676358"
   SDKVER: "36"
 before_install:
