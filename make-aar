@@ -86,7 +86,7 @@ go env
 
 if [ "$ARG2" = "debug" ]; then
   # build debug only: Makefile strips debug info from .aar and packs it into symbols zip
-  make clean && make 
+  make clean && make intradebug
   ls -Rltr build
   # rename stripped debug build to firestack.aar
   mv ./"$BOUTDBG" ./"$FOUT"
