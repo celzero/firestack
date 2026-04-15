@@ -16,13 +16,13 @@ set -eux
 PACK="${PACK:-aar}"
 # final out
 FOUT="${FOUT:-firestack.aar}"
+FSRC="${FSRC:-firestack-sources.jar}"
 FOUTSYM="${FOUTSYM:-firestack-debug-symbols.zip}"
 # build out
 BOUT="${BOUT:-build/intra/tun2socks.aar}"
+BSRC="${BSRC:-build/intra/tun2socks-sources.jar}"
 BOUTDBG="${BOUTDBG:-build/intra/tun2socks-debug.aar}"
 BOUTSYM="${BOUTSYM:-build/intra/tun2socks-debug-symbols.zip}"
-# artifact bytecode sources
-SOURCES="${SOURCES:-build/intra/tun2socks-sources.jar}"
 # android sdk/ndk versions (ANDROID_NDK_LATEST_HOME is set on github)
 LATESTNDKHOME=${ANDROID_NDK_LATEST_HOME:-0}
 # default: stackoverflow.com/a/2013573
@@ -89,10 +89,12 @@ if [ "$ARG2" = "debug" ]; then
   # rename stripped debug build to firestack.aar
   mv ./"$BOUTDBG" ./"$FOUT"
   mv ./"$BOUTSYM" ./"$FOUTSYM"
+  mv ./"$BSRC" ./"$FSRC"
 else
   make clean && make intra
   # rename
   mv ./"$BOUT" ./"$FOUT"
+  mv ./"$BSRC" ./"$FSRC"
 fi
 
 # ls cwd

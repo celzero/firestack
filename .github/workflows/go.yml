@@ -71,7 +71,7 @@ jobs:
         name: firestack-aar-${{ github.sha }} # must be unique
         path: |
           firestack.aar
-          build/intra/tun2socks-sources.jar
+          firestack-sources.jar
           firestack-debug-symbols.zip
         retention-days: 52 # 0-90; 90 is max
         if-no-files-found: error # error, warn (default), ignore
@@ -244,7 +244,7 @@ jobs:
       run: |
         # grype output
         if [[ -n "${GRYPE_SARIF}" && -f "${GRYPE_SARIF}" ]]; then
-          ls -ltr "${GRYPE_SARIF}"
+          ls -Rltr "${GRYPE_SARIF}"
         else
           echo "::notice::Grype report missing"
         fi
