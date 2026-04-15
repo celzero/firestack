@@ -111,7 +111,7 @@ $(DEBUG_SYMBOLS_ZIP): $(BUILDDIR)/intra/tun2socks-debug.aar
 		echo "stripped $$arch/libgojni.so, debug symbols -> jni/$$arch/libgojni.so"; \
 	done; \
 	ls -Rltr $$tmpdir; \
-	rm -f $<; (cd $$tmpdir && zip -qr $< .); \
+	stripped=$<.stripped; (cd $$tmpdir && zip -qr "$$stripped" .) && mv "$$stripped" $<; \
 	(cd $(DEBUG_SYMBOLS_DIR) && zip -qr $@ jni/) \
 	&& echo "created debug symbols zip: $@" \
 	ls -Rltr ${DEBUG_SYMBOLS_DIR}
