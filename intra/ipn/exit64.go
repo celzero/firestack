@@ -97,7 +97,7 @@ func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
 	defer localDialStatus(h.status, err)
 
 	kaenabled := maybeKeepAlive(c)
-	log.I("proxy: exit64: dial(%s) %s via %s to %s, ka? %t; err? %v",
+	logei(err)("proxy: exit64: dial(%s) %s via %s to %s, ka? %t; err? %v",
 		network, local64, remote, addr64, kaenabled, err)
 
 	return c, err
@@ -123,7 +123,7 @@ func (h *exit64) Announce(network, local string) (protect.PacketConn, error) {
 	c, err := dialers.ListenPacket(h.outbound, network, local64)
 	defer localDialStatus(h.status, err)
 
-	log.I("proxy: exit64: announce(%s) via %s on %s; err? %v", network, local64, local, err)
+	logei(err)("proxy: exit64: announce(%s) via %s on %s; err? %v", network, local64, local, err)
 	return c, err
 }
 
@@ -147,7 +147,7 @@ func (h *exit64) Accept(network, local string) (protect.Listener, error) {
 	l, err := dialers.Listen(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
 
-	log.I("proxy: exit64: accept(%s) via %s on %s; err? %v", network, local64, local, err)
+	logei(err)("proxy: exit64: accept(%s) via %s on %s; err? %v", network, local64, local, err)
 	return l, err
 }
 
@@ -171,7 +171,7 @@ func (h *exit64) Probe(network, local string) (protect.PacketConn, error) {
 	c, err := dialers.Probe(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
 
-	log.I("proxy: exit64: probe(%s) via %s on %s; err? %v", network, local64, local, err)
+	logei(err)("proxy: exit64: probe(%s) via %s on %s; err? %v", network, local64, local, err)
 	return c, err
 }
 
@@ -219,7 +219,7 @@ func (h *exit64) Pause() bool {
 	}
 
 	ok := h.status.Cas(st, TPU)
-	log.I("proxy: exit64: paused? %t", ok)
+	logeif(!ok)("proxy: exit64: paused? %t", ok)
 	return ok
 }
 
@@ -233,7 +233,7 @@ func (h *exit64) Resume() bool {
 
 	ok := h.status.Cas(st, TUP)
 	go h.Refresh() // no-op since SkipRefresh
-	log.I("proxy: exit64: resumed? %t", ok)
+	logeif(!ok)("proxy: exit64: resumed? %t", ok)
 	return ok
 }
 
