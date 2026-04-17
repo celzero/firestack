@@ -955,11 +955,11 @@ func (a *WsClient) config() *WsWgConfig {
 // Who implements x.RpnAcc.
 func (a *WsClient) Who() string {
 	if a == nil {
-		return ""
+		return "<nil>"
 	}
 	c := a.config()
 	if c == nil || c.Session == nil {
-		return ""
+		return "<no config>"
 	}
 	status := strconv.Itoa(c.Session.Status)
 	return status + ":" + c.Session.UserID + "+" + trunc8(byte2hex(sha(c.Session.SessionToken))) + "@" + a.kid()
@@ -1999,15 +1999,14 @@ func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 	return a, nil
 }
 
-// setDidIfNeeded assigns did to ent.Did. If ent.Did is already set and does not match
+// overrideDid assigns did to ent.Did. If ent.Did is already set and does not match
 // the incoming did, errWsDidMismatch is returned and ent is left unchanged.
-func setDidIfNeeded(ent *WsEntitlement, did string) error {
+func overrideDid(ent *WsEntitlement, did string) error {
 	if ent == nil {
 		return errWsNoEntitlement
 	}
 	if existing := ent.Did; len(existing) > 0 && existing != did {
-		log.E("ws: did mismatch: existing %s, incoming %s", trunc8(existing), trunc8(did))
-		return errWsDidMismatch
+		log.W("ws: did overriden: existing %s, incoming %s", trunc8(existing), trunc8(did))
 	}
 	ent.Did = did
 	return nil
@@ -2028,7 +2027,7 @@ func (w *BaseClient) MakeWsWg(entitlement []byte, did string, ops x.RpnOps) (*Ws
 	}
 
 	// TODO: if ent already has did set; then err on mismatch?
-	if err := setDidIfNeeded(&ent, did); err != nil {
+	if err := overrideDid(&ent, did); err != nil {
 		return nil, err
 	}
 	return makeWsWg(&w.h2, &ent, ops)
@@ -2078,7 +2077,7 @@ func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string
 	var ent WsEntitlement
 	err1 := json.Unmarshal(entitlementOrStateJson, &ent)
 	if err1 == nil {
-		if err := setDidIfNeeded(&ent, did); err != nil {
+		if err := overrideDid(&ent, did); err != nil {
 			return nil, err
 		}
 		return &ent, nil
@@ -2087,7 +2086,7 @@ func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string
 	err2 := json.Unmarshal(entitlementOrStateJson, &existingConf)
 	if err2 == nil && existingConf.Entitlement != nil && len(existingConf.Entitlement.SessionToken) > 0 {
 		ent := existingConf.Entitlement
-		if err := setDidIfNeeded(ent, did); err != nil {
+		if err := overrideDid(ent, did); err != nil {
 			return nil, err
 		}
 		return ent, nil
@@ -2115,7 +2114,7 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string, 
 			sz, hasEnt, hasTok, err)
 		return w.MakeWsWg(entitlementOrWsConfigJson, did, ops)
 	}
-	if err := setDidIfNeeded(existingConf.Entitlement, did); err != nil {
+	if err := overrideDid(existingConf.Entitlement, did); err != nil {
 		return nil, err
 	}
 	return w.makeWsWgFrom(&existingConf, ops)
