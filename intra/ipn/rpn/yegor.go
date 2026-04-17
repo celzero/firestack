@@ -33,6 +33,8 @@ const (
 	svchosttest = "redir.nile.workers.dev"
 	wsMyIp      = "https://checkip.windscribe.com/"
 	wsMyIp2     = "https://checkip.totallyacdn.com/"
+	// didIDHeader is the HTTP request header carrying the raw device ID.
+	didIDHeader = "x-rethink-app-did"
 	// didTokenHeader is the HTTP response/request header for a device-id token
 	// issued by svchost / svchosttest. Format: "a hextoken:expiryepochsec".
 	didTokenHeader = "x-rethink-app-did-token"
@@ -161,7 +163,6 @@ var (
 	errWsNoToken        = errors.New("ws: missing token")
 	errWsNoCid          = errors.New("ws: missing cid")
 	errWsNoDid          = errors.New("ws: missing device id")
-	errWsDidMismatch    = errors.New("ws: device id mismatch")
 	errWsNoResponse     = errors.New("ws: no response")
 	errWsNoLocHash      = errors.New("ws: no loc hash")
 	errWsNoServerList   = errors.New("ws: no server list")
@@ -1219,14 +1220,13 @@ func fixedValidWsEndpoint(test bool) string {
 	return "ca.windscribe.com"
 }
 
-func baseurl(test bool, cid, did string) *url.URL {
+func baseurl(test bool, cid string) *url.URL {
 	u := url.URL{
 		Scheme: "https",
 		Host:   svchosttest,
 	}
 	q := u.Query()
 	q.Set("cid", cid)
-	q.Set("did", did)
 	if test {
 		q.Set("rpn", "wstest")
 		q.Set("test", "") // value for the test param does not matter
@@ -1238,14 +1238,13 @@ func baseurl(test bool, cid, did string) *url.URL {
 	return &u
 }
 
-func assetsurl(test bool, cid, did string) *url.URL {
+func assetsurl(test bool, cid string) *url.URL {
 	u := url.URL{
 		Scheme: "https",
 		Host:   svchosttest,
 	}
 	q := u.Query()
 	q.Set("cid", cid)
-	q.Set("did", did)
 	if test {
 		q.Set("rpn", "wsassetstest")
 		q.Set("test", "") // value for the test param does not matter
@@ -1264,9 +1263,16 @@ func authHeader(req *http.Request, t string) {
 	req.Header.Set("Authorization", "Bearer "+t)
 }
 
-// didHeader sets the didTokenHeader request header if tok is non-empty.
-func didHeader(req *http.Request, tok string) {
-	if req != nil && len(tok) > 0 {
+// didHeader sets the x-rethink-app-did and x-rethink-app-did-token request
+// headers when their respective values are non-empty.
+func didHeader(req *http.Request, did, tok string) {
+	if req == nil {
+		return
+	}
+	if len(did) > 0 {
+		req.Header.Set(didIDHeader, did)
+	}
+	if len(tok) > 0 {
 		req.Header.Set(didTokenHeader, tok)
 	}
 }
@@ -1383,13 +1389,13 @@ func getSession(h *http.Client, ent *WsEntitlement) (*WsSession, error) {
 		curl -x GET '.../Session'
 		-H 'Authorization: Bearer id:typ:epochsec:sig1:sig2'
 	*/
-	u := baseurl(ent.TestDomain, cid, did).JoinPath(wssessionpath)
+	u := baseurl(ent.TestDomain, cid).JoinPath(wssessionpath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: getsess: make req err: %v", err)
 	}
 	authHeader(req, tok)
-	didHeader(req, ent.DidToken)
+	didHeader(req, did, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: getsess: req: %s tok %s", u.String(), tokst)
@@ -1592,12 +1598,12 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	test := ent.TestDomain
 
 	// curl -x GET '.../serverlist/mob-v2/1/<lochash>'
-	u := assetsurl(test, cid, did).JoinPath(wslocpath, lochash)
+	u := assetsurl(test, cid).JoinPath(wslocpath, lochash)
 	locreq, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: wgconfs: req err: %v", err)
 	}
-	didHeader(locreq, ent.DidToken)
+	didHeader(locreq, did, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: wgconfs: req: %s tok %s", u.String(), tokenState(bearer))
@@ -1739,14 +1745,14 @@ initagain:
 		initdata := url.Values{}
 		initdata.Set("wg_pubkey", pubkeybase64)
 		initdata.Set("force_init", force)
-		u := baseurl(test, cid, ent.Did).JoinPath(wswginitpath)
+		u := baseurl(test, cid).JoinPath(wswginitpath)
 		initreq, err := http.NewRequest("POST", u.String(), strings.NewReader(initdata.Encode()))
 		if err != nil {
 			return nil, log.EE("ws: wgconfs: %s req err: %v", details, err)
 		}
 		initreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		authHeader(initreq, bearer)
-		didHeader(initreq, ent.DidToken)
+		didHeader(initreq, ent.Did, ent.DidToken)
 
 		if settings.Debug {
 			log.V("ws: wgconfs: %s init req: %s; tok %s; force %s", details, u.String(), tokst, force)
@@ -1838,14 +1844,14 @@ connectagain:
 	cdata.Set("hostname", someEndpoint)
 	cdata.Set("wg_pubkey", pubkeybase64)
 	cdata.Set("wg_ttl", wgttl)
-	u := baseurl(test, cid, ent.Did).JoinPath(wswgconnectpath)
+	u := baseurl(test, cid).JoinPath(wswgconnectpath)
 	creq, err := http.NewRequest("POST", u.String(), strings.NewReader(cdata.Encode()))
 	if err != nil {
 		return nil, log.EE("ws: wgconfs: %s connect#%d req err: %v", details, runconnect, err)
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(creq, sess.SessionToken)
-	didHeader(creq, ent.DidToken)
+	didHeader(creq, ent.Did, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: wgconfs: %s connect#%d req: %s tok %s", details, runconnect, u.String(), tokst)
@@ -2256,13 +2262,13 @@ func listKeys(h *http.Client, ent *WsEntitlement, bearer string) (*WsWgListKeysR
 	tokst := tokenState(bearer)
 	// curl --location --request GET '.../WgConfigs/list_keys' \
 	// --header 'Authorization: Bearer <token>'
-	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wswglistkeyspath)
+	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wswglistkeyspath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: listkeys: req err: %v", err)
 	}
 	authHeader(req, bearer)
-	didHeader(req, ent.DidToken)
+	didHeader(req, ent.Did, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: listkeys: req: %s tok %s", u.String(), tokst)
@@ -2294,13 +2300,13 @@ func getDNSFilters(h *http.Client, ent *WsEntitlement, bearer string) ([]WsFilte
 		return nil, errWsNoToken
 	}
 	tokst := tokenState(bearer)
-	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wsgetfilterspath)
+	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wsgetfilterspath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, log.EE("ws: getfilters: req err: %v", err)
 	}
 	authHeader(req, bearer)
-	didHeader(req, ent.DidToken)
+	didHeader(req, ent.Did, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: getfilters: req: %s tok %s", u.String(), tokst)
@@ -2342,14 +2348,14 @@ func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, e
 		return log.EE("ws: setfilter: marshal err: %v", err)
 	}
 
-	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wssetfilterpath)
+	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wssetfilterpath)
 	req, err := http.NewRequest("PUT", u.String(), strings.NewReader(string(body)))
 	if err != nil {
 		return log.EE("ws: setfilter: req err: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	authHeader(req, bearer)
-	didHeader(req, ent.DidToken)
+	didHeader(req, ent.Did, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: setfilter: %s status=%d req: %s tok %s", filterID, status, u.String(), tokst)
@@ -2475,14 +2481,14 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 		data.Set("wg_pubkey", pubkey)
 	}
 
-	u := baseurl(ent.TestDomain, ent.Cid, ent.Did).JoinPath(wswgpermanentpath)
+	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wswgpermanentpath)
 	req, err := http.NewRequest("POST", u.String(), strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, log.EE("ws: conf: perma: (m? %t) req err: %v", managed, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(req, bearer)
-	didHeader(req, ent.DidToken)
+	didHeader(req, ent.Did, ent.DidToken)
 
 	if settings.Debug {
 		log.V("ws: conf: perma: (m? %t) req: %s tok %s; port %s", managed, u.String(), tokst, port)
