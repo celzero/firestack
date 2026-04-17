@@ -220,14 +220,14 @@ func (mc *Memconsole) write(lvl LogLevel, msg Logmsg) {
 	i := 0
 
 rollover:
-	idx, logfd, start, end := -1, 0, 0, 0
+	idx, start, end := -1, 0, 0
 
 	if mc.slotIdx >= memNumSlots { // active buffer full; attempt swap out
 		other := mc.active ^ 1
 		if !mc.draining[other].Load() {
-			idx, logfd, start, end = mc.swapBuffersLocked()
+			idx, start, end = mc.swapBuffersLocked()
 			r := mc.reader
-			go mc.consume(r, idx, logfd, start, end)
+			go mc.consume(r, idx, start, end)
 		} else { // the other buffer's consume is wip; cannot swap in
 			if !waited && waitOnFull {
 				waited = true
@@ -321,19 +321,19 @@ func (mc *Memconsole) periodicFlush() {
 		return
 	}
 
-	idx, logfd, start, end := mc.swapBuffersLocked()
+	idx, start, end := mc.swapBuffersLocked()
 	r := mc.reader
 	mc.mu.Unlock()
 
-	mc.consume(r, idx, logfd, start, end)
+	mc.consume(r, idx, start, end)
 }
 
 // swapBuffersLocked stamps the count header of the active buffer, sets its
 // draining flag, flips active to the other buffer, and returns the Drain
 // call parameters. Returns drainIdx=-1 when there is nothing to flush.
-func (mc *Memconsole) swapBuffersLocked() (idx, fd, start, end int) {
+func (mc *Memconsole) swapBuffersLocked() (idx, start, end int) {
 	if mc.slotIdx == 0 {
-		return -1, 0, 0, 0
+		return -1, 0, 0
 	}
 	mc.lastFlush = time.Now()
 
@@ -346,19 +346,19 @@ func (mc *Memconsole) swapBuffersLocked() (idx, fd, start, end int) {
 	// swap active buffer out
 	mc.active ^= 1
 	mc.slotIdx = 0
-	return idx, int(b.fd.Fd()), memHdrSize, memHdrSize + count*memSlotSize
+	return idx, memHdrSize, memHdrSize + count*memSlotSize
 }
 
 // consume calls Drain for the prepared drain parameters, then resets the
 // count header and clears the draining flag for that buffer. idx < 0 is a no-op.
-func (mc *Memconsole) consume(r MemReader, idx, logfd, start, end int) {
+func (mc *Memconsole) consume(r MemReader, idx, start, end int) {
 	if idx < 0 {
 		return
 	}
 	defer mc.draining[idx].Store(false)
 	defer mc.bufs[idx].setCountLocked(0)
-
-	n := r.Drain(logfd, start, end)
+	mfd := mc.bufs[idx].fd.Fd()
+	n := r.Drain(int(mfd), start, end)
 	mc.consumed.Add(uint64(n))
 }
 
@@ -376,11 +376,11 @@ func (mc *Memconsole) Flush() {
 		mc.mu.Unlock()
 		return // other buffer still busy; skip rather than block
 	}
-	idx, logfd, start, end := mc.swapBuffersLocked()
+	idx, start, end := mc.swapBuffersLocked()
 	r := mc.reader
 	mc.mu.Unlock()
 
-	mc.consume(r, idx, logfd, start, end)
+	mc.consume(r, idx, start, end)
 }
 
 // Drops returns the cumulative number of buffer-full events where the
@@ -432,18 +432,19 @@ func (mc *Memconsole) Close() error {
 		other := mc.active ^ 1
 		mc.mu.Unlock()
 		for mc.draining[other].Load() {
-			runtime.Gosched() // wait for concurrent drain to finish so we can swap in the active buffer
+			runtime.Gosched()
+			time.Sleep(waitPeriodOnFull)
 		}
 		mc.mu.Lock()
 	}
 
-	idx, logfd, start, end := mc.swapBuffersLocked()
+	idx, start, end := mc.swapBuffersLocked()
 	r := mc.reader
 	mc.reader = nil
 	mc.mu.Unlock()
 
 	// called sync; Drain() is complete when it returns
-	mc.consume(r, idx, logfd, start, end)
+	mc.consume(r, idx, start, end)
 
 	if r != nil {
 		r.OnClose()
