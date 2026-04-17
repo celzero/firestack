@@ -493,8 +493,7 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 	}
 
 	if opts.willreplacepeers {
-		log.W("proxy: wg: update(%s<>%s): cannot proceed; peers will be replaced", id, w.who())
-		return anew
+		log.W("proxy: wg: update(%s<>%s): peers will be replaced", id, w.who())
 	}
 
 	if err := w.setRoutes(opts.ifaddrs); err != nil {
