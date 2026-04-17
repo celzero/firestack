@@ -2159,10 +2159,10 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	usingExitingSess := false
 
 	var newSess *WsSession
-	skipSess := !existingConf.LastUpdate.IsZero() &&
+	notold := !existingConf.LastUpdate.IsZero() &&
 		time.Since(existingConf.LastUpdate) < wsUpdateThreshold
 
-	if !force && skipSess {
+	if !force && notold {
 		if settings.Debug {
 			log.D("ws: make: using existing session (from: %s); tok? %s", fmtTime(existingConf.LastUpdate), tokst)
 		}
@@ -2185,7 +2185,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 
 	exp, err := time.Parse(time.DateOnly, newSess.ExpiryDate)
 	if err != nil {
-		err = log.EE("ws: make: parsing expiry %s (newSess? %t / skipSess? %t); err: %v", newSess.ExpiryDate, !usingExitingSess, skipSess, err)
+		err = log.EE("ws: make: parsing expiry %s (newSess? %t / skipSess? %t); err: %v", newSess.ExpiryDate, !usingExitingSess, notold, err)
 		return
 	}
 
@@ -2217,7 +2217,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 			}
 		}
 
-		skipGen := !force && !hasnew
+		skipGen := !force && !hasnew && notold
 		if skipGen {
 			log.D("ws: make: skip gen (use existing servers and creds); tok? %s", tokst)
 		} else {
