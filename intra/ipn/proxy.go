@@ -211,12 +211,16 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {
+					p = nil
 					log.W("proxy: add: cannot update wg(%s); readd it!", id)
 				} else {
 					log.I("proxy: add: updated wg %s/%s/%s", id, lp, p.GetAddr())
 					return
 				}
-			} // else: recreate
+			} else { // else: recreate
+				p = nil
+				log.W("proxy: add: update not ok for wg(%s); readd...", id)
+			}
 		}
 		if !force && p == nil {
 			// txt is both wg ifconfig and peercfg
