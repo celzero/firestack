@@ -2200,30 +2200,33 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 		} // else: no-op
 
 		maybeNewServers := existingServers
-		hasnew := false
+		oldlen := len(existingServers)
+		newlen := -1
 		if downloadServerList {
 			newServersRes, err := getServerList(h, newSess, existingEnt)
 
-			loge(err)("ws: make: lochash changed %s != %s / len(%d / %d); fetch err? %v",
-				existingLocHash, newSess.LocHash, len(existingServers), len(newServersRes.Data), err)
-
-			if err == nil && newServersRes != nil && len(newServersRes.Data) > 0 {
-				maybeNewServers = newServersRes.Data
-				hasnew = true
+			if newServersRes != nil {
+				newlen = len(newServersRes.Data)
+				if newlen > 0 {
+					maybeNewServers = newServersRes.Data
+				}
 			}
 
-			if !hasnew && len(existingServers) <= 0 { // no new servers, no existing servers; bail
+			loge(err)("ws: make: lochash changed %s != %s / len(%d / %d); fetch err? %v",
+				existingLocHash, newSess.LocHash, oldlen, newlen, err)
+
+			if newlen <= 0 && oldlen <= 0 { // no new servers, no existing servers; bail
 				return nil, refreshedSess, needsRedo, core.OneErr(err, errWsNoServerList)
 			}
 		}
 
-		skipGen := !force && !hasnew && notold
+		skipGen := !force && newlen <= 0 && notold
 		if skipGen {
 			log.D("ws: make: skip gen (use existing servers and creds); tok? %s", tokst)
 		} else {
 			maybeNewCreds, maybeNewPermaCreds, maybeNewWgConfs, uerr := genWgConfs(h, existingCreds, existingConf.PermaCreds, newSess, maybeNewServers, existingConf.Entitlement, ops)
 			loge(uerr)("ws: make: gen wg confs; tok? %s; downloadloc? %t / hasnewloc? %t len (%d/%d); ops: %v; err? %v",
-				tokst, downloadServerList, hasnew, len(existingServers), len(maybeNewServers), &ops, uerr)
+				tokst, downloadServerList, newlen > 0, len(existingServers), len(maybeNewServers), &ops, uerr)
 
 			if uerr == nil {
 				// TODO: needsRedo must be set iff creds and/or serverlist has changed
