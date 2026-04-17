@@ -1688,8 +1688,9 @@ func initAndConnectCreds(h *http.Client, existingCreds *WsWgCreds, perma bool, s
 		// if kerr != nil {
 		// 	return nil, log.EE("ws: wgconfs: perma: failed key verification; err: %v", kerr)
 		// }
-		// pubkey no longer in list; discard existing creds so /init generates a fresh keypair
-		forceInit = false
+		// pubkey no longer in list; force a fresh /init so a new keypair is generated.
+		// setting forceInit=true makes useExistingCreds=false below, triggering NewWgPrivateKey.
+		forceInit = true
 	} // fallthrough to WgConfigs/init the credential
 
 	runkey := 0
@@ -1969,6 +1970,9 @@ func (a *WsClient) kid() string {
 }
 
 func trunc8(s string) string {
+	if len(s) <= 3 {
+		return s
+	}
 	if len(s) <= 8 {
 		return s[:3]
 	}
@@ -2132,6 +2136,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	performingUpdate := updating
 	// performingUpdate is set for "Update" calls only; that is, when remote api call fails to
 	// either init or init+connect, we can safely errors out on the "Update";
+	force := ops.ForceInit()
 
 	existingSess := existingConf.Session
 	existingCreds := existingConf.Creds
@@ -2154,11 +2159,10 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	usingExitingSess := false
 
 	var newSess *WsSession
-	skipSess := !ops.ForceInit() &&
-		!existingConf.LastUpdate.IsZero() &&
+	skipSess := !existingConf.LastUpdate.IsZero() &&
 		time.Since(existingConf.LastUpdate) < wsUpdateThreshold
 
-	if skipSess {
+	if !force && skipSess {
 		if settings.Debug {
 			log.D("ws: make: using existing session (from: %s); tok? %s", fmtTime(existingConf.LastUpdate), tokst)
 		}
@@ -2200,20 +2204,20 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 		if downloadServerList {
 			newServersRes, err := getServerList(h, newSess, existingEnt)
 
-			loge(err)("ws: make: lochash changed %s != %s / exlen(%d); fetch err? %v",
-				existingLocHash, newSess.LocHash, len(existingServers), err)
+			loge(err)("ws: make: lochash changed %s != %s / len(%d / %d); fetch err? %v",
+				existingLocHash, newSess.LocHash, len(existingServers), len(newServersRes.Data), err)
 
 			if err == nil && newServersRes != nil && len(newServersRes.Data) > 0 {
 				maybeNewServers = newServersRes.Data
 				hasnew = true
 			}
 
-			if len(maybeNewServers) <= 0 { // no new servers, no existing servers; bail
+			if !hasnew && len(existingServers) <= 0 { // no new servers, no existing servers; bail
 				return nil, refreshedSess, needsRedo, core.OneErr(err, errWsNoServerList)
 			}
 		}
 
-		skipGen := !ops.ForceInit() && !hasnew
+		skipGen := !force && !hasnew
 		if skipGen {
 			log.D("ws: make: skip gen (use existing servers and creds); tok? %s", tokst)
 		} else {
@@ -2232,7 +2236,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 				// error out early as this was meant to create an update config for later use
 				// but it itself is not the currently active config aka "existingConf"
 				return nil, refreshedSess, needsRedo, uerr
-			}
+			} // use existingConf if gen failed, as it is better than nothing
 		}
 	} else {
 		log.W("ws: make: session expired at %s (newSess? %t); tok? %s", fmtTime(exp), !usingExitingSess, tokst)
