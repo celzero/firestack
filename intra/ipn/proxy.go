@@ -115,7 +115,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 	rpnid := typ + cc
 
-	p, err := pxr.forceAddProxy(rpnid, txt)
+	p, err := pxr.addProxy(rpnid, txt)
 	if p == nil {
 		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, core.JoinErr(err, errAddProxy)

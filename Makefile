@@ -112,8 +112,8 @@ $(DEBUG_SYMBOLS_ZIP): $(BUILDDIR)/intra/tun2socks-debug.aar
 		[ -f $$so ] || continue; \
 		mkdir -p $(DEBUG_SYMBOLS_DIR)/jni/$$arch; \
 		mkdir -p $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch; \
-		cp $$so $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/ \
-		echo "cp unstripped $$arch/libgojni.so => $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/"; \
+		cp $$so $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/libgojni.so; \
+		echo "cp unstripped $$arch/libgojni.so => $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/libgojni.so"; \
 		$(LLVM_OBJCOPY) --only-keep-debug $$so $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so; \
 		$(LLVM_OBJCOPY) --strip-debug --strip-unneeded $$so; \
 		echo "stripped $$arch/libgojni.so, debug-only => $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so"; \
