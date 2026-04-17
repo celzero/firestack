@@ -153,6 +153,7 @@ var wswgports = []string{ /*0th & 1st pos used by wsRandomPort */ "65142", "1194
 var (
 	errWsBadGatewayArgs = errors.New("ws: cannot make gw; missing args")
 	errWsNoConfig       = errors.New("ws: no config")
+	errWsNoPermaCreds   = errors.New("ws: no permanent creds")
 	errWsNoJsonConfig   = errors.New("ws: no json config")
 	errWsNoSession      = errors.New("ws: no session info")
 	errWsNoClient       = errors.New("ws: no client")
@@ -1795,7 +1796,18 @@ initagain:
 	log.I("ws: wgconfs: got creds;" + details)
 
 	if perma {
-		return createPermaCreds(h, ent, bearer, pubkeybase64)
+		permaCreds, err := createPermaCreds(h, ent, bearer, pubkeybase64)
+		if err != nil || permaCreds == nil {
+			return nil, core.OneErr(err, errWsNoPermaCreds)
+		}
+		// private key is generated locally by the client (not the server)
+		permaCreds.PrivateKey = priv.Base64()
+		if len(permaCreds.PublicKey) > 0 && permaCreds.PublicKey != pubkeybase64 { // registered public key must match the local one
+			return nil, log.EE("ws: wgconfs: perma: pubkey mismatch; expected %s, got %s",
+				pubkeybase64, permaCreds.PublicKey)
+		}
+		permaCreds.PublicKey = pubkeybase64
+		return permaCreds, nil
 	}
 
 	someEndpoint := fixedValidWsEndpoint(test)
