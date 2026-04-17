@@ -1327,8 +1327,12 @@ func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 	if len(wsErr.Error) > 0 {
 		wsErr.Msg += "/" + wsErr.Error
 	}
-	if len(wsErr.Desc) <= 0 {
-		wsErr.Desc += "/" + wsErr.Details
+	if len(wsErr.Details) > 0 {
+		if len(wsErr.Desc) > 0 {
+			wsErr.Desc += "/" + wsErr.Details
+		} else {
+			wsErr.Desc = wsErr.Details
+		}
 	}
 	if len(wsErr.Msg) <= 0 {
 		wsErr.Msg = string(truncate2k(body))
