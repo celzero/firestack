@@ -1084,8 +1084,12 @@ func (a *WsClient) Update(ops *x.RpnOps) (newstate []byte, err error) {
 	if c == nil {
 		return nil, errWsNoConfig
 	}
+	curops := a.Ops()
 	if ops == nil {
-		ops = a.Ops()
+		ops = curops
+	} else if len(ops.DNSConfig()) <= 0 {
+		// retain existing dns config
+		ops.SetDNSConfig(curops.DNSConfig())
 	}
 	start := time.Now()
 	b, refreshed, needsRedo, err := makeWsWgFrom(a.http, c, *ops, true /*updating*/)
