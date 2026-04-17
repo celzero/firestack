@@ -126,10 +126,9 @@ func (h *udpHandler) ProxyMux(gconn *netstack.GUDPConn, src, dst netip.AddrPort,
 // Error implements netstack.GUDPConnHandler.
 // Must be called from a goroutine.
 func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort, err error) {
-	defer clos(gconn) // if open
-
 	log.W("udp: error: %v => %v; err %v", src, target, err)
 	if !src.IsValid() || !target.IsValid() {
+		clos(gconn)
 		return
 	}
 	res, undidAlg, realips, domains := h.onFlow(src, target)
@@ -145,15 +144,16 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 			err = core.JoinErr(errUdpFirewalled, err)
 		}
 		core.Go("udp.stall."+fid, func() {
-			defer clos(gconn)
 			defer h.queueSummary(smm.done(err))
 			secs := h.stall(fid)
 			log.I("udp: error: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
 				cid, uid, src, target, domains, realips, uid, secs)
 		})
+		clos(gconn) // close immediately while stall delays queuing summary
 		return
 	}
 
+	clos(gconn)
 	h.queueSummary(smm.done(err))
 }
 

@@ -201,10 +201,10 @@ func (h *cm) delByUidLocked(uid, cid string) (deleted []string) {
 		if id == cid {
 			deleted = append(deleted, id)
 			if rem := slices.Delete(cids, i, i+1); len(rem) <= 0 {
-				delete(h.tracp, uid)
+				delete(h.tracu, uid)
 				break
 			} else {
-				h.tracp[uid] = rem
+				h.tracu[uid] = rem
 			}
 		}
 	}

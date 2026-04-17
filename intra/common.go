@@ -12,7 +12,6 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -203,9 +202,11 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		if hasPre {
 			for d := range strings.SplitSeq(doms, ",") {
 				nodomain := len(d) <= 0
-				if nodomain && settings.Debug {
-					logwif(len(d) <= 0)("com: %s: onFlow: preflow: %v from %v => %v for %s; nodomain? %t",
-						h.proto, doms, src, target, preuid, nodomain)
+				if nodomain {
+					if settings.Debug {
+						logwif(len(d) <= 0)("com: %s: onFlow: preflow: %v from %v => %v for %s; nodomain? %t",
+							h.proto, doms, src, target, preuid, nodomain)
+					}
 					continue
 				}
 				newips, err := dialers.ResolveFor(d, preuid)
@@ -310,14 +311,14 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	go upload(via, local, remote, uploadch)
 	dbytes, derr := download(via, local, remote)
 
-	upload := <-uploadch
+	uploaded := <-uploadch
 
 	// remote conn could be dialed in to some proxy; and so,
 	// its remote addr may not be the same as smm.Target
 	smm.Rx = dbytes
-	smm.Tx = upload.bytes
+	smm.Tx = uploaded.bytes
 
-	h.queueSummary(smm.done(derr, upload.err))
+	h.queueSummary(smm.done(derr, uploaded.err))
 }
 
 func (h *baseHandler) queueSummary(s *SocketSummary) {
@@ -354,7 +355,10 @@ func (h *baseHandler) processSummaries() {
 		select {
 		case <-h.ctx.Done():
 			return
-		case s := <-h.smmch:
+		case s, ok := <-h.smmch:
+			if !ok {
+				return // channel closed by End()
+			}
 			if s != nil && len(s.ID) > 0 {
 				h.sendSummary(s, immediate)
 			}
@@ -464,7 +468,6 @@ func (h *baseHandler) End() {
 
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
-	debug.SetPanicOnFault(true)
 	defer core.Recover(core.Exit11, "c.upload."+id)
 	defer core.CloseOp(local, core.CopR)
 	defer core.CloseOp(remote, core.CopW)
@@ -607,7 +610,7 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 
 func filterFamilyForDialingWithFailSafe(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
 	included, excluded, excludedIsIncluded = filterFamilyForDialing(ipcsv)
-	if (!excludedIsIncluded || len(excluded) > 0) && len(included) > 0 {
+	if !excludedIsIncluded && len(excluded) > 0 && len(included) > 0 {
 		// if not falling back, then include one excluded ip as a fail-safe
 		included = append(included, core.ChooseOne(excluded))
 	}
@@ -670,11 +673,11 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 
 	if len(decision.PIDCSV) > 0 {
 		for v := range strings.SplitSeq(decision.PIDCSV, ",") {
+			v = strings.TrimSpace(v)
 			if v == ipn.Block { // block overrides all other pids
 				pids = []string{ipn.Block}
 				return
 			}
-			v = strings.TrimSpace(v)
 			if len(v) > 0 {
 				pids = append(pids, v)
 			}
