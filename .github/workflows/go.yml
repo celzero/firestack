@@ -30,6 +30,7 @@ jobs:
     env:
       FOUT: firestack.aar
       FOUTSYM: firestack-debug-symbols.zip
+      DBGUNSTRIPPED: "build/intra/unstripped"
 
     steps:
     - name: 🥏 Checkout code
@@ -130,11 +131,12 @@ jobs:
         unzip ${FOUT}
         which jar && jar tf ./classes.jar
 
+        # stripped from FOUT
+        stripped="jni/arm64-v8a/libgojni.so"
         # eu-unstrip: merge debug-only SOs (from FOUTSYM) back into the stripped SOs
         sudo apt-get install -y --no-install-recommends elfutils
         unzip -q "${FOUTSYM}" -d debugsyms
 
-        stripped="jni/arm64-v8a/libgojni.so"
         debug="debugsyms/jni/arm64-v8a/libgojni.so"
         if [ -f "$stripped" ] && [ -f "$debug" ]; then
           eu-unstrip "$stripped" "$debug" -o "$stripped"
@@ -143,6 +145,15 @@ jobs:
         fi
 
         gsa jni/arm64-v8a/*.so -f text --verbose
+
+        # original SO before any strip pass; may or may not exist
+        og="${DBGUNSTRIPPED}/jni/arm64-v8a/libgojni.so"
+        if [ -f "$og" ]; then
+          echo "=== gsa: orig arm64-v8a ==="
+          gsa "$og" -f text --verbose
+        else
+          echo "::warning::not found $og"
+        fi
 
         #pip install sqlelf
 

@@ -39,6 +39,7 @@ LLVM_OBJCOPY ?= $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objco
 ARCHS = armeabi-v7a arm64-v8a x86 x86_64
 DEBUG_SYMBOLS_DIR = $(BUILDDIR)/intra/debug-symbols
 DEBUG_SYMBOLS_ZIP = $(BUILDDIR)/intra/tun2socks-debug-symbols.zip
+DEBUG_UNSTRIPPED_DIR = $(BUILDDIR)/intra/unstripped
 
 # stack traces are not affected by ldflags -s -w: github.com/golang/go/issues/25035#issuecomment-495004689
 # trimpath: github.com/skycoin/skycoin/issues/719
@@ -101,6 +102,7 @@ $(XGO): go.mod
 # ref: github.com/tailscale/tailscale-android/commit/24d737834a1ff57eaa1daeb52708c918c7cd2e48
 $(DEBUG_SYMBOLS_ZIP): $(BUILDDIR)/intra/tun2socks-debug.aar
 	mkdir -p $(DEBUG_SYMBOLS_DIR)
+	mkdir -p $(DEBUG_UNSTRIPPED_DIR)
 	@set -e; \
 	tmpdir=$$(mktemp -d); \
 	trap "rm -rf $$tmpdir" EXIT; \
@@ -109,9 +111,12 @@ $(DEBUG_SYMBOLS_ZIP): $(BUILDDIR)/intra/tun2socks-debug.aar
 		so=$$tmpdir/jni/$$arch/libgojni.so; \
 		[ -f $$so ] || continue; \
 		mkdir -p $(DEBUG_SYMBOLS_DIR)/jni/$$arch; \
+		mkdir -p $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch; \
+		cp $$so $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/ \
+		echo "cp unstripped $$arch/libgojni.so => $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/"; \
 		$(LLVM_OBJCOPY) --only-keep-debug $$so $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so; \
 		$(LLVM_OBJCOPY) --strip-debug --strip-unneeded $$so; \
-		echo "stripped $$arch/libgojni.so, debug-only -> $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so"; \
+		echo "stripped $$arch/libgojni.so, debug-only => $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so"; \
 	done; \
 	ls -Rltr $$tmpdir; \
 	stripped=$<.stripped; (cd $$tmpdir && zip -qr "$$stripped" .) && mv "$$stripped" $<; \
