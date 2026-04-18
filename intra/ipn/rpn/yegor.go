@@ -2169,10 +2169,10 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	notold := !existingConf.LastUpdate.IsZero() &&
 		time.Since(existingConf.LastUpdate) < wsUpdateThreshold
 
+	if settings.Debug {
+		log.D("ws: make: force? %t / old? %t (from: %s); tok? %s", !force, notold, fmtTime(existingConf.LastUpdate), tokst)
+	}
 	if !force && notold {
-		if settings.Debug {
-			log.D("ws: make: using existing session (from: %s); tok? %s", fmtTime(existingConf.LastUpdate), tokst)
-		}
 		newSess = existingConf.Session
 		usingExitingSess = true
 		refreshedSess = true // treated as refreshed even though we skipped the network call
