@@ -152,6 +152,14 @@ func (o RpnOps) DNSConfig() string {
 // ForceInit returns false if expensive update ops may be skipped if approp.
 func (o RpnOps) ForceInit() bool { return o.forceInit }
 
+// ChangesConfig reports whether this RpnOps would cause a change in wg config
+// if applied to override "other".
+func (o RpnOps) ChangesConfig(other RpnOps) bool {
+	return o.rotateCreds != other.rotateCreds ||
+		o.permaCreds != other.permaCreds ||
+		o.newPort != other.newPort
+}
+
 type Rpn interface {
 	// EntitlementFrom returns the RpnEntitlement represented by entitlementOrStateJson.
 	// `did` is the device identifier to use for this entitlement, if applicable; and `rpnProviderID` is the RPN provider for this entitlement, if applicable.

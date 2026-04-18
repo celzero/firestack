@@ -1093,7 +1093,7 @@ func (a *WsClient) Update(ops *x.RpnOps) (newstate []byte, err error) {
 		ops.SetDNSConfig(curops.DNSConfig())
 	}
 	start := time.Now()
-	b, refreshed, needsRedo, err := makeWsWgFrom(a.http, c, *ops, true /*updating*/)
+	b, refreshed, needsRedo, err := makeWsWgFrom(a.http, c, *ops, true /*updating*/, ops.ChangesConfig(*curops))
 	if err != nil || !refreshed {
 		log.E("ws: update: refreshed? %t; err: %v", refreshed, err)
 		return nil, core.OneErr(err, errWsRetryUpdate)
@@ -2127,11 +2127,11 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string, 
 }
 
 func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig, ops x.RpnOps) (*WsClient, error) {
-	ws, _, _, err := makeWsWgFrom(&w.h2, existingConf, ops, false /*not updating*/)
+	ws, _, _, err := makeWsWgFrom(&w.h2, existingConf, ops, false /*not updating*/, false /*field 'mustRedo' inconsequential*/)
 	return ws, err
 }
 
-func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updating bool) (ws *WsClient, refreshedSess, needsRedo bool, err error) {
+func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updating, mustRedo bool) (ws *WsClient, refreshedSess, needsRedo bool, err error) {
 	existingEnt := existingConf.Entitlement
 	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
 		err = errWsNoEntitlement
@@ -2226,12 +2226,12 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 		}
 
 		skipGen := !force && newlen <= 0 && notold
-		if skipGen {
+		if !mustRedo && skipGen {
 			log.D("ws: make: skip gen (use existing servers and creds); tok? %s", tokst)
 		} else {
 			maybeNewCreds, maybeNewPermaCreds, maybeNewWgConfs, uerr := genWgConfs(h, existingCreds, existingConf.PermaCreds, newSess, maybeNewServers, existingConf.Entitlement, ops)
-			loge(uerr)("ws: make: gen wg confs; tok? %s; downloadloc? %t / hasnewloc? %t len (%d/%d); ops: %v; err? %v",
-				tokst, downloadServerList, newlen > 0, len(existingServers), len(maybeNewServers), &ops, uerr)
+			loge(uerr)("ws: make: gen wg confs; tok? %s; mustgen? %t / downloadloc? %t / hasnewloc? %t len (%d/%d); ops: %v; err? %v",
+				tokst, mustRedo, downloadServerList, newlen > 0, len(existingServers), len(maybeNewServers), &ops, uerr)
 
 			if uerr == nil {
 				// TODO: needsRedo must be set iff creds and/or serverlist has changed
@@ -2240,14 +2240,14 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 				existingConf.Configs = maybeNewWgConfs
 				existingConf.Creds = maybeNewCreds
 				existingConf.PermaCreds = maybeNewPermaCreds // may be nil
-			} else if performingUpdate {
+			} else if performingUpdate || mustRedo {
 				// error out early as this was meant to create an update config for later use
 				// but it itself is not the currently active config aka "existingConf"
 				return nil, refreshedSess, needsRedo, uerr
 			} // use existingConf if gen failed, as it is better than nothing
 		}
 	} else {
-		log.W("ws: make: session expired at %s (newSess? %t); tok? %s", fmtTime(exp), !usingExitingSess, tokst)
+		log.W("ws: make: session expired at %s (mustGen? %t / newSess? %t); tok? %s", fmtTime(exp), mustRedo, !usingExitingSess, tokst)
 	}
 
 	ws, err = newWsGw(existingConf, h, ops)
