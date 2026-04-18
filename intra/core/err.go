@@ -21,6 +21,13 @@ func OneErr(errs ...error) error {
 	return nil
 }
 
+func JoinInto(errs []error, err error) error {
+	if err != nil {
+		return JoinErr(append(errs, err)...)
+	}
+	return JoinErr(errs...)
+}
+
 func JoinErr(errs ...error) error {
 	return joinErr(false /*uniq*/, errs...)
 }
