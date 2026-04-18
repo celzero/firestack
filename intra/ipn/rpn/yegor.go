@@ -2143,6 +2143,8 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	// either init or init+connect, we can safely errors out on the "Update";
 	force := ops.ForceInit()
 
+	var errs []error // accumulate non-fatal errors throughout
+
 	existingSess := existingConf.Session
 	existingCreds := existingConf.Creds
 	noExistingCreds := existingCreds == nil
@@ -2185,12 +2187,14 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 			usingExitingSess = true
 			log.W("ws: make: get session err: %v; using existing; tok? %s", sessErr, tokst)
 			newSess = existingConf.Session // use existing session
+			errs = append(errs, sessErr)
 		}
 	}
 
 	exp, err := time.Parse(time.DateOnly, newSess.ExpiryDate)
 	if err != nil {
 		err = log.EE("ws: make: parsing expiry %s (newSess? %t / skipSess? %t); err: %v", newSess.ExpiryDate, !usingExitingSess, notold, err)
+		err = core.JoinInto(errs, err)
 		return
 	}
 
@@ -2221,7 +2225,7 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 				existingLocHash, newSess.LocHash, oldlen, newlen, err)
 
 			if newlen <= 0 && oldlen <= 0 { // no new servers, no existing servers; bail
-				return nil, refreshedSess, needsRedo, core.OneErr(err, errWsNoServerList)
+				return nil, refreshedSess, needsRedo, core.JoinInto(errs, core.OneErr(err, errWsNoServerList))
 			}
 		}
 
@@ -2243,7 +2247,9 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 			} else if performingUpdate || mustRedo {
 				// error out early as this was meant to create an update config for later use
 				// but it itself is not the currently active config aka "existingConf"
-				return nil, refreshedSess, needsRedo, uerr
+				return nil, refreshedSess, needsRedo, core.JoinInto(errs, uerr)
+			} else {
+				errs = append(errs, uerr)
 			} // use existingConf if gen failed, as it is better than nothing
 		}
 	} else {
@@ -2251,6 +2257,9 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	}
 
 	ws, err = newWsGw(existingConf, h, ops)
+	if err != nil {
+		err = core.JoinInto(errs, err)
+	}
 	return
 }
 
