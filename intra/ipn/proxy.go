@@ -115,6 +115,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 
 	rpnid := typ + cc
 
+	// TODO: addProxy may update wg in-place, even if DNS addrs have changed
 	p, err := pxr.addProxy(rpnid, txt)
 	if p == nil {
 		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists

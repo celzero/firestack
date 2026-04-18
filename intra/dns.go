@@ -145,6 +145,8 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	}
 	pid := p.ID()
 	ctx := t.internalCtx()
+	// TODO: create dns53.NewTransportForProxy() which is self-healing and
+	// uses updated DNS addresses if p.DNS() has changed/updated
 	ipOrHostCsv := p.DNS() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
 	if len(ipOrHostCsv) == 0 {
 		log.W("dns: no proxy dns for %s @ %s", pid, p.GetAddr())

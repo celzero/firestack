@@ -461,6 +461,7 @@ func stripPrefixIfNeeded(id string) string {
 // canUpdate checks if the existing tunnel can be updated in-place;
 // that is, incoming interface config is compatible with the existing tunnel,
 // regardless of whether peer config has changed (which can be updated in-place).
+// Note: Clients must re-add DNS transport if DNS config has changed.
 func (w *wgproxy) update(id, txt string) (ok bool) {
 	const reused = true // can update in-place; reuse existing tunnel
 	const anew = false  // cannot update in-place; create new tunnel
