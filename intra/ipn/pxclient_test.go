@@ -58,16 +58,16 @@ func (f *fakeProxy) Probe(string, string) (protect.PacketConn, error) {
 func (f *fakeProxy) Dialer() protect.RDialer                { return f }
 func (f *fakeProxy) DialerHandle() uintptr                  { return 0 }
 func (f *fakeProxy) Handle() uintptr                        { return 0 }
-func (f *fakeProxy) ID() string                           { return f.id }
-func (f *fakeProxy) Type() string                         { return NOOP }
+func (f *fakeProxy) ID() string                             { return f.id }
+func (f *fakeProxy) Type() string                           { return NOOP }
 func (f *fakeProxy) Router() x.Router                       { return &GWNoVia{} }
 func (f *fakeProxy) Client() x.Client                       { return newProxyClient(f) }
 func (f *fakeProxy) onNotOK() (bool, bool)                  { return false, true }
 func (f *fakeProxy) OnProtoChange(LinkProps) (string, bool) { return "", false }
 func (f *fakeProxy) Hop(Proxy, bool) error                  { return nil }
 func (f *fakeProxy) Status() int                            { return TOK }
-func (f *fakeProxy) GetAddr() string                      { return "" }
-func (f *fakeProxy) DNS() string                          { return "" }
+func (f *fakeProxy) GetAddr() string                        { return "" }
+func (f *fakeProxy) DNS() string                            { return "" }
 func (f *fakeProxy) Ping() bool                             { return true }
 func (f *fakeProxy) Pause() bool                            { return false }
 func (f *fakeProxy) Resume() bool                           { return false }
@@ -75,11 +75,14 @@ func (f *fakeProxy) Stop() error                            { return nil }
 func (f *fakeProxy) Refresh() error                         { return nil }
 
 func restoreDefaultURLs(t *testing.T) func() {
+	prevWs := wsGeoURL
 	prevTrace, prevWarp := traceURL, warpURL
 	prevV4, prevV6 := mullvadV4URL, mullvadV6URL
+	wsGeoURL = defaultWsGeoURL
 	traceURL, warpURL = defaultTraceURL, defaultWarpURL
 	mullvadV4URL, mullvadV6URL = defaultMullvadV4URL, defaultMullvadV6URL
 	return func() {
+		wsGeoURL = prevWs
 		traceURL, warpURL = prevTrace, prevWarp
 		mullvadV4URL, mullvadV6URL = prevV4, prevV6
 	}
@@ -109,6 +112,10 @@ func newServerWithListener(t *testing.T, ln net.Listener) *httptest.Server {
 	handler.HandleFunc("/cdn-cgi/trace", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte("fl=765f119\nloc=US\ncolo=DFW\nip=1.2.3.4\n"))
 	})
+	handler.HandleFunc("/GeoGreet", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"data":{"geo":{"ip":"1.2.3.4","country_code":"US","city_name":"Dallas","isp":"Example Org","lat":"32.8","long":"-96.8"}},"errorCode":0}}`))
+	})
 	handler.HandleFunc("/json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"ip":"1.2.3.4","country":"United States","city":"Dallas","longitude":-96.8,"latitude":32.8,"organization":"Example Org"}`))
@@ -121,12 +128,45 @@ func newServerWithListener(t *testing.T, ln net.Listener) *httptest.Server {
 	return srv
 }
 
+func TestProxyClientWindscribe(t *testing.T) {
+	srv := newIPv4Server(t)
+
+	prevWs := wsGeoURL
+	wsGeoURL = srv.URL + "/GeoGreet"
+	defer func() { wsGeoURL = prevWs }()
+
+	p := &fakeProxy{id: "test-ws"}
+	meta, err := newProxyClient(p).IP4()
+	if err != nil {
+		t.Fatalf("windscribe err: %v", err)
+	}
+	if meta.IP != "1.2.3.4" {
+		t.Fatalf("ip mismatch: %v", meta.IP)
+	}
+	if meta.CC != "US" {
+		t.Fatalf("cc mismatch: %v", meta.CC)
+	}
+	if meta.City != "Dallas" {
+		t.Fatalf("city mismatch: %v", meta.City)
+	}
+	if meta.ASNOrg != "Example Org" {
+		t.Fatalf("asn org mismatch: %v", meta.ASNOrg)
+	}
+	if meta.ProviderURL != wsGeoURL {
+		t.Fatalf("provider mismatch: %v", meta.ProviderURL)
+	}
+}
+
 func TestProxyClientIP4(t *testing.T) {
 	srv := newIPv4Server(t)
 
-	prevTrace, prevMull := traceURL, mullvadV4URL
-	traceURL, mullvadV4URL = srv.URL+"/cdn-cgi/trace", srv.URL+"/json"
-	defer func() { traceURL, mullvadV4URL = prevTrace, prevMull }()
+	prevWs, prevTrace, prevMull := wsGeoURL, traceURL, mullvadV4URL
+	skipWsForTesting = true
+	wsGeoURL, traceURL, mullvadV4URL = srv.URL+"/GeoGreet", srv.URL+"/cdn-cgi/trace", srv.URL+"/json"
+	defer func() {
+		skipWsForTesting = false
+		wsGeoURL, traceURL, mullvadV4URL = prevWs, prevTrace, prevMull
+	}()
 
 	p := &fakeProxy{id: "test-ipv4"}
 	meta, err := newProxyClient(p).IP4()
@@ -157,9 +197,13 @@ func TestProxyClientIP6(t *testing.T) {
 		t.Skip("ipv6 not available")
 	}
 
-	prevTrace, prevMull := traceURL, mullvadV6URL
-	traceURL, mullvadV6URL = srv.URL+"/cdn-cgi/trace", srv.URL+"/json"
-	defer func() { traceURL, mullvadV6URL = prevTrace, prevMull }()
+	prevWs, prevTrace, prevMull := wsGeoURL, traceURL, mullvadV6URL
+	skipWsForTesting = true
+	wsGeoURL, traceURL, mullvadV6URL = srv.URL+"/GeoGreet", srv.URL+"/cdn-cgi/trace", srv.URL+"/json"
+	defer func() {
+		skipWsForTesting = false
+		wsGeoURL, traceURL, mullvadV6URL = prevWs, prevTrace, prevMull
+	}()
 
 	p := &fakeProxy{id: "test-ipv6"}
 	meta, err := newProxyClient(p).IP6()
@@ -180,9 +224,10 @@ func TestProxyClientIP6(t *testing.T) {
 
 func TestProxyClientIP4Live(t *testing.T) {
 	defer restoreDefaultURLs(t)()
+	skipWsForTesting = false
 	skipWarpForTesting = true
 	skipTraceForTesting = true
-	skipMullvadForTesting = false
+	skipMullvadForTesting = true
 	dialers.Mapper(ipmap.NewIPMapFor(systemMapper{}))
 
 	p := &fakeProxy{id: "live-ipv4"}
@@ -190,6 +235,7 @@ func TestProxyClientIP4Live(t *testing.T) {
 	if err != nil {
 		t.Fatalf("live ip4 err: %v", err)
 	}
+	t.Log(meta)
 
 	if meta.IP == "" {
 		t.Fatal("live ip4: empty ip")
@@ -207,6 +253,7 @@ func TestProxyClientIP4Live(t *testing.T) {
 
 func TestProxyClientIP6Live(t *testing.T) {
 	defer restoreDefaultURLs(t)()
+	skipWsForTesting = true
 	skipWarpForTesting = false
 	skipTraceForTesting = true
 	skipMullvadForTesting = true

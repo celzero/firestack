@@ -8,10 +8,13 @@ package ipn
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/netip"
@@ -27,6 +30,7 @@ import (
 )
 
 const (
+	defaultWsGeoURL     = "https://api.windscribe.net/GeoGreet"
 	defaultTraceURL     = "https://sky.rethinkdns.com/cdn-cgi/trace"
 	defaultWarpURL      = "https://redir.nile.workers.dev/p/warp"
 	defaultMullvadV4URL = "https://ipv4.am.i.mullvad.net/json"
@@ -37,15 +41,19 @@ const (
 
 // test hooks
 var (
+	wsGeoURL     = defaultWsGeoURL
 	traceURL     = defaultTraceURL
 	warpURL      = defaultWarpURL
 	mullvadV4URL = defaultMullvadV4URL
 	mullvadV6URL = defaultMullvadV6URL
 
+	skipWsForTesting      = false
 	skipTraceForTesting   = false
 	skipWarpForTesting    = false
 	skipMullvadForTesting = false
 )
+
+var globalWsFakeBearer string
 
 type proxyClient struct {
 	p Proxy
@@ -74,7 +82,10 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 		mullvadURL = mullvadV6URL
 	}
 
-	if trace, err1 := fetchTrace(p, network); err1 == nil {
+	if ws, err0 := fetchWindscribe(p, network); err0 == nil {
+		applyWindscribe(meta, ws)
+		meta.ProviderURL = wsGeoURL
+	} else if trace, err1 := fetchTrace(p, network); err1 == nil {
 		applyTrace(meta, trace)
 		meta.ProviderURL = traceURL
 	} else if warp, err2 := fetchWarp(p, network); err2 == nil {
@@ -85,7 +96,7 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 		meta.ProviderURL = mullvadURL
 	} else {
 		perr := fmt.Errorf("proxy: client: %s ip lookup failed", idstr(p))
-		return nil, core.JoinErr(perr, err1, err2, err3)
+		return nil, core.JoinErr(perr, err0, err1, err2, err3)
 	}
 
 	if len(meta.IP) <= 0 {
@@ -93,6 +104,135 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 	}
 
 	return meta, nil
+}
+
+// fakeBearer generates a fake Windscribe-shaped Bearer token.
+// Format: <9-digit-id>:1:<unix-epoch>:<42-hex-sig1>:<42-hex-sig2>
+func fakeBearer(change bool) string {
+	if change || len(globalWsFakeBearer) == 0 {
+		maxID := big.NewInt(900000000)
+		n, err := rand.Int(rand.Reader, maxID)
+		if err != nil {
+			n = big.NewInt(21102401) // fallback
+		}
+		id := n.Int64() + 100000000 // ensure 9 digits
+
+		sig := func() string {
+			b := make([]byte, 21) // 21 bytes → 42 hex chars
+			rand.Read(b)          //nolint:errcheck
+			return hex.EncodeToString(b)
+		}
+
+		globalWsFakeBearer = fmt.Sprintf("%d:1:%d:%s:%s", id, time.Now().Unix(), sig(), sig())
+	}
+	return globalWsFakeBearer
+}
+
+//	{
+//		"data": {
+//			"geo": {
+//				"ip": "14.139.180.67",
+//				"country_name": "India",
+//				"country_code": "IN",
+//				"city_name": "Coimbatore",
+//				"isp": "NKN Core Network",
+//				"lat": "11.01020",
+//				"long": "76.97010"
+//			}
+//		}
+//	}
+type wsGeoInner struct {
+	IP          string `json:"ip"`
+	CountryCode string `json:"country_code"`
+	CityName    string `json:"city_name"`
+	ISP         string `json:"isp"`
+	Lat         string `json:"lat"`
+	Long        string `json:"long"`
+}
+
+type wsResp struct {
+	Data struct {
+		Geo wsGeoInner `json:"geo"`
+	} `json:"data"`
+	ErrorCode int `json:"errorCode"`
+}
+
+func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
+	if skipWsForTesting {
+		return nil, errors.New("testing: windscribe skipped")
+	}
+
+	parsed, err := url.Parse(wsGeoURL)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wsGeoURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+fakeBearer(false))
+	req.Header.Set("Origin", "https://windscribe.net")
+	req.Header.Set("Referer", "https://windscribe.net")
+
+	log.VV("proxy: client: %s fetching windscribe via %s...", idstr(p), network)
+
+	client := httpClient(p, network, parsed)
+	resp, err := client.Do(req)
+	if resp == nil {
+		return nil, core.OneErr(err, errors.New("proxy: client: windscribe nil response"))
+	}
+	defer core.Close(resp.Body)
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		defer fakeBearer(true)
+		return nil, fmt.Errorf("proxy: client: windscribe status %s / err? %v", resp.Status, err)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxIPBodySize))
+	if err != nil {
+		return nil, err
+	}
+
+	var ws wsResp
+	if err := json.Unmarshal(data, &ws); err != nil {
+		return nil, err
+	}
+	if ws.ErrorCode != 0 {
+		return nil, fmt.Errorf("proxy: client: windscribe error %d", ws.ErrorCode)
+	}
+	if ws.Data.Geo.IP == "" {
+		return nil, errors.New("proxy: client: empty windscribe response")
+	}
+
+	return &ws.Data.Geo, nil
+}
+
+func applyWindscribe(meta *x.IPMetadata, geo *wsGeoInner) {
+	if geo.IP != "" {
+		meta.IP = geo.IP
+	}
+	if geo.CountryCode != "" {
+		meta.CC = strings.ToUpper(geo.CountryCode)
+	}
+	if geo.CityName != "" {
+		meta.City = geo.CityName
+	}
+	if geo.ISP != "" {
+		meta.ASNOrg = geo.ISP
+	}
+	if lat, err := strconv.ParseFloat(strings.TrimSpace(geo.Lat), 64); err == nil {
+		meta.Lat = lat
+	}
+	if lon, err := strconv.ParseFloat(strings.TrimSpace(geo.Long), 64); err == nil {
+		meta.Lon = lon
+	}
 }
 
 // fetchTrace fetches the Cloudflare trace data via the given proxy.
