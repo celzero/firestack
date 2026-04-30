@@ -1221,9 +1221,13 @@ func fixedValidWsEndpoint(test bool) string {
 }
 
 func baseurl(test bool, cid string) *url.URL {
+	svc := svchost
+	if test {
+		svc = svchosttest
+	}
 	u := url.URL{
 		Scheme: "https",
-		Host:   svchosttest,
+		Host:   svc,
 	}
 	q := u.Query()
 	q.Set("cid", cid)
@@ -1239,9 +1243,13 @@ func baseurl(test bool, cid string) *url.URL {
 }
 
 func assetsurl(test bool, cid string) *url.URL {
+	svc := svchost
+	if test {
+		svc = svchosttest
+	}
 	u := url.URL{
 		Scheme: "https",
-		Host:   svchosttest,
+		Host:   svc,
 	}
 	q := u.Query()
 	q.Set("cid", cid)
