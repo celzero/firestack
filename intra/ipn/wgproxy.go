@@ -1616,6 +1616,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 	s := h.status.Load()
 	cur := s
 	ended = s == END
+	paused := s == TPU
 
 	if op != wg.Clo {
 		if op.Read() {
@@ -1627,9 +1628,9 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		}
 	}
 
-	if s == END || s == TPU { // stopped or paused
+	if ended || paused { // stopped or paused
 		h.statusReason.Store("TXX: paused or stopped")
-		log.E("wg: %s listener: %s; status %s; ignoring1", h.tag(), op, pxstatus(s))
+		logeif(ended)("wg: %s listener: %s; status %s; ignoring1", h.tag(), op, pxstatus(s))
 		return
 	}
 
