@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+
+	"github.com/celzero/firestack/intra/core"
 )
 
 // TODO: These modes could be covered by bit-flags instead.
@@ -91,9 +93,9 @@ var DNSMode atomic.Int32
 var BlockMode atomic.Int32
 
 // PtMode determines 6to4 translation heuristics.
-var PtMode atomic.Int32
+var PtMode = core.NewForeverFlow[int32](PtModeAuto)
 
-// SetMode re-assigns d to DNSMode, b to BlockMode, pt to NatPtMode.
+// SetMode re-assigns d to DNSMode, b to BlockMode, pt to PtMode.
 func SetTunMode(d, b, pt int32) {
 	DNSMode.Store(d)
 	BlockMode.Store(b)
