@@ -18,13 +18,16 @@ package x64
 import (
 	"context"
 	"errors"
+	"maps"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -63,6 +66,8 @@ type dns64 struct {
 	ip64 map[string][]*net.IPNet
 	// dns-resolver -> unique nat64-ips
 	uniqIP64 map[string]map[string]struct{}
+
+	paused atomic.Bool
 }
 
 func newDns64(ctx context.Context) *dns64 {
@@ -71,14 +76,51 @@ func newDns64(ctx context.Context) *dns64 {
 		ip64:     make(map[string][]*net.IPNet),
 		uniqIP64: make(map[string]map[string]struct{}),
 	}
+	settings.PtMode.On(ctx, func(_ int32) {
+		d.pauseOrResume()
+	})
+	dialers.IPChanges().On(ctx, func(_ string) {
+		d.pauseOrResume()
+	})
 	core.Gx("dns64.init", d.init)
 	return d
+}
+
+func (d *dns64) pauseOrResume() {
+	pt := settings.PtMode.Load()
+	has6 := dialers.Use6()
+	if pt == settings.PtModeNo46 {
+		if d.paused.CompareAndSwap(false, true) {
+			log.I("dns64: flow: disabled; pausing...")
+		}
+	} else if pt == settings.PtModeAuto && !has6 {
+		if d.paused.CompareAndSwap(false, true) {
+			log.I("dns64: flow: auto; no ipv6; pausing...")
+		}
+	} else {
+		if d.paused.CompareAndSwap(true, false) {
+			dormant := d.allIP64s()
+			log.I("dns64: flow: forced or have ipv6? %t; resuming %d resolver(s)...", has6, len(dormant))
+			for id := range dormant {
+				readded := !d.AddResolver(id)
+				logwif(!readded)("dns64: re-add resolver(%s); ok? %t", id, readded)
+			}
+		}
+	}
 }
 
 func (d *dns64) init() {
 	if err := d.ofLocal464(); err != nil { // unlikely
 		log.W("dns64: err reg local(%v)", err)
 	}
+}
+
+func (d *dns64) allIP64s() map[string][]*net.IPNet {
+	d.RLock()
+	all := make(map[string][]*net.IPNet, len(d.ip64))
+	maps.Copy(all, d.ip64)
+	d.RUnlock()
+	return all
 }
 
 func questionArpa64() *dns.Msg {
@@ -88,17 +130,24 @@ func questionArpa64() *dns.Msg {
 }
 
 // register adds a new dns resolver to the dns64 map; thread-safe.
-func (d *dns64) register(id string) {
+func (d *dns64) register(id string) (paused bool) {
 	d.Lock()
-	defer d.Unlock()
 	if l, ok := d.ip64[id]; ok {
 		log.W("dns64: overwrite existing ip64(%v) for resolver(%s)", l, id)
 	}
 	d.ip64[id] = make([]*net.IPNet, 0)
 	d.uniqIP64[id] = make(map[string]struct{})
+	d.Unlock()
+
+	return d.isPaused()
 }
 
-func (d *dns64) AddResolver(id, r string) (ok bool) {
+func (d *dns64) isPaused() bool {
+	return d.paused.Load()
+}
+
+func (d *dns64) AddResolver(r string) (ok bool) {
+	id := id64(r)
 	switch id {
 	case dnsx.OverlayResolver:
 		return d.ofOverlay() == nil
@@ -106,10 +155,14 @@ func (d *dns64) AddResolver(id, r string) (ok bool) {
 		return d.ofLocal464() == nil
 	}
 
-	d.register(id)
+	if !d.register(id) { // re-register to start with a clean slate
+		log.VV("dns64: skipping query phase for resolver(%s); paused...", r)
+		return
+	}
 
 	defer func() {
 		if !ok {
+			// remove previous id-related values on all errors, regardless.
 			d.RemoveResolver(id)
 		}
 	}()
@@ -143,10 +196,11 @@ func (d *dns64) AddResolver(id, r string) (ok bool) {
 		}
 	}
 
-	if err := d.add(id, ips); err == nil {
-		return true
-	}
+	err = d.add(id, ips)
 
+	ok = err == nil
+
+	logwif(!ok)("dns64: failed to add %s[%s] ips(%v); err %v", r, id, ips, err)
 	return
 }
 
@@ -269,6 +323,11 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r, uid string) (*dns.Msg,
 }
 
 func (d *dns64) ofOverlay() error {
+	if d.register(dnsx.OverlayResolver) {
+		log.VV("dns64: skipping query phase for overlay; paused...")
+		return nil
+	}
+
 	ips, err := net.DefaultResolver.LookupIP(d.ctx, "ip6", dnsx.Rfc7050WKN)
 	log.I("dns64: ipv4only.arpa w underlying network resolver")
 
@@ -280,7 +339,6 @@ func (d *dns64) ofOverlay() error {
 		return errNotFound
 	}
 
-	d.register(dnsx.OverlayResolver)
 	return d.add(dnsx.OverlayResolver, ips)
 }
 

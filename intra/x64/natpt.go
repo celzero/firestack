@@ -8,7 +8,6 @@ package x64
 
 import (
 	"context"
-	"maps"
 	"net"
 	"net/netip"
 
@@ -96,10 +95,7 @@ func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
 
 	rawip := addr2ip(ip6)
 	if id == dnsx.AnyResolver {
-		n.RLock()
-		all := make(map[string][]*net.IPNet, len(n.ip64))
-		maps.Copy(all, n.ip64)
-		n.RUnlock()
+		all := n.dns64.allIP64s()
 
 		for tid, prefixes := range all {
 			if len(prefixes) <= 0 {
@@ -130,7 +126,7 @@ func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
 
 // Add64 implements DNS64.
 func (h *natPt) Add64(id string) bool {
-	return h.dns64.AddResolver(id64(id), id)
+	return h.dns64.AddResolver(id)
 }
 
 // Remove64 implements DNS64.
@@ -186,7 +182,7 @@ func ID64(t dnsx.Transport) string {
 }
 
 func id64(tid string) string {
-	switch tid {
+	switch tid { // may be dnsx.UnderlayResolver or dnsx.OverlayResolver
 	case dnsx.System:
 		return dnsx.UnderlayResolver
 	case dnsx.Goos:
