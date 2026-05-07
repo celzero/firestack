@@ -354,6 +354,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		r.Unlock()
 
 		if tid == System || tid == Goos {
+			// TODO: add other resolvers?
 			// always add64 after having added the system transport
 			core.Gx("r.Add64", func() { r.Add64(tid) })
 		}
