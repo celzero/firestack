@@ -12,7 +12,7 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
-var ipProto *core.Volatile[string] = core.NewVolatile(settings.IP46)
+var ipProto = core.NewForeverFlow(settings.IP46)
 
 func Use4() bool {
 	d := true // by default, use4
@@ -42,6 +42,10 @@ func Use6() bool {
 		log.W("dialers: use6: invalid protos %s; default: %s", x, d)
 		return d
 	}
+}
+
+func IPChanges() *core.Flow[string] {
+	return ipProto
 }
 
 // p must be one of settings.IP4, settings.IP6, or settings.IP46
