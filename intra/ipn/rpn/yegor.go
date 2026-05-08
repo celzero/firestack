@@ -38,6 +38,13 @@ const (
 	// didTokenHeader is the HTTP response/request header for a device-id token
 	// issued by svchost / svchosttest. Format: "a hextoken:expiryepochsec".
 	didTokenHeader = "x-rethink-app-did-token"
+	// github.com/celzero/redir/blob/4b65e7f71510aa74ac3623c85ee1d8a1ec979359/src/d.js#L14
+	dbBookmarkHeader     = "x-rethink-db-rpn-session"
+	dbBookmarkHeaderTest = "x-rethink-db-rpn-test-session"
+	// by default, servers use read-replica; set primary bookmark to instruct
+	// the servers to use primary for at least the first query (which may or may not
+	// be a cid/did validation query; especially if didTokenHeader isn't present).
+	forcePrimaryReads = "first-primary"
 )
 
 const (
@@ -1271,9 +1278,9 @@ func authHeader(req *http.Request, t string) {
 	req.Header.Set("Authorization", "Bearer "+t)
 }
 
-// didHeader sets the x-rethink-app-did and x-rethink-app-did-token request
+// didAndDBHeader sets the x-rethink-app-did and x-rethink-app-did-token request
 // headers when their respective values are non-empty.
-func didHeader(req *http.Request, did, tok string) {
+func didAndDBHeader(req *http.Request, did, tok string, test bool) {
 	if req == nil {
 		return
 	}
@@ -1282,6 +1289,12 @@ func didHeader(req *http.Request, did, tok string) {
 	}
 	if len(tok) > 0 {
 		req.Header.Set(didTokenHeader, tok)
+	} else {
+		bmh := dbBookmarkHeader
+		if test {
+			bmh = dbBookmarkHeaderTest
+		}
+		req.Header.Set(bmh, forcePrimaryReads)
 	}
 }
 
@@ -1403,7 +1416,7 @@ func getSession(h *http.Client, ent *WsEntitlement) (*WsSession, error) {
 		return nil, log.EE("ws: getsess: make req err: %v", err)
 	}
 	authHeader(req, tok)
-	didHeader(req, did, ent.DidToken)
+	didAndDBHeader(req, did, ent.DidToken, ent.TestDomain)
 
 	if settings.Debug {
 		log.V("ws: getsess: req: %s tok %s", u.String(), tokst)
@@ -1611,7 +1624,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	if err != nil {
 		return nil, log.EE("ws: wgconfs: req err: %v", err)
 	}
-	didHeader(locreq, did, ent.DidToken)
+	didAndDBHeader(locreq, did, ent.DidToken, test)
 
 	if settings.Debug {
 		log.V("ws: wgconfs: req: %s tok %s", u.String(), tokenState(bearer))
@@ -1760,7 +1773,7 @@ initagain:
 		}
 		initreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		authHeader(initreq, bearer)
-		didHeader(initreq, ent.Did, ent.DidToken)
+		didAndDBHeader(initreq, ent.Did, ent.DidToken, test)
 
 		if settings.Debug {
 			log.V("ws: wgconfs: %s init req: %s; tok %s; force %s", details, u.String(), tokst, force)
@@ -1859,7 +1872,7 @@ connectagain:
 	}
 	creq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(creq, sess.SessionToken)
-	didHeader(creq, ent.Did, ent.DidToken)
+	didAndDBHeader(creq, ent.Did, ent.DidToken, test)
 
 	if settings.Debug {
 		log.V("ws: wgconfs: %s connect#%d req: %s tok %s", details, runconnect, u.String(), tokst)
@@ -2285,7 +2298,7 @@ func listKeys(h *http.Client, ent *WsEntitlement, bearer string) (*WsWgListKeysR
 		return nil, log.EE("ws: listkeys: req err: %v", err)
 	}
 	authHeader(req, bearer)
-	didHeader(req, ent.Did, ent.DidToken)
+	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
 	if settings.Debug {
 		log.V("ws: listkeys: req: %s tok %s", u.String(), tokst)
@@ -2323,7 +2336,7 @@ func getDNSFilters(h *http.Client, ent *WsEntitlement, bearer string) ([]WsFilte
 		return nil, log.EE("ws: getfilters: req err: %v", err)
 	}
 	authHeader(req, bearer)
-	didHeader(req, ent.Did, ent.DidToken)
+	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
 	if settings.Debug {
 		log.V("ws: getfilters: req: %s tok %s", u.String(), tokst)
@@ -2372,7 +2385,7 @@ func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, e
 	}
 	req.Header.Set("Content-Type", "application/json")
 	authHeader(req, bearer)
-	didHeader(req, ent.Did, ent.DidToken)
+	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
 	if settings.Debug {
 		log.V("ws: setfilter: %s status=%d req: %s tok %s", filterID, status, u.String(), tokst)
@@ -2505,7 +2518,7 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	authHeader(req, bearer)
-	didHeader(req, ent.Did, ent.DidToken)
+	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
 	if settings.Debug {
 		log.V("ws: conf: perma: (m? %t) req: %s tok %s; port %s", managed, u.String(), tokst, port)
