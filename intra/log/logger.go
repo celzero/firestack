@@ -618,6 +618,7 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 		} else {
 			// ex: fn = "github.com/celzero/firestack/intra/dnsx.ChooseHealthyProxyHostPort"
 			fn = shortfile(fn)
+			fn = shortfn(fn)
 		}
 
 		file += sep2 + fn
@@ -649,6 +650,17 @@ func shortfile(file string) string {
 	return file
 }
 
+// shortfn strips the package and receiver type from a fully-qualified
+// function name, keeping only the function name itself.
+// ex: "ipn.(*proxifier).RegisterWin" >> "RegisterWin"
+// ex: "rpn.makeWsWg" >> "makeWsWg"
+func shortfn(fn string) string {
+	if i := strings.LastIndexByte(fn, '.'); i >= 0 {
+		fn = fn[i+1:]
+	}
+	return fn
+}
+
 func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
@@ -675,6 +687,14 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		}
 	}
 
+	// ex: go_backendmain.go:6895@_cgoexp_d123334b966f_proxybackend_Rpn_RegisterWin
+	// > go_backendmain.go:7120@main.proxybackend_Rpn_RegisterWin
+	// > proxies.go:1271@ipn.(*proxifier).RegisterWin
+	// > proxies.go:1296@ipn.(*proxifier).registerWin
+	// > yegor.go:1868@rpn.(*BaseClient).MakeWsWgFrom
+	// > yegor.go:1790@rpn.(*BaseClient).MakeWsWg
+	// > yegor.go:1809@rpn.makeWsWg
+	// > yegor.go:1602@rpn.genWgConfs
 	if ll || cc {
 		_, x, _ := callers(at+nextframe, 9, ":", "@")
 		switch lvl {
