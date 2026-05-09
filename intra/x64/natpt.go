@@ -47,11 +47,12 @@ var (
 	zerovalueaddr = netip.Addr{}
 )
 
+// Only for test.
 func NewNatPt() *natPt {
 	return NewNatPt2(context.Background())
 }
 
-// NewNatPt returns a new NatPt.
+// NewNatPt2 returns a new NatPt.
 func NewNatPt2(ctx context.Context) *natPt {
 	log.I("natpt: new; mode(%v)", settings.PtMode.Load())
 	return &natPt{
