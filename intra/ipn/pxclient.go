@@ -55,6 +55,34 @@ var (
 
 var globalWsFakeBearer string
 
+const ipmLifetime = 12 * time.Hour
+
+type ipmeta struct {
+	id uintptr
+	*x.IPMetadata
+}
+
+var ipm = core.NewExpiringMapLifetime[string, *ipmeta](context.Background(), ipmLifetime)
+
+func getCachedIPMeta(p Proxy, network string) *x.IPMetadata {
+	key := p.ID() + "/" + network
+	handle := p.DialerHandle()
+	e, fresh := ipm.V(key)
+	if !fresh || e == nil {
+		return nil
+	}
+	if e.id != handle {
+		ipm.Delete(key)
+		return nil
+	}
+	return e.IPMetadata
+}
+
+func setCachedIPMeta(p Proxy, network string, meta *x.IPMetadata) {
+	key := p.ID() + "/" + network
+	ipm.K(key, &ipmeta{p.DialerHandle(), meta}, ipmLifetime)
+}
+
 type proxyClient struct {
 	p Proxy
 }
@@ -76,6 +104,13 @@ func (c *proxyClient) IP6() (*x.IPMetadata, error) {
 }
 
 func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
+	if cached := getCachedIPMeta(p, network); cached != nil {
+		return cached, nil
+	}
+	if s := p.Status(); s != TOK && s != TKO {
+		return nil, errNotActive
+	}
+
 	meta := &x.IPMetadata{ID: idstr(p)}
 	mullvadURL := mullvadV4URL
 	if network == "tcp6" {
@@ -103,6 +138,7 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 		return nil, fmt.Errorf("proxy: client: %s ip lookup failed", idstr(p))
 	}
 
+	setCachedIPMeta(p, network, meta)
 	return meta, nil
 }
 

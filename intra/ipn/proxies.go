@@ -131,6 +131,7 @@ var (
 	errNotRpnID           = errors.New("proxy: not rpn id")
 	errNotRpnAcc          = errors.New("proxy: not rpn account")
 	errNotRemote          = errors.New("proxy: not a remote proxy")
+	errNotActive          = errors.New("proxy: not active")
 )
 
 var (
