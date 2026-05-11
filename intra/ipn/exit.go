@@ -28,6 +28,7 @@ const (
 
 // exit is a proxy that always dials out to the internet.
 type exit struct {
+	// TODO: set dnsx.System as DNS for exit and base
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
