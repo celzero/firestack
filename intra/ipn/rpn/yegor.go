@@ -167,6 +167,7 @@ var (
 	errWsNoSession      = errors.New("ws: no session info")
 	errWsNoClient       = errors.New("ws: no client")
 	errWsNoEntitlement  = errors.New("ws: missing entitlement")
+	errWsBadEntitlement = errors.New("ws: entitlement not good")
 	errWsNoToken        = errors.New("ws: missing token")
 	errWsNoCid          = errors.New("ws: missing cid")
 	errWsNoDid          = errors.New("ws: missing device id")
@@ -873,7 +874,7 @@ type WsEntitlement struct {
 	Did          string `json:"did,omitempty"` // Device ID, if any
 	Pid          string `json:"pid,omitempty"` // Share ID
 	SessionToken string `json:"sessiontoken"`  // Encrypted session token
-	// Expiry date of the entitlement; go.dev/play/p/d2gshytEF61
+	// Expiry date of the entitlement; go.dev/play/p/1rWNG6GPGqN
 	Exp              time.Time `json:"expiry"`
 	AccStatus        string    `json:"status"`       // "valid" | "invalid" | "banned" | "expired" | "unknown"
 	AllowCrossDevice bool      `json:"allowRestore"` // true if this entitlement can be restored
@@ -885,6 +886,10 @@ type WsEntitlement struct {
 
 var _ x.RpnAcc = (*WsClient)(nil)
 var _ x.RpnEntitlement = (*WsEntitlement)(nil)
+
+func (e *WsEntitlement) ok() bool {
+	return e != nil && len(e.SessionToken) > 0 && len(e.Cid) > 0
+}
 
 func (e *WsEntitlement) ProviderID() string {
 	return x.RpnWin
@@ -919,8 +924,8 @@ func (e *WsEntitlement) Test() bool {
 }
 
 func (e *WsEntitlement) Json() ([]byte, error) {
-	if e == nil {
-		return nil, errWsNoEntitlement
+	if !e.ok() {
+		return nil, errWsBadEntitlement
 	}
 	var w core.ByteWriter
 	enc := json.NewEncoder(&w)
@@ -2029,8 +2034,8 @@ func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 // overrideDid assigns did to ent.Did. If ent.Did is already set and does not match
 // the incoming did, errWsDidMismatch is returned and ent is left unchanged.
 func overrideDid(ent *WsEntitlement, did string) error {
-	if ent == nil {
-		return errWsNoEntitlement
+	if !ent.ok() {
+		return errWsBadEntitlement
 	}
 	if existing := ent.Did; len(existing) > 0 && existing != did {
 		log.W("ws: did overriden: existing %s, incoming %s", trunc8(existing), trunc8(did))
@@ -2052,6 +2057,9 @@ func (w *BaseClient) MakeWsWg(entitlement []byte, did string, ops x.RpnOps) (*Ws
 	if err != nil {
 		return nil, err
 	}
+	if !ent.ok() {
+		return nil, errWsBadEntitlement
+	}
 
 	// TODO: if ent already has did set; then err on mismatch?
 	if err := overrideDid(&ent, did); err != nil {
@@ -2061,9 +2069,9 @@ func (w *BaseClient) MakeWsWg(entitlement []byte, did string, ops x.RpnOps) (*Ws
 }
 
 func makeWsWg(h *http.Client, ent *WsEntitlement, ops x.RpnOps) (*WsClient, error) {
-	if ent == nil || len(ent.SessionToken) <= 0 {
+	if !ent.ok() {
 		log.E("ws: makeWsWg: entitlement is nil")
-		return nil, errWsNoEntitlement
+		return nil, errWsBadEntitlement
 	}
 
 	sess, err := getSession(h, ent)
@@ -2103,7 +2111,7 @@ func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string
 
 	var ent WsEntitlement
 	err1 := json.Unmarshal(entitlementOrStateJson, &ent)
-	if err1 == nil {
+	if err1 == nil && ent.ok() {
 		if err := overrideDid(&ent, did); err != nil {
 			return nil, err
 		}
@@ -2111,14 +2119,14 @@ func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string
 	}
 	var existingConf WsWgConfig
 	err2 := json.Unmarshal(entitlementOrStateJson, &existingConf)
-	if err2 == nil && existingConf.Entitlement != nil && len(existingConf.Entitlement.SessionToken) > 0 {
+	if err2 == nil && existingConf.Entitlement.ok() {
 		ent := existingConf.Entitlement
 		if err := overrideDid(ent, did); err != nil {
 			return nil, err
 		}
 		return ent, nil
 	}
-	return nil, core.JoinErr(err1, err2)
+	return nil, core.OneErr(core.JoinErr(err1, err2), errWsBadEntitlement)
 }
 
 func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string, ops x.RpnOps) (*WsClient, error) {
@@ -2133,12 +2141,11 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string, 
 	err := json.Unmarshal(entitlementOrWsConfigJson, &existingConf)
 
 	sz := len(entitlementOrWsConfigJson)
-	hasEnt := existingConf.Entitlement != nil
-	hasTok := hasEnt && len(existingConf.Entitlement.SessionToken) > 0
-	if err != nil || !hasEnt || !hasTok {
+	hasEnt := existingConf.Entitlement.ok()
+	if err != nil || !hasEnt {
 		// may be this is an entitlement and not conf?
-		log.W("ws: make: unmarshal config (sz %d / hasEnt %t / hasTok %t) err? %v; retry as entitlement",
-			sz, hasEnt, hasTok, err)
+		log.W("ws: make: unmarshal config (sz %d / hasEnt %t) err? %v; retry as entitlement",
+			sz, hasEnt, err)
 		return w.MakeWsWg(entitlementOrWsConfigJson, did, ops)
 	}
 	if err := overrideDid(existingConf.Entitlement, did); err != nil {
@@ -2154,8 +2161,8 @@ func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig, ops x.RpnOps) (*WsCl
 
 func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updating, mustRedo bool) (ws *WsClient, refreshedSess, needsRedo bool, err error) {
 	existingEnt := existingConf.Entitlement
-	if existingEnt == nil || len(existingEnt.SessionToken) <= 0 {
-		err = errWsNoEntitlement
+	if !existingEnt.ok() {
+		err = errWsBadEntitlement
 		return
 	}
 
