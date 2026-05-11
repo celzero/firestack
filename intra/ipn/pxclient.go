@@ -35,6 +35,7 @@ const (
 	defaultWarpURL      = "https://redir.nile.workers.dev/p/warp"
 	defaultMullvadV4URL = "https://ipv4.am.i.mullvad.net/json"
 	defaultMullvadV6URL = "https://ipv6.am.i.mullvad.net/json"
+	defaultIPinfoURL    = "https://dl.rethinkdns.com/ip"
 	maxIPBodySize       = int64(128 * 1024)
 	httpTimeout         = 10 * time.Second
 )
@@ -42,12 +43,14 @@ const (
 // test hooks
 var (
 	wsGeoURL     = defaultWsGeoURL
+	ipinfoURL    = defaultIPinfoURL
 	traceURL     = defaultTraceURL
 	warpURL      = defaultWarpURL
 	mullvadV4URL = defaultMullvadV4URL
 	mullvadV6URL = defaultMullvadV6URL
 
 	skipWsForTesting      = false
+	skipIPinfoForTesting  = false
 	skipTraceForTesting   = false
 	skipWarpForTesting    = false
 	skipMullvadForTesting = false
@@ -130,18 +133,21 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 	if ws, err0 := fetchWindscribe(p, network); err0 == nil {
 		applyWindscribe(meta, ws)
 		meta.ProviderURL = wsGeoURL
-	} else if trace, err1 := fetchTrace(p, network); err1 == nil {
+	} else if ipi, err1 := fetchIPinfo(p, network); err1 == nil {
+		applyIPinfo(meta, ipi)
+		meta.ProviderURL = ipinfoURL
+	} else if trace, err2 := fetchTrace(p, network); err2 == nil {
 		applyTrace(meta, trace)
 		meta.ProviderURL = traceURL
-	} else if warp, err2 := fetchWarp(p, network); err2 == nil {
+	} else if warp, err3 := fetchWarp(p, network); err3 == nil {
 		applyWarp(meta, warp)
 		meta.ProviderURL = warpURL
-	} else if mull, err3 := fetchMullvad(p, network, mullvadURL); err3 == nil {
+	} else if mull, err4 := fetchMullvad(p, network, mullvadURL); err4 == nil {
 		applyMullvad(meta, mull)
 		meta.ProviderURL = mullvadURL
 	} else {
 		perr := fmt.Errorf("proxy: client: %s ip lookup failed", idstr(p))
-		return nil, core.JoinErr(perr, err0, err1, err2, err3)
+		return nil, core.JoinErr(perr, err0, err1, err2, err3, err4)
 	}
 
 	if len(meta.IP) <= 0 {
@@ -278,6 +284,64 @@ func applyWindscribe(meta *x.IPMetadata, geo *wsGeoInner) {
 	}
 	if lon, err := strconv.ParseFloat(strings.TrimSpace(geo.Long), 64); err == nil {
 		meta.Lon = lon
+	}
+}
+
+//	{
+//		"ip": "14.139.180.67",
+//		"asn": "AS55824",
+//		"as_name": "NKN Core Network",
+//		"as_domain": "nkn.gov.in",
+//		"country_code": "IN",
+//		"country": "India",
+//		"continent_code": "AS",
+//		"continent": "Asia"
+//	}
+type ipinfoResp struct {
+	IP          string `json:"ip"`
+	ASN         string `json:"asn"`
+	ASName      string `json:"as_name"`
+	ASDomain    string `json:"as_domain"`
+	CountryCode string `json:"country_code"`
+}
+
+func fetchIPinfo(p Proxy, network string) (*ipinfoResp, error) {
+	if skipIPinfoForTesting {
+		return nil, errors.New("testing: ipinfo skipped")
+	}
+
+	body, err := fetch(p, network, ipinfoURL)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ipinfoResp
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+
+	if resp.IP == "" {
+		return nil, errors.New("proxy: client: empty ipinfo response")
+	}
+
+	return &resp, nil
+}
+
+func applyIPinfo(meta *x.IPMetadata, resp *ipinfoResp) {
+	if resp.IP != "" {
+		meta.IP = resp.IP
+	}
+	if resp.ASN != "" {
+		meta.ASN = resp.ASN
+	}
+	if resp.ASName != "" {
+		meta.ASNOrg = resp.ASName
+	}
+	if resp.ASDomain != "" {
+		meta.ASNDom = resp.ASDomain
+	}
+	if resp.CountryCode != "" {
+		meta.CC = strings.ToUpper(resp.CountryCode)
 	}
 }
 
@@ -450,7 +514,8 @@ func applyMullvad(meta *x.IPMetadata, resp *mullvadResp) {
 		meta.IP = resp.IP
 	}
 	if resp.Country != "" && meta.CC == "" {
-		meta.CC = resp.Country
+		// TODO: resp.Country isn't country code
+		// meta.CC = resp.Country
 	}
 	if resp.City != "" {
 		meta.City = resp.City
