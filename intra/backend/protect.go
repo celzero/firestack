@@ -15,7 +15,6 @@ const ( // see protect/protect.go
 type Console interface {
 	Log(int32, string)
 	LogFD(readAfterDup int) bool
-	CrashFD(readUntilEOF int) bool
 	// LogMemFD hands off the shared-memory and that back the double-buffered log data.
 	// fd1 and fd2 can be mapped; but must be dup(2)'d before use.
 	// size is the max length (in bytes) of each region the receiver should mmap.

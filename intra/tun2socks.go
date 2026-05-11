@@ -27,7 +27,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
@@ -37,7 +36,6 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
-	"golang.org/x/sys/unix"
 
 	"github.com/celzero/firestack/intra/log"
 )
@@ -63,6 +61,9 @@ func (t traceout) s() string { return string(t) }
 const minMemLimit = 512 * 1024 * 1024      // 512MiB
 const maxMemLimit = 4 * 1024 * 1024 * 1024 // 4GiB
 
+// onetime console setup
+var csetup atomic.Bool
+
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
 	debug.SetGCPercent(50)
@@ -71,11 +72,20 @@ func init() {
 }
 
 // SetupConsole wires up firestack's logger to bdg.
-func SetupConsole(console Console) {
-	ctx := context.Background()
+func SetupConsole(console Console) error {
+	if csetup.Load() {
+		return errMakeTunnel
+	}
+	return setupConsole(console)
+}
 
+func setupConsole(console Console) error {
+	if !csetup.CompareAndSwap(false, true) {
+		return errMakeTunnel
+	}
+
+	ctx := context.Background()
 	logch := make(chan bool, 1)
-	crashch := make(chan bool, 1)
 	go func() {
 		logfd, memfd := false, false
 		var cons x.LogConsumer
@@ -111,21 +121,13 @@ func SetupConsole(console Console) {
 		}
 		log.D("tun: <<< console >>>; log out ok; memfd? %t / logfd? %t", memfd, logfd)
 		logch <- memfd || logfd
-	}()
-
-	go func() {
-		crashfd := pipeCrashOutput(console)
-		crashch <- crashfd
-		log.D("tun: <<< console >>>; crash out ok; fd? %t", crashfd)
+		log.ConsoleReady(ctx)
 	}()
 
 	fd := <-logch
-	crashfd := <-crashch
-	crashpiped.Store(crashfd)
 
-	log.ConsoleReady(ctx)
-
-	log.I("tun: <<< console >>>; logger: ok; fds (logfd? %t / crash? %t)", fd, crashfd)
+	log.I("tun: <<< console >>>; logger: ok; logfd? %t", fd)
+	return nil
 }
 
 // Connect creates firestack-administered tunnel.
@@ -288,21 +290,29 @@ func Build(full bool) (v string) {
 }
 
 // PrintStack logs the stack trace of all active goroutines
-// to stdout if onConsole is false, otherwise to Console.
-// For testing only.
-func PrintStack(onConsole bool) {
+// to stdout if where is 0, to Console if 1; otherwise returns
+// it as bytes. For testing only.
+func PrintStack(where int32) []byte {
 	bptr := core.LOB()
 	b := *bptr
 	b = b[:cap(b)]
+	recycle := true
 	defer func() {
-		*bptr = b
-		core.Recycle(bptr)
+		if recycle {
+			*bptr = b
+			core.Recycle(bptr)
+		}
 	}()
-	if onConsole {
-		log.C("tun: debug trace (not a crash)", b)
-	} else {
+	switch where {
+	case 0:
 		log.TALL("tun: debug trace (not a crash)", b)
+		return nil
+	case 1:
+		log.C("tun: debug trace (not a crash)", b)
+		return nil
 	}
+	recycle = false
+	return b
 }
 
 // PrintFlightRecord dumps the contents of the flight recorder
@@ -332,26 +342,6 @@ func Crash(afterMs int64) {
 	}()
 }
 
-// global references to keep go's finalizer from cleaning up the FDs
-var crashReader, crashWriter, crashRWErr = os.Pipe()
-var crashpiped atomic.Bool
-
-func pipeCrashOutput(c Console) (ok bool) {
-	if crashRWErr != nil {
-		log.E("tun: crashout: err pipe: %v", crashRWErr)
-		return false
-	}
-	pipeBuffer256k(crashWriter)
-	pipeBuffer256k(crashReader)
-	// defer core.Close(crashReader) // close iff r is dup'd by client code
-	defer core.Close(crashWriter) // always close as w is dup'd by the runtime
-	if setCrashFd(crashWriter) && c.CrashFD(int(crashReader.Fd())) {
-		return true
-	}
-	setCrashFd(nil)
-	return false
-}
-
 // setCrashFd sets dup(f) as output file to write go runtime crashes in to.
 func setCrashFd(f *os.File) (ok bool) {
 	// f is dup()ed by debug.SetCrashOutput before use
@@ -363,44 +353,15 @@ func setCrashFd(f *os.File) (ok bool) {
 // SetCrashOutput set crash output to file at fp; returns true if so.
 // Disables crash output if fp cannot be opened; and returns false.
 func SetCrashOutput(fp string) bool {
-	p := crashpiped.Swap(false)
-	ok := setCrashFd(nil)
-	// if fd not owned by client code
-	// if p { defer core.Close(crashReader)  }
-
 	fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	defer core.CloseFile(fout)
 
-	logei(err)("tun: crashout: closed? %t; was piped? %t; f: %s; err? %v", ok, p, fp, err)
+	logei(err)("tun: crashout: f: %s; err? %v", fp, err)
 
 	if err == nil {
 		return setCrashFd(fout)
 	}
 	return false
-}
-
-func pipeBuffer256k(f *os.File) bool {
-	if f == nil {
-		return false
-	}
-	const b256k = 4 * 64 * 1024
-	fd := f.Fd()
-	nom := f.Name()
-	// kernel may round this up to the nearest page size multiple?
-	x, err := unix.FcntlInt(fd, unix.F_SETPIPE_SZ, b256k)
-	if err != nil {
-		log.W("tun: crashout: pipe (%s %d) err set size %d: %v", nom, fd, x, err)
-		return false
-	}
-
-	x, err = unix.FcntlInt(fd, unix.F_GETPIPE_SZ, 0)
-	if err != nil {
-		log.W("tun: crashout: pipe (%s %d) err get size: %v", nom, fd, err)
-		return false
-	}
-
-	runtime.KeepAlive(f)
-	log.W("tun: crashout: pipe (%s %d) buffer %s", nom, fd, core.FmtBytes(uint64(x)))
-	return true
 }
 
 func fname(f *os.File) string {
