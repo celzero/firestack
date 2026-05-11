@@ -55,14 +55,17 @@ var (
 
 var globalWsFakeBearer string
 
-const ipmLifetime = 12 * time.Hour
+const (
+	maxIpmetaLifetime = 12 * time.Hour
+	minIpmetaLifetime = 12 * time.Minute
+)
 
 type ipmeta struct {
 	id uintptr
 	*x.IPMetadata
 }
 
-var ipm = core.NewExpiringMapLifetime[string, *ipmeta](context.Background(), ipmLifetime)
+var ipm = core.NewExpiringMap[string, *ipmeta](context.Background())
 
 func getCachedIPMeta(p Proxy, network string) *x.IPMetadata {
 	key := p.ID() + "/" + network
@@ -79,8 +82,15 @@ func getCachedIPMeta(p Proxy, network string) *x.IPMetadata {
 }
 
 func setCachedIPMeta(p Proxy, network string, meta *x.IPMetadata) {
-	key := p.ID() + "/" + network
-	ipm.K(key, &ipmeta{p.DialerHandle(), meta}, ipmLifetime)
+	pid := p.ID()
+	key := pid + "/" + network
+	until := maxIpmetaLifetime
+	if local(pid) {
+		// local proxies' dialerhandle never recreate (on network changes)
+		// and so, we are aggressive for how long we'll cache their responses
+		until = minIpmetaLifetime
+	}
+	ipm.K(key, &ipmeta{p.DialerHandle(), meta}, until)
 }
 
 type proxyClient struct {
