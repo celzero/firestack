@@ -35,12 +35,14 @@ type LogConsumer interface {
 
 // Controller provides a way to bind and protect socket file descriptors.
 type Controller interface {
-	// Bind4 binds fd to any internet-capable IPv4 interface.
+	// Bind4 binds fd to any IPv4 interface that will route addrport.
 	Bind4(who, addrport string, fd int)
-	// Bind6 binds fd to any internet-capable IPv6 interface.
+	// Bind6 binds fd to any IPv6 interface that will route addrport.
 	// also: github.com/lwip-tcpip/lwip/blob/239918c/src/core/ipv6/ip6.c#L68
 	Bind6(who, addrport string, fd int)
-	// Protect marks fd as protected.
+	// Protect marks fd as protected from routing loops, if any.
+	// On Android, this means calling VpnService.protect(fd) to exempt it from fwmarks
+	// that route it back into the TUN device operated by firestack.
 	Protect(who string, fd int)
 }
 
