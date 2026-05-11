@@ -30,20 +30,20 @@ import (
 )
 
 const (
+	defaultIPinfoURL    = "https://dl.rethinkdns.com/ip"
 	defaultWsGeoURL     = "https://api.windscribe.net/GeoGreet"
 	defaultTraceURL     = "https://sky.rethinkdns.com/cdn-cgi/trace"
 	defaultWarpURL      = "https://redir.nile.workers.dev/p/warp"
 	defaultMullvadV4URL = "https://ipv4.am.i.mullvad.net/json"
 	defaultMullvadV6URL = "https://ipv6.am.i.mullvad.net/json"
-	defaultIPinfoURL    = "https://dl.rethinkdns.com/ip"
 	maxIPBodySize       = int64(128 * 1024)
 	httpTimeout         = 10 * time.Second
 )
 
 // test hooks
 var (
-	wsGeoURL     = defaultWsGeoURL
 	ipinfoURL    = defaultIPinfoURL
+	wsGeoURL     = defaultWsGeoURL
 	traceURL     = defaultTraceURL
 	warpURL      = defaultWarpURL
 	mullvadV4URL = defaultMullvadV4URL
@@ -130,12 +130,12 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 		mullvadURL = mullvadV6URL
 	}
 
-	if ws, err0 := fetchWindscribe(p, network); err0 == nil {
-		applyWindscribe(meta, ws)
-		meta.ProviderURL = wsGeoURL
-	} else if ipi, err1 := fetchIPinfo(p, network); err1 == nil {
+	if ipi, err0 := fetchIPinfo(p, network); err0 == nil {
 		applyIPinfo(meta, ipi)
 		meta.ProviderURL = ipinfoURL
+	} else if ws, err1 := fetchWindscribe(p, network); err1 == nil {
+		applyWindscribe(meta, ws)
+		meta.ProviderURL = wsGeoURL
 	} else if trace, err2 := fetchTrace(p, network); err2 == nil {
 		applyTrace(meta, trace)
 		meta.ProviderURL = traceURL
