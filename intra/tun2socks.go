@@ -73,13 +73,6 @@ func init() {
 
 // SetupConsole wires up firestack's logger to bdg.
 func SetupConsole(console Console) error {
-	if csetup.Load() {
-		return errMakeTunnel
-	}
-	return setupConsole(console)
-}
-
-func setupConsole(console Console) error {
 	if !csetup.CompareAndSwap(false, true) {
 		return errMakeTunnel
 	}
