@@ -6,7 +6,11 @@
 
 package backend
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
 
 const ( // see ipn/proxies.go
 	// IDs for default proxies
@@ -90,6 +94,7 @@ type RpnOps struct {
 	newPort           uint16 // fixed WireGuard port; 0 = random per wsRandomPort()
 	dnsConfig         string // csv of DNS filter presets: "family", "security", "social", "privacy", "all", "none", "default"
 	forceInit         bool   // when false, skips expensive ops unless absolutely required.
+	excludeCCs        string // csv of (sorted) country codes to exclude from selection.
 }
 
 func NewRpnOps() *RpnOps {
@@ -97,8 +102,8 @@ func NewRpnOps() *RpnOps {
 }
 
 func (o *RpnOps) String() string {
-	return fmt.Sprintf("rotate: %t; perma: %t; forceFetchServers: %t; port: %d; dns: %s; forceInit: %t",
-		o.rotateCreds, o.permaCreds, o.forceFetchServers, o.newPort, o.dnsConfig, o.forceInit)
+	return fmt.Sprintf("rotate: %t; perma: %t; forceFetchServers: %t; port: %d; dns: %s; forceInit: %t; excludeCCs: %v",
+		o.rotateCreds, o.permaCreds, o.forceFetchServers, o.newPort, o.dnsConfig, o.forceInit, o.excludeCCs)
 }
 
 // SetRotateCreds forces generation of a new WireGuard keypair on the next Update.
@@ -130,6 +135,23 @@ func (o *RpnOps) SetDNSConfig(v string) {
 // expensive ops are skipped if called within some threshold of the previous call.
 func (o *RpnOps) SetForceInit(v bool) { o.forceInit = v }
 
+// SetExcludeCCs sets a CSV of country codes to exclude from CC selection.
+// Empty or whitespace entries are ignored; codes are normalised to upper-case.
+func (o *RpnOps) SetExcludeCCs(v string) {
+	parts := slices.Sorted(strings.SplitSeq(v, ","))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.ToUpper(strings.TrimSpace(p))
+		if len(p) > 0 {
+			out = append(out, p)
+		}
+	}
+	o.excludeCCs = strings.Join(out, ",")
+}
+
+// ExcludeCCs returns the CSV of country codes excluded from CC selection.
+func (o RpnOps) ExcludeCCs() (csv string) { return o.excludeCCs }
+
 // Rotate reports whether a new WG keypair should be generated.
 func (o RpnOps) Rotate() bool { return o.rotateCreds }
 
@@ -152,12 +174,19 @@ func (o RpnOps) DNSConfig() string {
 // ForceInit returns false if expensive update ops may be skipped if approp.
 func (o RpnOps) ForceInit() bool { return o.forceInit }
 
+// ExcludeCCs returns csv of (to be) sorted excluded country codes.
+func (o RpnOps) GetExcludeCCs() string { return o.excludeCCs }
+
 // ChangesConfig reports whether this RpnOps would cause a change in wg config
 // if applied to override "other".
 func (o RpnOps) ChangesConfig(other RpnOps) bool {
 	return o.rotateCreds != other.rotateCreds ||
 		o.permaCreds != other.permaCreds ||
 		o.newPort != other.newPort
+	// TODO: asses if excludeccs would cause change in wg config (RegionalWgConfs)
+	// a empty excludeCCs means existing ones, if any, are retained.
+	// excludedccs is a sorted csv and so string equality should work.
+	// len(o.excludeCCs) > 0 && o.excludeCCs != other.excludeCCs
 }
 
 type Rpn interface {
@@ -412,8 +441,10 @@ type RpnServer struct {
 	Link int32
 	// Number of active servers in this CC+City.
 	Count int32
-	// Premium
+	// Premium server
 	Premium bool
+	// Excluded by end-user
+	Excluded bool
 }
 
 type IPMetadata struct {

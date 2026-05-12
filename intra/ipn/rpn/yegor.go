@@ -178,6 +178,7 @@ var (
 	errWsRetryUpdate    = errors.New("ws: retry update")
 	errWsNoCcConfig     = errors.New("ws: not available in that location")
 	errWsNoFilters      = errors.New("ws: no filter list")
+	errWsCCExcluded     = errors.New("ws: cc excluded")
 )
 
 /*
@@ -1054,6 +1055,7 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 	if len(c.Configs) <= 0 {
 		return nil, errWsNoCcConfig
 	}
+	excl := ccCsvAsSet(a.Ops().ExcludeCCs())
 	visited := make(map[string]bool, len(c.Configs))
 	s := make([]x.RpnServer, 0, len(c.Configs)/maxPerRegionWgConfs)
 	for i, rc := range c.Configs {
@@ -1070,14 +1072,16 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 			continue
 		}
 		if !visited[rc.Name] {
+			_, isExcluded := excl[rc.CC]
 			s = append(s, x.RpnServer{
-				CC:      rc.CC,
-				City:    rc.City,
-				Name:    rc.Name,
-				Load:    rc.Load,
-				Link:    rc.Link,
-				Count:   rc.Count,
-				Premium: rc.Premium,
+				CC:       rc.CC,
+				City:     rc.City,
+				Name:     rc.Name,
+				Load:     rc.Load,
+				Link:     rc.Link,
+				Count:    rc.Count,
+				Premium:  rc.Premium,
+				Excluded: isExcluded,
 				// cc is always suffixed; see proxy.go:proxifier.postAddRpnProxy
 				Key:   strings.Join([]string{rc.City, rc.CC}, confKeySep),
 				Addrs: strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
@@ -1100,9 +1104,15 @@ func (a *WsClient) Update(ops *x.RpnOps) (newstate []byte, err error) {
 	curops := a.Ops()
 	if ops == nil {
 		ops = curops
-	} else if len(ops.DNSConfig()) <= 0 {
-		// retain existing dns config
-		ops.SetDNSConfig(curops.DNSConfig())
+	} else {
+		if len(ops.DNSConfig()) <= 0 {
+			// retain existing dns config
+			ops.SetDNSConfig(curops.DNSConfig())
+		}
+		// retain existing excludeCCs if not set by incoming ops
+		if len(ops.ExcludeCCs()) <= 0 {
+			ops.SetExcludeCCs(curops.ExcludeCCs())
+		}
 	}
 	start := time.Now()
 	b, refreshed, needsRedo, err := makeWsWgFrom(a.http, c, *ops, true /*updating*/, ops.ChangesConfig(*curops))
@@ -1159,12 +1169,28 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		city = cccsv[0]
 		cc = cccsv[1]
 	}
-	visited := make(map[string]struct{}, 0)
 	// in sync with anyCountryCode / noCountryForOldMen vars in proxy.go
 	chooseAny := cc == "**" || len(cc) <= 0
 	hasCity := len(city) > 0
-	tot := 0
-	c := 0
+	cc = strings.ToUpper(cc)
+
+	excl := ccCsvAsSet(a.Ops().ExcludeCCs())
+	// if a specific (non-wildcard) CC is explicitly excluded, bail early
+	if !chooseAny && len(excl) > 0 {
+		if _, excluded := excl[cc]; excluded {
+			log.W("ws: conf: cc %s is excluded...", cc)
+			return "", errWsCCExcluded
+		}
+	}
+
+	retried := false
+reconf:
+	tot := 0  // total seen
+	c := 0    // good cc conf
+	badc := 0 // bad cc conf
+	x := 0    // total excluded
+	v := 0    // total visited
+	visited := make(map[string]struct{}, len(cfg.Configs))
 	out := make([]string, 0, maxPerRegionWgConfs)
 	ids := make([]string, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
@@ -1175,8 +1201,14 @@ func (a *WsClient) Conf(cc string) (string, error) {
 					continue
 				}
 				visited[rc.CC] = struct{}{}
+				v++
+				// skip CCs the user has excluded
+				if _, excluded := excl[rc.CC]; excluded {
+					x++
+					continue
+				}
 				if c > 2 {
-					// choose only low load and high link speed servers
+					// after a couple random servers, prefer low load and high link speed servers
 					gbps10 := rc.Link >= 10000
 					healthy50 := rc.Load <= 50
 					gbps1 := rc.Link >= 1000
@@ -1211,6 +1243,8 @@ func (a *WsClient) Conf(cc string) (string, error) {
 				out = append(out, confstr)
 				ids = append(ids, strings.Join([]string{rc.CC, rc.City, rc.Name}, "/"))
 				c++
+			} else {
+				badc++
 			}
 		}
 		tot++
@@ -1219,6 +1253,16 @@ func (a *WsClient) Conf(cc string) (string, error) {
 		r := rand.IntN(len(out))
 		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s] (port: %s)", cc, city, c, len(out), chooseAny, r, ids[r], portstr)
 		return out[r], nil
+	}
+	if tot == 0 || v <= x { // fail open if all CCs excluded
+		logew(retried)("ws: conf: cc %s(%s): all visited(%d) / excluded(%d) / bad(%d); tot: %d / excl: %d; retry?",
+			cc, city, v, x, badc, tot, len(excl), !retried)
+		if !retried {
+			clear(excl) // fail open; excluded none
+			clear(visited)
+			retried = true
+			goto reconf
+		}
 	}
 	log.E("ws: conf: cc %s(%s) not found (tot: %d)", cc, city, tot)
 	return "", errWsNoCcConfig
@@ -2555,6 +2599,22 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 	return &cfg, nil
 }
 
+// ccCsvAsSet mods a csv of country codes into a set.
+func ccCsvAsSet(csv string) map[string]struct{} {
+	if len(csv) <= 0 {
+		return nil
+	}
+	parts := strings.Split(csv, ",")
+	out := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		p = strings.ToUpper(strings.TrimSpace(p))
+		if len(p) > 0 {
+			out[p] = struct{}{}
+		}
+	}
+	return out
+}
+
 func wsBriefPauseBeforeRetry() {
 	time.Sleep(2200 * time.Millisecond)
 }
@@ -2564,6 +2624,13 @@ func loge(err error) log.LogFn {
 		return log.I
 	}
 	return log.E
+}
+
+func logew(cond bool) log.LogFn {
+	if cond {
+		return log.E
+	}
+	return log.W
 }
 
 func sha(p string) []byte {

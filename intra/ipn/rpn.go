@@ -364,21 +364,45 @@ func (r *rpnp) forkMain() error {
 	return err
 }
 
+// ccCsvAsSet mods a comma-separated list of country codes into a lookup set.
+func ccCsvAsSet(csv string) map[string]struct{} {
+	if len(csv) <= 0 {
+		return nil
+	}
+	parts := strings.Split(csv, ",")
+	out := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		p = strings.ToUpper(strings.TrimSpace(p))
+		if len(p) > 0 {
+			out[p] = struct{}{}
+		}
+	}
+	return out
+}
+
 func (r *rpnp) forkAll() error {
 	provider := r.RpnAcc.ProviderID()
 	kids := r.flattenKids()
-	log.I("proxy: rpn: forkAll: %s[%v]", provider, kids)
 
 	errs := make([]error, 0) // may contain nil errors
 
-	e := r.forkMain()
+	ops := r.RpnAcc.Ops()
+	excludedSet := ccCsvAsSet(ops.ExcludeCCs())
 
+	log.I("proxy: rpn: forkAll: %s [%v] incl: %d / excl: %d", provider, kids, len(kids), len(excludedSet))
+
+	e := r.forkMain()
 	errs = append(errs, e)
 
 	for _, cc := range kids {
-		_, e := r.fork(cc)
-		loged(e)("proxy: rpn: forkAll: forked %s[%s]; err? %v", provider, cc, e)
-		errs = append(errs, e)
+		if _, excluded := excludedSet[cc]; excluded {
+			r.purge(cc) // remove excluded kid
+			log.I("proxy: rpn: forkAll: %s[%s] excluded; purged", provider, cc)
+		} else {
+			_, e := r.fork(cc)
+			loged(e)("proxy: rpn: forkAll: forked %s[%s]; err? %v", provider, cc, e)
+			errs = append(errs, e)
+		}
 	}
 	return core.JoinErr(errs...)
 }
