@@ -1250,7 +1250,7 @@ reconf:
 		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s] (port: %s)", cc, city, c, len(out), chooseAny, r, ids[r], portstr)
 		return out[r], nil
 	}
-	if tot == 0 || v <= x { // fail open if all CCs excluded
+	if x > 0 && (tot == 0 || v <= x) { // fail open if all CCs excluded
 		logew(retried)("ws: conf: cc %s(%s): all visited(%d) / excluded(%d) / bad(%d); tot: %d / excl: %d; retry?",
 			cc, city, v, x, badc, tot, len(excl), !retried)
 		if !retried {
