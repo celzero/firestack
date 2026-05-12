@@ -1019,7 +1019,7 @@ func (a *WsClient) Updated() int64 {
 	return updatedAt.UnixMilli()
 }
 
-// Ops implements x.RpnAcc.
+// Ops implements x.RpnAcc. Never returns nil.
 func (a *WsClient) Ops() *x.RpnOps {
 	ops := a.ops.Load()
 	return &ops
