@@ -72,8 +72,12 @@ func FmtSecs(s int64) string {
 	return FmtPeriod(time.Duration(s) * time.Second)
 }
 
+func FmtSecsFloat(s float64) string {
+	return FmtPeriod(time.Duration(s * float64(time.Second)))
+}
+
 func FmtNanos(ns float64) string {
-	return FmtPeriod(time.Duration(ns) * time.Nanosecond)
+	return FmtPeriod(time.Duration(ns * float64(time.Nanosecond)))
 }
 
 func FmtMillis(ms int64) string {
