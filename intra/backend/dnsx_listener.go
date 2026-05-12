@@ -6,7 +6,11 @@
 
 package backend
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/celzero/firestack/intra/core"
+)
 
 // DNSSummary is a summary of a DNS transaction, reported when it is complete.
 type DNSSummary struct {
@@ -89,8 +93,8 @@ func (s *DNSSummary) String() string {
 	if s == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("type: %s, id: %s, latency: %f, qname: %s, rdata: %s, rcode: %d, rttl: %d, server: %s, relay: %s, status: %d, blocklists: %s, msg: %s, loc: %s",
-		s.Type, s.ID, s.Latency, s.QName, s.RData, s.RCode, s.RTtl, s.Server, s.PID, s.Status, s.Blocklists, s.Msg, s.Region)
+	return fmt.Sprintf("id: %s (%s), t: %s, q: %s (do? %t), a: %s (cache? %t / ad? %t), code: %d, ttl: %d, by: %s / via: %s / relay: %s, status: %d, blocklists: %s / upstreamBlocks? %t, msg: %s, loc: %s",
+		s.ID, s.Type, core.FmtSecsFloat(s.Latency), s.QName, s.DO, s.RData, s.Cached, s.AD, s.RCode, s.RTtl, s.Server, s.PID, s.RPID, s.Status, s.Blocklists, s.UpstreamBlocks, s.Msg, s.Region)
 }
 
 // DNSListener receives Summaries.
