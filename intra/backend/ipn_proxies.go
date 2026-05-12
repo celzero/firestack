@@ -138,6 +138,11 @@ func (o *RpnOps) SetForceInit(v bool) { o.forceInit = v }
 // SetExcludeCCs sets a CSV of country codes to exclude from CC selection.
 // Empty or whitespace entries are ignored; codes are normalised to upper-case.
 func (o *RpnOps) SetExcludeCCs(v string) {
+	if len(v) <= 0 {
+		o.excludeCCs = ""
+		return
+	}
+
 	parts := slices.Sorted(strings.SplitSeq(v, ","))
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
@@ -182,11 +187,11 @@ func (o RpnOps) GetExcludeCCs() string { return o.excludeCCs }
 func (o RpnOps) ChangesConfig(other RpnOps) bool {
 	return o.rotateCreds != other.rotateCreds ||
 		o.permaCreds != other.permaCreds ||
-		o.newPort != other.newPort
-	// TODO: asses if excludeccs would cause change in wg config (RegionalWgConfs)
-	// a empty excludeCCs means existing ones, if any, are retained.
-	// excludedccs is a sorted csv and so string equality should work.
-	// len(o.excludeCCs) > 0 && o.excludeCCs != other.excludeCCs
+		o.newPort != other.newPort ||
+		// excludeccs would cause change in wg config (RegionalWgConfs) in
+		// needing to "purge" out existing countries to be excluded, if any.
+		// (excludedccs is a sorted csv and so string equality should work)
+		o.excludeCCs != other.excludeCCs
 }
 
 type Rpn interface {
