@@ -1109,10 +1109,6 @@ func (a *WsClient) Update(ops *x.RpnOps) (newstate []byte, err error) {
 			// retain existing dns config
 			ops.SetDNSConfig(curops.DNSConfig())
 		}
-		// retain existing excludeCCs if not set by incoming ops
-		if len(ops.ExcludeCCs()) <= 0 {
-			ops.SetExcludeCCs(curops.ExcludeCCs())
-		}
 	}
 	start := time.Now()
 	b, refreshed, needsRedo, err := makeWsWgFrom(a.http, c, *ops, true /*updating*/, ops.ChangesConfig(*curops))
