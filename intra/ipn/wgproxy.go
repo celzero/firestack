@@ -544,6 +544,7 @@ func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 	for _, ipnet := range allowed {
 		w.rt.Set(ipnet.String(), w.id)
 	}
+	// TODO: remove IPs on peer replace
 	// TODO: remove IPs on peer update
 }
 

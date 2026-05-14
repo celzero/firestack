@@ -82,7 +82,11 @@ func IP2Cidr(ippOrCidr string) (*net.IPNet, error) {
 			return nil, fmt.Errorf("ip2cidr: errs: cidr %v / ipp %v / ip %v", err, err1, err2)
 		}
 		ip := ipaddr.AsSlice()
-		mask := net.CIDRMask(ipaddr.BitLen(), ipaddr.BitLen())
+		prefixLen := ipaddr.BitLen()
+		if ipaddr.IsUnspecified() {
+			prefixLen = 0 // 0.0.0.0 to 0.0.0.0/0 & :: to ::/0
+		}
+		mask := net.CIDRMask(prefixLen, ipaddr.BitLen())
 		return &net.IPNet{IP: ip, Mask: mask}, nil
 	}
 }

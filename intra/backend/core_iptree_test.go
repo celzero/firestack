@@ -58,14 +58,60 @@ func TestUn(tst *testing.T) {
 	trie := NewRadixTree()
 	trie.Add("fritz.box") // exact domain
 	trie.Add(".lan")      // subdomain ending with .lan
-	trie.Add(".sub.tld") // subdomain ending with .sub.tld
+	trie.Add(".sub.tld")  // subdomain ending with .sub.tld
 
 	noma1 := trie.HasAny("test.fritz.box") // no subdomain matches
 	yma1 := trie.HasAny("fritz.box")       // exact match for fritz.box
 	yma2 := trie.HasAny("test.lan")        // subdomain match for .lan
-	yma3 := trie.HasAny("mu.st.sub.tld")  // subdomain match for sub.tld
+	yma3 := trie.HasAny("mu.st.sub.tld")   // subdomain match for sub.tld
 
 	ll.V("no: %t, yes: [%t %t %t]", noma1, yma1, yma2, yma3)
+}
+
+func TestGateway(tst *testing.T) {
+	ll.SetLevel(ll.VVERBOSE)
+	settings.Debug = true
+
+	t := NewIpTree()
+	err := t.Add("0.0.0.0", "gw4")
+	ko(tst, err)
+	err = t.Add("::", "gw6")
+	ko(tst, err)
+
+	ipv4 := []string{
+		"0.0.0.0",
+		"1.2.3.4",
+		"10.0.0.1",
+		"192.168.1.1",
+		"8.8.8.8",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"0.0.0.0/0",
+	}
+	ipv6 := []string{
+		"::",
+		"2001:db8::1",
+		"fe80::1",
+		"::1",
+		"2001:db8::/32",
+		"::/0",
+	}
+
+	for _, addr := range ipv4 {
+		ok, err := t.HasAny(addr)
+		ko(tst, err)
+		if !ok {
+			tst.Errorf("HasAny(%q) = false; want true", addr)
+		}
+	}
+	for _, addr := range ipv6 {
+		ok, err := t.HasAny(addr)
+		ko(tst, err)
+		if !ok {
+			tst.Errorf("HasAny(%q) = false; want true", addr)
+		}
+	}
+	tst.Log("gateway test passed")
 }
 
 func ko(tst *testing.T, err error) {
