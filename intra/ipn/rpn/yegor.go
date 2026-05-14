@@ -2597,9 +2597,6 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 
 // ccCsvAsSet mods a csv of country codes into a set.
 func ccCsvAsSet(csv string) map[string]struct{} {
-	if len(csv) <= 0 {
-		return nil
-	}
 	parts := strings.Split(csv, ",")
 	out := make(map[string]struct{}, len(parts))
 	for _, p := range parts {

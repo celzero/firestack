@@ -366,9 +366,6 @@ func (r *rpnp) forkMain() error {
 
 // ccCsvAsSet mods a comma-separated list of country codes into a lookup set.
 func ccCsvAsSet(csv string) map[string]struct{} {
-	if len(csv) <= 0 {
-		return nil
-	}
 	parts := strings.Split(csv, ",")
 	out := make(map[string]struct{}, len(parts))
 	for _, p := range parts {
@@ -386,8 +383,11 @@ func (r *rpnp) forkAll() error {
 
 	errs := make([]error, 0) // may contain nil errors
 
-	ops := r.RpnAcc.Ops()
-	excludedSet := ccCsvAsSet(ops.ExcludeCCs())
+	excludedSet := make(map[string]struct{}, 0)
+	// ops is never expected to be nil; the check is for nilaway/vet
+	if ops := r.RpnAcc.Ops(); ops != nil {
+		excludedSet = ccCsvAsSet(ops.ExcludeCCs())
+	}
 
 	log.I("proxy: rpn: forkAll: %s [%v] incl: %d / excl: %d", provider, kids, len(kids), len(excludedSet))
 
