@@ -3,6 +3,7 @@ package backend
 import (
 	"testing"
 
+	"github.com/celzero/firestack/intra/core"
 	ll "github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
 )
@@ -73,10 +74,25 @@ func TestGateway(tst *testing.T) {
 	settings.Debug = true
 
 	t := NewIpTree()
-	err := t.Add("0.0.0.0/0", "gw4")
+	err := t.Add("0.0.0.0/0", "wg")
 	ko(tst, err)
-	err = t.Add("::/0", "gw6")
+	err = t.Add("::/0", "wg")
 	ko(tst, err)
+	err = t.Add("10.2.0.1/32", "wg")
+	ko(tst, err)
+	err = t.Add("2a07:b944::2:1/128", "wg")
+	ko(tst, err)
+
+	t4, err4 := core.IP2Cidr("0.0.0.0/0")
+	t6, err6 := core.IP2Cidr("::/0")
+	ko(tst, err4)
+	ko(tst, err6)
+	tst.Logf("ip2cidr 0.0.0.0/8 => %s; ::/0 => %s", t4, t6)
+	t4, err4 = core.IP2Cidr("10.2.0.1/32")
+	t6, err6 = core.IP2Cidr("[2600:1901:0:b2bd::]:80")
+	ko(tst, err4)
+	ko(tst, err6)
+	tst.Logf("ip2cidr 10.2.0.1/32 => %s; [2600:1901:0:b2bd::]:80 => %s", t4, t6)
 
 	ipv4 := []string{
 		"0.0.0.0",

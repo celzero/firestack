@@ -60,7 +60,8 @@ type IpTree interface {
 
 type iptree struct {
 	sync.RWMutex
-	t *critbitgo.Net
+	t4 *critbitgo.Net // IPv4 routes
+	t6 *critbitgo.Net // IPv6 routes
 }
 
 const (
@@ -80,7 +81,18 @@ var (
 
 // NewIpTree returns a new IpTree.
 func NewIpTree() IpTree {
-	return &iptree{t: critbitgo.NewNet()}
+	return &iptree{
+		t4: critbitgo.NewNet(),
+		t6: critbitgo.NewNet(),
+	}
+}
+
+// net returns the trie for the address family of r.
+func (c *iptree) net(r *net.IPNet) *critbitgo.Net {
+	if r.IP.To4() != nil {
+		return c.t4
+	}
+	return c.t6
 }
 
 func (c *iptree) Add(cidr string, v string) error {
@@ -119,10 +131,11 @@ func (c *iptree) set(cidr string, v string) error {
 		return err
 	}
 
+	t := c.net(r)
 	c.Lock()
 	defer c.Unlock()
 
-	return c.t.Add(r, v)
+	return t.Add(r, v)
 }
 
 func (c *iptree) Del(cidr string) bool {
@@ -135,10 +148,11 @@ func (c *iptree) del(cidr string) bool {
 		return false
 	}
 
+	t := c.net(r)
 	c.Lock()
 	defer c.Unlock()
 
-	_, ok, err := c.t.Delete(r)
+	_, ok, err := t.Delete(r)
 	return ok && err == nil
 }
 
@@ -180,10 +194,11 @@ func (c *iptree) has(cidr string) (bool, error) {
 		return false, err
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
-	_, ok, err := c.t.Get(r)
+	_, ok, err := t.Get(r)
 	return ok, err
 }
 
@@ -197,17 +212,18 @@ func (c *iptree) delAll(cidr string) (n int32) {
 		return
 	}
 
+	t := c.net(r)
 	c.Lock()
 	defer c.Unlock()
 
 	keys := make([]*net.IPNet, 0)
-	c.t.WalkMatch(r, func(k *net.IPNet, _ any) bool {
+	t.WalkMatch(r, func(k *net.IPNet, _ any) bool {
 		keys = append(keys, k)
 		return true
 	})
 
 	for _, k := range keys {
-		if _, ok, err := c.t.Delete(k); ok && err == nil {
+		if _, ok, err := t.Delete(k); ok && err == nil {
 			n++
 		}
 	}
@@ -224,10 +240,11 @@ func (c *iptree) hasAny(cidr string) (bool, error) {
 		return false, err
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
-	m, _, err := c.t.Match(r)
+	m, _, err := t.Match(r)
 	return m != nil, err
 }
 
@@ -245,10 +262,11 @@ func (c *iptree) get(cidr string) (v string, err error) {
 		return "", err
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
-	s, ok, err := c.t.Get(r)
+	s, ok, err := t.Get(r)
 	if ok && err == nil {
 		if v, ok = s.(string); !ok {
 			return "", errValNotString
@@ -273,10 +291,11 @@ func (c *iptree) getAny(cidr string) (rv string, err error) {
 		return "", err
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
-	m, v, err := c.t.Match(r)
+	m, v, err := t.Match(r)
 	if err != nil {
 		return "", err
 	}
@@ -305,10 +324,11 @@ func (c *iptree) getAll(cidr string) (rv string, err error) {
 		return "", err
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
-	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+	t.WalkMatch(r, func(k *net.IPNet, v any) bool {
 		if k == nil {
 			return true // next
 		}
@@ -334,11 +354,12 @@ func (c *iptree) routes(cidr string) string {
 		return ""
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
 	rt := make([]string, 0)
-	c.t.WalkMatch(r, func(k *net.IPNet, _ any) bool {
+	t.WalkMatch(r, func(k *net.IPNet, _ any) bool {
 		if k != nil {
 			rt = append(rt, k.String())
 		}
@@ -357,11 +378,12 @@ func (c *iptree) values(cidr string) string {
 		return ""
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
 	vt := make([]string, 0)
-	c.t.WalkMatch(r, func(_ *net.IPNet, v any) bool {
+	t.WalkMatch(r, func(_ *net.IPNet, v any) bool {
 		if v != nil {
 			if s, ok := v.(string); ok && len(s) > 0 {
 				vt = append(vt, s)
@@ -445,11 +467,12 @@ func (c *iptree) routesLike(cidr, like string) string {
 		return ""
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
 	rt := make([]string, 0)
-	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+	t.WalkMatch(r, func(k *net.IPNet, v any) bool {
 		if v == nil {
 			return true // next
 		}
@@ -479,11 +502,12 @@ func (c *iptree) valuesLike(cidr, like string) string {
 		return ""
 	}
 
+	t := c.net(r)
 	c.RLock()
 	defer c.RUnlock()
 
 	vt := make([]string, 0)
-	c.t.WalkMatch(r, func(k *net.IPNet, v any) bool {
+	t.WalkMatch(r, func(k *net.IPNet, v any) bool {
 		if v == nil {
 			return true // next
 		}
@@ -507,14 +531,15 @@ func (c *iptree) Clear() {
 	c.Lock()
 	defer c.Unlock()
 
-	c.t.Clear()
+	c.t4.Clear()
+	c.t6.Clear()
 }
 
 func (c *iptree) Len() int {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.t.Size()
+	return c.t4.Size() + c.t6.Size()
 }
 
 func ip2cidr(ippOrCidr string) (*net.IPNet, error) {
