@@ -14,19 +14,19 @@ import (
 
 var errNoCreat = errors.New("weak: create fn nil")
 
-type reffactory[V any] func() *V
-type reftest[V any] func(*V) bool
+type vfactory[V any] func() (new *V)
+type vtest[V any] func(*V) (ok bool)
 
 func refpass[V any](_ *V) bool { return true }
 
 type WeakRef[V any] struct {
 	mu    sync.RWMutex
 	weak  weak.Pointer[V]
-	creat reffactory[V]
-	test  reftest[V]
+	creat vfactory[V]
+	test  vtest[V]
 }
 
-func NewWeakRef[V any](creat reffactory[V], test reftest[V]) (*WeakRef[V], error) {
+func NewWeakRef[V any](creat vfactory[V], test vtest[V]) (*WeakRef[V], error) {
 	if creat == nil {
 		return nil, errNoCreat
 	}
