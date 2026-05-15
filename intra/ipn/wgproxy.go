@@ -934,7 +934,8 @@ func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp Link
 		dns:           core.NewVolatile(ifopts.dns),
 		rev:           core.NewVolatile(lp.rev),
 		remote:        core.NewVolatile(ifopts.eps), // may be nil
-		rt:            x.NewIpTree(),                // must be set to allowedaddrs
+		allowed:       core.NewVolatile(ifopts.allowed),
+		rt:            x.NewIpTree(), // must be set to allowedaddrs
 		amnezia:       core.NewVolatile(ifopts.amnezia),
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
@@ -1238,7 +1239,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	}
 
 	if settings.Debug {
-		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String() + "\n" + fmt.Sprintf("%v", w.allowed.Load())
+		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String() + "\nallowed:" + fmt.Sprintf("%v", w.allowed.Load())
 
 		log.VV("proxy: wg: %s stats: rx: %d, tx: %d, r: %s (rlastok: %s), w: %s (wlastok: %s), lastok: %s",
 			w.tag(), out.Rx, out.Tx,
