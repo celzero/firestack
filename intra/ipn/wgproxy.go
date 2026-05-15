@@ -135,6 +135,7 @@ type wgtun struct {
 	dns     *core.Volatile[*multihost.MH]    // dns resolver for this interface
 	remote  *core.Volatile[*multihost.MHMap] // peer (remote endpoint) addrs
 	amnezia *core.Volatile[*wg.Amnezia]      // amnezia/warp config, if any
+	allowed *core.Volatile[[]netip.Prefix]   // allowed ips by all peers
 
 	rt x.IpTree // route table for this interface
 
@@ -544,6 +545,7 @@ func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 	for _, ipnet := range allowed {
 		w.rt.Set(ipnet.String(), w.id)
 	}
+	w.allowed.Store(allowed)
 	// TODO: remove IPs on peer replace
 	// TODO: remove IPs on peer update
 }
@@ -1234,7 +1236,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	}
 
 	if settings.Debug {
-		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String()
+		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String() + "\n" + fmt.Sprintf("%v", w.allowed.Load())
 
 		log.VV("proxy: wg: %s stats: rx: %d, tx: %d, r: %s (rlastok: %s), w: %s (wlastok: %s), lastok: %s",
 			w.tag(), out.Rx, out.Tx,
