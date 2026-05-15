@@ -200,8 +200,21 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	h.maybeReplaceDest(res, &target)
 
+	// when target is local nat64 ip6 address, it cannot be really dialed in to
+	// as it only exists within the tunnel to facilitate 6to4 translation; that is
+	// the client uid connects over ip6 to the tunnel, but tunnel de-nats the target
+	// and instead connects over ip4 outside the tunnel, which will go through if
+	// ip4 is available on the underlying network (whereas within the tunnel the uid
+	// would "think" it is using an ip6 enabled network). That is, when proxying client
+	// sources from [fd66:f83a:c650::1]:4956 to target [64:ff9b:1:fffe::22a0:6f91]:80,
+	// it is correct to only dial [34.160.111.145:80] (that is, 22a0:6f91 as ip4) and
+	// not dial both the nat64 target ([64:ff9b:1:fffe::22a0:6f91]:80) and the de-natted
+	// target ([34.160.111.145:80]); indeed, the former wouldn't dial anywhere as it
+	// doesn't exist outside of firestack's tunnel).
+	targetIsLocalNat64 := h.resolver.IsNat64(dnsx.Local464Resolver, target.Addr())
+
 	filtered, _, fallingback := filterFamilyForDialingWithFailSafe(realips)
-	actualTargets := makeIPPorts(filtered, target, !undidAlg, 0)
+	actualTargets := makeIPPorts(filtered, target, !undidAlg && !targetIsLocalNat64, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 
 	if len(actualTargets) <= 0 { // unlikely
@@ -286,8 +299,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 
 	if settings.Debug {
-		log.VV("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t",
-			cid, uid, src, target, actualTargets, pids, mux, canportfwd)
+		log.VV("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t",
+			cid, uid, src, target, actualTargets, pids, mux, canportfwd, targetIsLocalNat64)
 	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd

@@ -261,10 +261,12 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	res, undidAlg, realips, domains := h.onFlow(src, target)
 
 	h.maybeReplaceDest(res, &target)
+	// ref udp.go:Connect fn
+	targetIsLocalNat64 := h.resolver.IsNat64(dnsx.Local464Resolver, target.Addr())
 
 	// TODO: use res.IP only if set
 	filtered, excluded, fallingback := filterFamilyForDialingWithFailSafe(realips)
-	actualTargets := makeIPPorts(filtered, target, !undidAlg, 0)
+	actualTargets := makeIPPorts(filtered, target, !undidAlg && !targetIsLocalNat64, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 
 	if len(actualTargets) <= 0 { // unlikely
@@ -321,8 +323,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
 	if settings.Debug {
-		log.VV("tcp: %s proxying %s => %s [%v] (excluded: %v) for %s; pids: %s",
-			cid, src, target, actualTargets, excluded, uid, pids)
+		log.VV("tcp: %s proxying %s => %s [%v] (excluded: %v) for %s; pids: %s; localnat64? %t / happyeye? %t",
+			cid, src, target, actualTargets, excluded, uid, pids, targetIsLocalNat64, happyeyeballs)
 	}
 
 	cont := true
