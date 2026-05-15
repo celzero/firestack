@@ -118,7 +118,6 @@ var (
 	errHopHopping         = errors.New("proxy: hop must not be hopping")
 	errNoHop              = errors.New("proxy: no hop")
 	errHopSelf            = errors.New("proxy: hop looping back onto hop")
-	errHopWireGuard       = errors.New("proxy: hop must be wireguard")
 	errHopMtuInsufficient = errors.New("proxy: hop mtu insufficient")
 	errHopProxyRoutes     = errors.New("proxy: no routes to hop")
 	errHop4Gateway        = errors.New("proxy: hop cannot route ip4")
