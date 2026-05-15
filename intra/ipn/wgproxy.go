@@ -1419,22 +1419,23 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 		return errProxyStopped
 	}
 
-	if !isWG(idstr(via)) { // for now, only wg can hop another wg
-		return errHopWireGuard
-	}
-
-	if err := viaCanBind(h, via); err != nil {
+	if err := viaSupportsIPFamily(h, via); err != nil {
 		return err
 	}
 
-	// mtu needed to tunnel this wg
-	if err := h.maybeResetMtu(via, dryrun); err != nil {
-		return err // could not set mtu
+	// TODO: also on udp6?
+	if err := viaCanListen("udp4", via); err != nil {
+		return err // (wgconn) needs to open an unconnected udp socket
 	}
 
 	// hop must be able to route all of orig's peers
 	if err := h.viaCanRoute(via, dryrun); err != nil {
 		return err // via cannot not route peers
+	}
+
+	// mtu needed to tunnel this wg
+	if err := h.maybeResetMtu(via, dryrun); err != nil {
+		return err // could not set mtu
 	}
 
 	if !dryrun {

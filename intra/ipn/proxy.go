@@ -641,7 +641,43 @@ func IcmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 	return ok, err
 }
 
-func viaCanBind(orig Proxy, hop Proxy) error {
+func viaCanListen(network string, hop Proxy) error {
+	switch network {
+	case "tcp", "tcp4":
+		c4, err4 := hop.Accept("udp", net.JoinHostPort(anyaddr4.String(), "0"))
+		core.Close(c4)
+		if err4 != nil && errors.Is(err4, errAcceptNotSupported) {
+			return err4
+		}
+		return nil
+	case "udp", "udp4":
+		c4, err4 := hop.Announce("udp", net.JoinHostPort(anyaddr4.String(), "0"))
+		core.Close(c4)
+		if err4 != nil && errors.Is(err4, errAnnounceNotSupported) {
+			return err4
+		}
+		return nil
+	case "tcp6":
+		c6, err6 := hop.Accept("tcp", net.JoinHostPort(anyaddr6.String(), "0"))
+		core.Close(c6)
+		if err6 != nil && errors.Is(err6, errAcceptNotSupported) {
+			return err6
+		}
+		return nil
+	case "udp6":
+		c6, err6 := hop.Announce("udp", net.JoinHostPort(anyaddr6.String(), "0"))
+		core.Close(c6)
+		if err6 != nil && errors.Is(err6, errAnnounceNotSupported) {
+			return err6
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported network: %s", network)
+	}
+}
+
+// viaSupportsIPFamily returns error if hop cannot route same ip families as orig
+func viaSupportsIPFamily(orig Proxy, hop Proxy) error {
 	pxCan4 := orig.Router().IP4()
 	hopCan4 := hop.Router().IP4()
 	pxCan6 := orig.Router().IP6()
