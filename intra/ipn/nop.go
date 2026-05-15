@@ -19,6 +19,7 @@ import (
 var (
 	errProbeNotSupported    = errors.New("proxy: probe not supported")
 	errAnnounceNotSupported = errors.New("proxy: announce not supported")
+	errAcceptNotSupported   = errors.New("proxy: accept not supported")
 )
 
 const nodns = "" // no DNS
@@ -121,7 +122,7 @@ func (NoFwd) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (NoFwd) Accept(network, local string) (protect.Listener, error) {
-	return nil, errAnnounceNotSupported
+	return nil, errAcceptNotSupported
 }
 
 // Probe implements Proxy.
@@ -157,14 +158,14 @@ type NoProxy struct {
 
 func (NoProxy) Handle() uintptr                                       { return core.Nobody }
 func (NoProxy) DialerHandle() uintptr                                 { return core.Nobody }
-func (NoProxy) ID() string                                          { return "" }
-func (NoProxy) Type() string                                        { return "" }
+func (NoProxy) ID() string                                            { return "" }
+func (NoProxy) Type() string                                          { return "" }
 func (NoProxy) Router() x.Router                                      { return nil }
-func (NoProxy) Reaches(string) bool                                 { return false }
+func (NoProxy) Reaches(string) bool                                   { return false }
 func (NoProxy) Dial(string, string) (protect.Conn, error)             { return nil, errNop }
 func (NoProxy) DialBind(string, string, string) (protect.Conn, error) { return nil, errNop }
 func (NoProxy) Dialer() protect.RDialer                               { return nil }
 func (NoProxy) Status() int                                           { return 0 }
-func (NoProxy) GetAddr() string                                     { return "" }
+func (NoProxy) GetAddr() string                                       { return "" }
 func (NoProxy) Stop() error                                           { return nil }
 func (NoProxy) Client() x.Client                                      { return nil }
