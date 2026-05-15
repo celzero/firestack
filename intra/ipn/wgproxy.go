@@ -596,13 +596,13 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 			log.D("proxy: wg: %s ifconfig: skipping key %q", id, k)
 			pcfg.WriteString(line + "\n")
 		case "address": // may exist more than once
-			if err = loadIPNets(&opts.ifaddrs, v); err != nil {
+			if err = loadIPNets(id, &opts.ifaddrs, v); err != nil {
 				return
 			}
 		case "dns": // may exist more than once: github.com/celzero/rethink-app/issues/1298
 			n := loadMH(opts.dns, v)
-			aerr := loadIPNets(&opts.allowed, v)
-			log.D("proxy: wg: %s ifconfig: dns(%d) %s; allowed err? %v", id, n, v, aerr)
+			aerr := loadIPNets(id, &opts.allowed, v)
+			loged(aerr)("proxy: wg: %s ifconfig: dns(%d) %s; allowed err? %v", id, n, v, aerr)
 		case "mtu":
 			maxxed := false
 			if len(v) <= 0 || v == AUTOMTU || v == AUTOMTU2 {
@@ -615,10 +615,11 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 				opts.mtu = MAXMTU
 				maxxed = true
 			}
-			log.D("proxy: wg: %s ifconfig: mtu %s => %d; maxxed? %t",
+			loged(err)("proxy: wg: %s ifconfig: mtu %s => %d; maxxed? %t",
 				id, v, opts.mtu, maxxed)
 		case "allowed_ip": // may exist more than once
-			if err = loadIPNets(&opts.allowed, v); err != nil {
+			if err = loadIPNets(id, &opts.allowed, v); err != nil {
+				log.E("proxy: wg: %s ifconfig: parse allowed ip err %q: %v", id, v, err)
 				return
 			}
 			// peer config: carry over allowed_ips
@@ -639,7 +640,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 				opts.peers[v] = peerkey
 			}
 			// peer config: carry over public keys
-			log.D("proxy: wg: %s ifconfig: processing key %q=%s, err? %v", id, k, pfxsfx(v), exx)
+			loged(exx)("proxy: wg: %s ifconfig: processing key %q=%s, err? %v", id, k, pfxsfx(v), exx)
 			pcfg.WriteString(line + "\n")
 			finalizeMH(opts.eps, currentPeer)
 			if len(v) > 8 {
@@ -711,8 +712,8 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 	if err == nil && len(opts.ifaddrs) <= 0 || opts.dns.Len() <= 0 || opts.mtu <= NOMTU {
 		err = errProxyConfig
 	}
-	loged(err)("proxy: wg: %s; addr: %d, dns: %d, mtu: %d, eps: %d; amnezia: %s",
-		id, len(opts.ifaddrs), opts.dns.Len(), opts.mtu, opts.eps.Len(), opts.amnezia)
+	loged(err)("proxy: wg: %s; addr: %d, dns: %d, mtu: %d, eps: %d; amnezia: %s; allowed: %d; peers: %d",
+		id, len(opts.ifaddrs), opts.dns.Len(), opts.mtu, opts.eps.Len(), opts.amnezia, len(opts.allowed), len(opts.peers))
 	return
 }
 
@@ -731,7 +732,7 @@ func loadMH(mh *multihost.MH, v string) int {
 	return mh.Add(vv) // vv may be host:port, ip:port, host, or ip
 }
 
-func loadIPNets(out *[]netip.Prefix, v string) (err error) {
+func loadIPNets(id string, out *[]netip.Prefix, v string) (err error) {
 	var ip netip.Addr
 	// may be a csv: "172.1.0.2/32, 2000:db8::2/128"
 	for str := range strings.SplitSeq(v, ",") {
@@ -739,16 +740,17 @@ func loadIPNets(out *[]netip.Prefix, v string) (err error) {
 		str = strings.TrimSpace(str)
 		if ip, err = netip.ParseAddr(str); err != nil {
 			if ipnet, err = netip.ParsePrefix(str); err != nil {
-				return
+				break
 			}
 			*out = append(*out, ipnet)
 		} else { // add prefix to address
 			if ipnet, err = ip.Prefix(ip.BitLen()); err != nil {
-				return
+				break
 			}
 			*out = append(*out, ipnet)
 		}
 	}
+	loged(err)("proxy: wg: %s: loaded ipnets %d (err? %v) from %s", id, len(*out), err, v)
 	return
 }
 
