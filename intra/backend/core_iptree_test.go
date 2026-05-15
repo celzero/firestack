@@ -73,9 +73,9 @@ func TestGateway(tst *testing.T) {
 	settings.Debug = true
 
 	t := NewIpTree()
-	err := t.Add("0.0.0.0", "gw4")
+	err := t.Add("0.0.0.0/0", "gw4")
 	ko(tst, err)
-	err = t.Add("::", "gw6")
+	err = t.Add("::/0", "gw6")
 	ko(tst, err)
 
 	ipv4 := []string{
@@ -84,12 +84,14 @@ func TestGateway(tst *testing.T) {
 		"10.0.0.1",
 		"192.168.1.1",
 		"8.8.8.8",
+		"1.1.1.1:80",
 		"10.0.0.0/8",
 		"172.16.0.0/12",
 		"0.0.0.0/0",
 	}
 	ipv6 := []string{
 		"::",
+		"[2600:1901:0:b2bd::]:80",
 		"2001:db8::1",
 		"fe80::1",
 		"::1",
