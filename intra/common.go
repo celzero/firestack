@@ -557,7 +557,6 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool
 		log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
 			use4, use6, origipp, len(ips), ips, r)
 	}
-
 	if len(r) > 0 {
 		s := core.ShuffleInPlace(r)
 		if willIncludeOrig {

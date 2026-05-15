@@ -81,6 +81,7 @@ type simpleLogger struct {
 
 	o *golog.Logger
 	e *golog.Logger
+	x *xlog         // may be used instead of golog o/e
 	q *ring[string] // todo: use []byte instead of string for gc?
 
 	clock
@@ -255,12 +256,16 @@ func defaultLogger() *simpleLogger {
 		// github.com/golang/mobile/blob/fa72addaaa/internal/mobileinit/mobileinit_android.go#L74-L92
 		e: golog.New(os.Stderr, "", defaultFlags),
 		o: golog.New(os.Stdout, "", defaultFlags),
+		x: &xlog{}, // pipes output to logcat on Android, to fmt.Print otherwise
 		q: newRing[string](context.TODO(), qSize),
+	}
+	if runtime.GOOS == "android" {
+		golog.SetOutput(l.x)
 	}
 	return l
 }
 
-// NewLogger creates a new Glogger with the given tag.
+// NewLogger creates a new Logger with the given tag.
 func NewLogger(tag string) *simpleLogger {
 	l := defaultLogger()
 	if len(tag) <= 0 { // if tag is empty, leave it as is
@@ -559,7 +564,11 @@ func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) 
 // out logs to stdout and pushes msg into ring buffer.
 // ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
 func (l *simpleLogger) out(msg string) {
-	_ = l.o.Output(0 /*not used*/, msg) // may error
+	if runtime.GOOS == "android" {
+		l.x.Write([]byte(msg))
+	} else {
+		_ = l.o.Output(0 /*not used*/, msg) // may error
+	}
 	l.q.Push(msg)
 }
 
@@ -567,7 +576,11 @@ func (l *simpleLogger) out(msg string) {
 func (l *simpleLogger) err(at int, msg string) {
 	_, file := caller(at + nextframe)
 	msg = file + msg
-	_ = l.e.Output(0 /*unused*/, msg) // may error
+	if runtime.GOOS == "android" {
+		l.x.Write([]byte(msg))
+	} else {
+		_ = l.e.Output(0 /*unused*/, msg) // may error
+	}
 	l.q.Push(msg)
 }
 
@@ -644,6 +657,35 @@ func tracecaller(s string) bool {
 	return true
 }
 
+// splitmsg parses the two-character level prefix prepended by msgstr
+// ("D ", "I ", "W ", "E ") and returns the corresponding LogLevel
+// together with the message with that prefix stripped.
+// If the prefix is not recognised, INFO and the original slice are returned.
+func splitmsg(p []byte) (LogLevel, Logmsg) {
+	if len(p) >= 2 && p[1] == ' ' {
+		switch p[0] {
+		case 'Y':
+			return VVERBOSE, Logmsg(p[2:])
+		case 'V':
+			return VERBOSE, Logmsg(p[2:])
+		case 'D':
+			return DEBUG, Logmsg(p[2:])
+		case 'I':
+			return INFO, Logmsg(p[2:])
+		case 'W':
+			return WARN, Logmsg(p[2:])
+		case 'E':
+			return ERROR, Logmsg(p[2:])
+		case 'F':
+			return STACKTRACE, Logmsg(p[2:])
+		case 'U':
+			return USR, Logmsg(p[2:])
+		}
+	}
+	return INFO, Logmsg(p)
+}
+
+// shortfile strips the last path component from a file path.
 func shortfile(file string) string {
 	if i := strings.LastIndexByte(file, '/'); i >= 0 {
 		file = file[i+1:]
