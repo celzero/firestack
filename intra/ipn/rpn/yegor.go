@@ -1980,7 +1980,7 @@ func genWgConfs(h *http.Client, existingCreds *WsWgCreds, existingPermaCreds *Ws
 	if sess == nil || ent == nil {
 		return nil, nil, nil, errWsNoSession
 	}
-	forceInit := ops.Rotate()
+	forceInit := ops.Rotate() // forcefully set current credential pair at the expense of any previous ones
 	port := ""
 	if ops.Port() > 0 {
 		port = strconv.FormatUint(uint64(ops.Port()), 10)
