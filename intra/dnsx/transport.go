@@ -1189,7 +1189,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id2 = ""
 	}
 	if isAnyBlockFree(id1, id2) {
-		if s.NOBLOCK != true {
+		if !s.NOBLOCK {
 			log.W("dns: pref: tr for %s; override NOBLOCK", id1, id2, qname)
 			s.NOBLOCK = true
 		}
