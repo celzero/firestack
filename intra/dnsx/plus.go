@@ -70,7 +70,7 @@ func NewPlusTransport(ctx context.Context, r TransportProviderInternal, ts ...Tr
 		}
 	}
 
-	log.I("plus: at %s; added: %d/%d", t.getAddr(), len(t.transports), len(ts))
+	log.I("plus: at %s; added: %d/%d", t.GetAddr(), len(t.transports), len(ts))
 	context.AfterFunc(ctx, t.stopAll)
 	return t
 }
@@ -311,11 +311,7 @@ func (t *plus) P50() int64 {
 }
 
 func (t *plus) GetAddr() string {
-	return t.getAddr()
-}
-
-func (t *plus) getAddr() string {
-	return PrefixFor(t.ID()) + t.ipports[0].String()
+	return TransportPrefix(t.ID()) + t.ipports[0].String()
 }
 
 func (t *plus) GetRelay() x.Proxy {
@@ -361,7 +357,7 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 	defer t.mu.Unlock()
 
 	if oldt, ok := t.transports[tr.ID()]; ok {
-		if oldt == newt {
+		if core.Loc(oldt) == core.Loc(newt) {
 			log.I("plus: add %s@%s: already present", newt.ID(), newt.GetAddr())
 			return true
 		}

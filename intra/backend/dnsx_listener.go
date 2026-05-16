@@ -55,6 +55,8 @@ type DNSSummary struct {
 	DO bool
 	// True if DNSSEC validation was successful.
 	AD bool
+	// True if TLS Encrypted Client Hello was used by this transport, if applicable.
+	ECH bool
 	// Diag message from Transport, if any. Typically, "no error"
 	Msg string
 	// Region of the Rethink DNS+ server (if used)

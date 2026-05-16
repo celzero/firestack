@@ -866,10 +866,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		r, ech, elapsed, qerr = t.doOdoh(pid, q)
 	}
 
-	smm.Server = t.getAddr()
-	if ech {
-		smm.Server = dnsx.EchPrefix + smm.Server
-	}
+	smm.Server = t.GetAddr()
 
 	status := dnsx.Complete
 
@@ -884,6 +881,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	smm.RData = xdns.GetInterestingRData(r)
 	smm.RCode = xdns.Rcode(r)
 	smm.RTtl = xdns.RTtl(r)
+	smm.ECH = ech
 	smm.Status = status
 	smm.Region = region
 	// TODO: smm.BlockedTarget
@@ -899,8 +897,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		smm.Msg = err.Error()
 	}
 	if settings.Debug {
-		log.V("doh: (p/px/via/can? %s/%s/%s/%t); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, px: %s, dur: %s, err? %v",
-			network, pid, rpid, canproxy, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, core.FmtPeriod(elapsed), err)
+		log.V("doh: (p/px/via %s/%s/%s, can? %t / ech? %t); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, px: %s, dur: %s, err? %v",
+			network, pid, rpid, canproxy, ech, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, core.FmtPeriod(elapsed), err)
 	}
 	return r, err
 }
@@ -910,24 +908,15 @@ func (t *transport) P50() int64 {
 }
 
 func (t *transport) GetAddr() string {
-	return t.getAddr()
-}
-
-func (t *transport) getAddr() string {
 	addr := t.hostname
 	if t.typ == dnsx.ODOH {
 		addr = t.odohtargetname
 	}
 
-	if t.skipTLSVerify {
-		addr = dnsx.NoPkiPrefix + addr
-	}
+	prefix0 := dnsx.CryptoPrefix(t.skipTLSVerify, t.echconfig.Load() != nil)
 	// doh transports could be "dnsx.Bootstrap"
-	prefix := dnsx.PrefixFor(t.id)
-	if len(prefix) > 0 {
-		addr = prefix + addr
-	}
-	return addr
+	prefix1 := dnsx.TransportPrefix(t.id)
+	return prefix0 + prefix1 + addr
 }
 
 func (t *transport) GetRelay() x.Proxy {

@@ -58,9 +58,12 @@ const (
 	IpMapper  = x.IpMapper
 	NoDNS     = ""
 
-	// DNS request origin indicators
+	// DNS request origin indicator:
+	// OriginInternal flags requests by firestack or its owner uid.
 	OriginInternal = x.OriginInternal
-	OriginTunnel   = x.OriginTunnel
+	// OriginTunnel flags requests by tunnel read (presumably from another app,
+	// or firestack or its owner uid if Loopback mode is turned on).
+	OriginTunnel = x.OriginTunnel
 
 	invalidQname = "invalid.query"
 
@@ -92,8 +95,8 @@ var (
 	defaultprefix = "d."
 	presetprefix  = "pre."
 	fixedprefix   = "fix."
-	EchPrefix     = "ech."
-	NoPkiPrefix   = "nopki."
+	echPrefix     = "ech."
+	noPkiPrefix   = "nopki."
 
 	NoIPPort []netip.AddrPort = nil
 )
@@ -1532,7 +1535,25 @@ func trimcsv(s string) string {
 	return strings.Trim(s, ",")
 }
 
-func PrefixFor(id string) string {
+func CryptoPrefix(nopki, ech bool) string {
+	if !settings.Debug {
+		return ""
+	}
+
+	if nopki {
+		return noPkiPrefix
+	}
+	if ech {
+		return echPrefix
+	}
+	return ""
+}
+
+func TransportPrefix(id string) string {
+	if !settings.Debug {
+		return ""
+	}
+
 	switch id {
 	case CT:
 		return cacheprefix

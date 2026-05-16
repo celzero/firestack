@@ -349,7 +349,7 @@ func (t *transport) getAddr() string {
 		addr = t.addrport
 	}
 
-	prefix := dnsx.PrefixFor(t.id)
+	prefix := dnsx.TransportPrefix(t.id)
 	if len(prefix) > 0 {
 		addr = prefix + addr
 	}

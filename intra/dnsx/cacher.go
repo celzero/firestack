@@ -517,7 +517,7 @@ func (t *ctransport) P50() int64 {
 }
 
 func (t *ctransport) GetAddr() string {
-	prefix := PrefixFor(CT)
+	prefix := TransportPrefix(CT)
 	return prefix + t.Transport.GetAddr()
 }
 
@@ -605,6 +605,7 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 		out.DO = s.DO
 	}
 
+	out.ECH = s.ECH
 	out.Cached = s.Cached
 	out.RCode = s.RCode
 	out.RTtl = s.RTtl

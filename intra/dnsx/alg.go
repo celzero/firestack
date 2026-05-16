@@ -902,8 +902,6 @@ func NewDNSGateway(pctx context.Context, fakeaddrs []netip.AddrPort, outer RdnsR
 }
 
 func (t *dnsgateway) translate(tr, fix bool) {
-	// fixed transport can only be used if translation is on
-	fix = tr && fix
 	prevtr := t.mod.Swap(tr)
 	prevfix := t.fix.Swap(fix)
 	log.I("alg: translate? prevtr(%t) > nowtr(%t); prevfix(%t) > nowfix(%t)", prevtr, tr, prevfix, fix)
@@ -918,6 +916,7 @@ func (t *dnsgateway) splitTunnel() {
 }
 
 func (t *dnsgateway) fixedTransport() bool {
+	// fixed transport can only be used if translation "mod" is on.
 	return t.mod.Load() && t.split.Load() && t.fix.Load()
 }
 
@@ -1485,7 +1484,7 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 	s.RData = xdns.GetInterestingRData(ans64)
 	s.RTtl = xdns.RTtl(ans64)
 	if settings.Debug {
-		prefix := PrefixFor(AlgDNS64)
+		prefix := TransportPrefix(AlgDNS64)
 		s.Server = prefix + s.Server
 	}
 }
@@ -1500,7 +1499,7 @@ func withAlgSummary(s *x.DNSSummary, algips ...netip.Addr) {
 		} else {
 			s.RData = ipcsv
 		}
-		prefix := PrefixFor(Alg)
+		prefix := TransportPrefix(Alg)
 		if len(s.Server) > 0 {
 			s.Server = prefix + s.Server
 		} else {
@@ -1785,7 +1784,9 @@ func (t *dnsgateway) S() string {
 	sb.WriteString(strconv.FormatBool(t.mod.Load()))
 	sb.WriteString(" / cansplit: ")
 	sb.WriteString(strconv.FormatBool(t.split.Load()))
-	sb.WriteString(" / wantsplit: ")
+	sb.WriteString(" / forcesplit: ")
+	sb.WriteString(strconv.FormatBool(t.fix.Load()))
+	sb.WriteString(" / usefixed: ")
 	sb.WriteString(strconv.FormatBool(t.fixedTransport()))
 	sb.WriteString(" / chash: ")
 	sb.WriteString(strconv.FormatBool(t.chash))
@@ -2355,7 +2356,7 @@ func withPresetSummary(smm *x.DNSSummary, reqSent, fixed bool) {
 		smm.Status = Complete
 		smm.Server = "127.5.3.9"
 	}
-	smm.Server = PrefixFor(id) + smm.Server
+	smm.Server = TransportPrefix(id) + smm.Server
 	smm.Blocklists = ""    // blocklists are not honoured
 	smm.BlockedTarget = "" // no targets are blocked
 	smm.PID = ""           // no relay is used

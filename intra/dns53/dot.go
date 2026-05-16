@@ -344,10 +344,8 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	smm.RData = xdns.GetInterestingRData(ans)
 	smm.RCode = xdns.Rcode(ans)
 	smm.RTtl = xdns.RTtl(ans)
-	smm.Server = t.getAddr()
-	if ech {
-		smm.Server = dnsx.EchPrefix + smm.Server
-	}
+	smm.Server = t.GetAddr()
+	smm.ECH = ech
 	smm.PID = pid   // may be local dnsx.IsLocalProxy
 	smm.RPID = rpid // may be empty
 	if err != nil {
@@ -376,10 +374,6 @@ func (t *dot) P50() int64 {
 	return t.est.Get()
 }
 
-func (t *dot) GetAddr() string {
-	return t.getAddr()
-}
-
 func (t *dot) GetRelay() x.Proxy {
 	if r := t.relay; len(r) > 0 {
 		px, _ := t.proxies.ProxyFor(r)
@@ -388,15 +382,10 @@ func (t *dot) GetRelay() x.Proxy {
 	return nil
 }
 
-func (t *dot) getAddr() (addr string) {
-	if t.echconfig.Load() != nil {
-		addr = dnsx.EchPrefix + t.addrport
-	} else if t.skipTLSVerify {
-		addr = dnsx.NoPkiPrefix + t.addrport
-	} else {
-		addr = t.addrport
-	}
-	return addr
+func (t *dot) GetAddr() string {
+	prefix0 := dnsx.CryptoPrefix(t.skipTLSVerify, t.echconfig.Load() != nil)
+	prefix1 := dnsx.TransportPrefix(t.id)
+	return prefix0 + prefix1 + t.addrport
 }
 
 func (t *dot) IPPorts() (ipps []netip.AddrPort) {
