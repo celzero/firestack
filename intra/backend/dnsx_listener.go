@@ -88,6 +88,20 @@ type DNSOpts struct {
 	NOBLOCK bool
 }
 
+func (o *DNSOpts) Copy() *DNSOpts {
+	if o == nil {
+		return nil
+	}
+	return &DNSOpts{
+		UID:       o.UID,
+		PIDCSV:    o.PIDCSV,
+		IPCSV:     o.IPCSV,
+		TIDCSV:    o.TIDCSV,
+		TIDSECCSV: o.TIDSECCSV,
+		NOBLOCK:   o.NOBLOCK,
+	}
+}
+
 // String implements fmt.Stringer.
 func (s *DNSSummary) String() string {
 	if s == nil {
@@ -107,7 +121,7 @@ type DNSListener interface {
 	// The listener may return DNSOpts to specify if another upstream should override that answer.
 	// Another round of OnQuery is NOT called in this case, and OnResponse is called once after processing
 	// DNSOpts returned by OnUpstreamAnswer if it has a non-empty TIDCSV (overriding the original TIDCSV).
-	OnUpstreamAnswer(smm *DNSSummary, unmodifiedipcsv string) *DNSOpts
+	OnUpstreamAnswer(smm *DNSSummary, forPref *DNSOpts, unmodifiedipcsv string) *DNSOpts
 	// OnResponse is called when a DNS response is received. May be called twice for the same query,
 	// for instance, when different options are requested through OnUpstreamAnswer.
 	OnResponse(*DNSSummary)

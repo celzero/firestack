@@ -720,7 +720,7 @@ runagain:
 
 	if run == 1 {
 		pref2, ouacompleted := core.Grx("r.onUA."+qname, func(_ context.Context) (*x.DNSOpts, error) {
-			return r.listener.OnUpstreamAnswer(smm, realips), nil
+			return r.listener.OnUpstreamAnswer(smm, pref.Copy(), realips), nil
 		}, listenerTimeout)
 		if !ouacompleted {
 			log.W("dns: fwd: for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
