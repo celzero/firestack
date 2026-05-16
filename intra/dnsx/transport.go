@@ -807,6 +807,18 @@ func (r *resolver) determineTransport(id string) Transport {
 		}
 	} else if isPlus(id) {
 		id0 = Plus // replace a plus transport with its mult equivalent
+	} else if isAnyBlockFree(id) && canUseDefaultDNS(BlockFree) {
+		// use Preferred when BlockFree is not available. BlockFree is only
+		// added for RDNS endpoints; for other transports, the same transport
+		// acts as "BlockFree" provided DNSOpts.NOBLOCK is set to true.
+		id0 = BlockFree
+		// may technically "leak" DNS queries when Split DNS is true
+		// and an app's queries are forced through Preferred
+		id1 = Preferred
+		if strings.HasPrefix(id, CT) {
+			id0 = CT + id0
+			id1 = CT + id1
+		}
 	} else {
 		id0 = id
 	}
@@ -1126,6 +1138,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		log.W("dns: pref: no tids for %s", qname)
 		// no-op
 	} else {
+		// TODO: fallback on all id1s
 		id1 = r.chooseOne(x...)
 		id2 = r.chooseOne(xx...) // mostly, just 0 or 1 secondary
 	}
@@ -1174,6 +1187,12 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 	if isAnyLocal(id1, id2) { // use one transport, Local, if set
 		id1 = Local
 		id2 = ""
+	}
+	if isAnyBlockFree(id1, id2) {
+		if s.NOBLOCK != true {
+			log.W("dns: pref: tr for %s; override NOBLOCK", id1, id2, qname)
+			s.NOBLOCK = true
+		}
 	}
 
 	if len(s.PIDCSV) > 0 {
@@ -1363,12 +1382,17 @@ func canUseDefaultDNS(id string) bool {
 	return false
 }
 
+// Also accounts for prefixes such as CT+ID
 func isTransportID(match string, ids ...string) bool {
 	return slices.Contains(ids, match)
 }
 
 func isAnyBlockAll(ids ...string) bool {
 	return isTransportID(BlockAll, ids...)
+}
+
+func isAnyBlockFree(ids ...string) bool {
+	return isTransportID(BlockFree, ids...)
 }
 
 func isAnyFixed(ids ...string) bool {
