@@ -141,12 +141,13 @@ type Transport interface {
 
 // TransportMult is a hybrid: transport and a multi-transport.
 type TransportMult interface {
-	x.DNSTransportMult
+	TransportMultInternal
 	Transport
 }
 
 type TransportMultInternal interface {
 	x.DNSTransportMult
+	TransportProviderInternal
 }
 
 type TransportMultProviderInternal interface {
@@ -159,13 +160,6 @@ type TransportProviderInternal interface {
 	x.DNSTransportProvider
 	// GetInternal returns the internal transport interface for the given ID.
 	GetInternal(id string) (Transport, error)
-
-	// special purpose pre-defined transports:
-
-	// Gateway implements a DNS ALG transport
-	Gateway() Gateway
-	// MDNS returns the mdns transport, if available; error otherwise.
-	MDNS() (MDNSTransport, error)
 }
 
 type Resolver interface {
@@ -180,6 +174,13 @@ type Resolver interface {
 	IsDnsAddr(ipport netip.AddrPort) bool
 	// Serve reads DNS query from conn and writes DNS answer to conn
 	Serve(proto string, conn protect.Conn, uid string) (rx, tx int64, errs []error)
+
+	// special purpose pre-defined transports:
+
+	// Gateway implements a DNS ALG transport
+	Gateway() Gateway
+	// MDNS returns the mdns transport, if available; error otherwise.
+	MDNS() (MDNSTransport, error)
 
 	// StopAll stops all transports.
 	StopAll()
@@ -839,9 +840,10 @@ func (r *resolver) determineTransport(id string) Transport {
 	if t0 != nil && (t1 == nil || !mayusedefault || activeTransport(t0)) {
 		return t0
 	} else if t1 != nil && (!mayusedefault || activeTransport(t1)) {
+		log.W("dns: fwd: %s missing or inactive; using %s instead", id0, id1)
 		return t1
 	} else if tf != nil && mayusedefault {
-		log.W("dns: fwd: %s is missing; using default", id0)
+		log.W("dns: fwd: %s & %s missing or inactive; using default", id0, id1)
 		return tf // todo: assert tf != nil?
 	}
 

@@ -155,6 +155,7 @@ type DNSTransportMultProvider interface {
 }
 
 type DNSResolver interface {
+	DNSTransportProvider
 	DNSTransportMult
 	DNSTransportMultProvider
 	RDNSResolver

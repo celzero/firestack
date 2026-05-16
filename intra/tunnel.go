@@ -542,13 +542,13 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		out.RDNSIn.DNSPreferred = fetchDNSInfo(r, x.Preferred)
 		out.RDNSIn.DNSDefault = fetchDNSInfo(r, x.Default)
 		out.RDNSIn.DNSSystem = fetchDNSInfo(r, x.System)
-		dns := make([]string, 0, 3)
+		dns := make([]string, 0, 8)
 		if csv := r.LiveTransports(); len(csv) > 0 {
 			for tr := range strings.SplitSeq(csv, ",") {
 				dns = append(dns, fetchDNSInfo(r, tr))
 			}
 		}
-		out.RDNSIn.DNS = strconv.Itoa(len(dns)) + "\n" + strings.Join(dns, ";")
+		out.RDNSIn.DNS = strconv.Itoa(len(dns)) + "\n" + strings.Join(dns, "\n")
 		out.RDNSIn.ALG = t.resolver.S()
 	}
 	if p := t.proxies; p != nil {

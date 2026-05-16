@@ -614,6 +614,11 @@ func (proxy *DcMulti) Add(t x.DNSTransport) bool {
 
 // Get implements dnsx.TransportMult
 func (proxy *DcMulti) Get(id string) (x.DNSTransport, error) {
+	return proxy.GetInternal(id)
+}
+
+// GetInternal implements dnsx.TransportMult
+func (proxy *DcMulti) GetInternal(id string) (dnsx.Transport, error) {
 	if t := proxy.serversInfo.get(id); t != nil {
 		return t, nil
 	}

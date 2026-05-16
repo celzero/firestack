@@ -391,6 +391,11 @@ func (t *plus) Remove(id string) (y bool) {
 
 // Get implements TransportMult.
 func (t *plus) Get(id string) (x.DNSTransport, error) {
+	return t.GetInternal(id)
+}
+
+// GetInternal implements TransportMult.
+func (t *plus) GetInternal(id string) (Transport, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
