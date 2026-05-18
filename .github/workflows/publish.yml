@@ -69,6 +69,7 @@ jobs:
       SBOM_PREDICATE: "https://spdx.dev/Document/v2.2"
       # debug symbols zip produced by the debugsymbols Make target; bundled with AAR artifact
       FOUTSYM: firestack-debug-symbols.zip
+      # also see env vars for "firebase" job below
       ARCHS: armeabi-v7a arm64-v8a x86 x86_64
 
     permissions:
@@ -76,6 +77,10 @@ jobs:
       actions: read
       attestations: read
       packages: write
+
+    outputs:
+      vcsver: ${{ steps.runmeta.outputs.vcsver }}
+      run_id: ${{ steps.runmeta.outputs.run_id }}
 
     steps:
       - name: 🥏 Checkout
@@ -322,6 +327,32 @@ jobs:
           curl -D - -X POST -H "Authorization: Bearer ${tok}" \
             "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/${GROUP_OSSRH}?publishing_type=automatic"
 
+  firebase:
+    name: 🔥 Firebase Symbols
+    needs: publish
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      FOUT: firestack.aar
+      FOUTSYM: firestack-debug-symbols.zip
+      ARCHS: armeabi-v7a arm64-v8a x86 x86_64
+      DIST_DIR: dist
+      ARTIFACT_PATTERN: "firestack-aar-*"
+
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: ⬇️ Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ${{ env.ARTIFACT_PATTERN }}
+          run-id: ${{ needs.publish.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.DIST_DIR }}
+          merge-multiple: true
+
       # github.com/celzero/rethink-app/blob/main/.github/workflows/sym.yml
       # firebase.google.com/docs/crashlytics/android/get-started-ndk
       - name: 🔥 Upload symbols to Firebase
@@ -331,7 +362,7 @@ jobs:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
           # comma-separated list of Firebase app IDs (alpha, debug, prod)
           FIREBASE_APP_IDS: ${{ secrets.FIREBASE_ALPHA_DEBUG_PROD_APP_ID_CSV }}
-          VCSVER: ${{ steps.runmeta.outputs.vcsver }}
+          VCSVER: ${{ needs.publish.outputs.vcsver }}
         run: |
           set -euo pipefail
           echo "::notice::Uploading NDK debug symbols for ${VCSVER} to Firebase Crashlytics"
