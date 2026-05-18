@@ -8,6 +8,7 @@ package multihost
 
 import (
 	"fmt"
+	"maps"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -163,14 +164,31 @@ func (m *MHMap) Refresh() (n int64) {
 		return
 	}
 
+	hs := make([]*MH, 0, len(m.uniq))
+	for h := range m.cloneset() {
+		hs = append(hs, h)
+	}
+
+	for _, h := range hs {
+		n += int64(h.Refresh())
+	}
+
 	m.Lock()
 	defer m.Unlock()
-	for h := range m.uniq {
-		m.delLocked(h)
-		n += int64(h.Refresh())
-		m.putLocked(h)
+	for _, h := range hs {
+		// reindex new addrs
+		if _, ok := m.uniq[h]; ok {
+			m.delLocked(h)
+			m.putLocked(h)
+		}
 	}
 	return
+}
+
+func (m *MHMap) cloneset() map[*MH]struct{} {
+	m.RLock()
+	defer m.RUnlock()
+	return maps.Clone(m.uniq)
 }
 
 func (m *MHMap) MaybeRefresh() (n int64) {
@@ -178,12 +196,27 @@ func (m *MHMap) MaybeRefresh() (n int64) {
 		return
 	}
 
+	var staleHs []*MH
+	for h := range m.cloneset() {
+		if _, stale := h.stale(); stale {
+			staleHs = append(staleHs, h)
+		}
+	}
+
+	if len(staleHs) == 0 {
+		return
+	}
+
+	for _, h := range staleHs {
+		n += int64(h.Refresh())
+	}
+
 	m.Lock()
 	defer m.Unlock()
-	for h := range m.uniq {
-		if _, stale := h.stale(); stale {
+	for _, h := range staleHs {
+		// reindex new addrs
+		if _, ok := m.uniq[h]; ok {
 			m.delLocked(h)
-			n += int64(h.Refresh())
 			m.putLocked(h)
 		}
 	}
