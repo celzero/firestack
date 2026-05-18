@@ -27,6 +27,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 const (
@@ -120,8 +121,25 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 	if cached := getCachedIPMeta(p, network); cached != nil {
 		return cached, nil
 	}
-	if s := p.Status(); s != TOK && s != TKO {
+
+	st := p.Status()
+	if st != TOK && st != TKO {
 		return nil, errNotActive
+	}
+
+	rt := p.Router()
+	// "tcp" and "udp" are dual-stack
+	is4 := network == "tcp4" || network == "udp4" || network == "ip4"
+	is6 := network == "tcp6" || network == "udp6" || network == "ip6"
+	is46 := network == "tcp" || network == "udp" || network == "ip"
+	if !rt.IP4() && is4 {
+		return nil, errProxyRoute
+	}
+	if !rt.IP6() && is6 {
+		return nil, errProxyRoute
+	}
+	if !rt.IP4() && !rt.IP6() && is46 {
+		return nil, errProxyRoute
 	}
 
 	meta := &x.IPMetadata{ID: idstr(p)}
@@ -146,12 +164,12 @@ func fetchIPMetadata(p Proxy, network string) (*x.IPMetadata, error) {
 		applyMullvad(meta, mull)
 		meta.ProviderURL = mullvadURL
 	} else {
-		perr := fmt.Errorf("proxy: client: %s ip lookup failed", idstr(p))
+		perr := fmt.Errorf("proxy: client: %s %s lookup failed", idstr(p), network)
 		return nil, core.JoinErr(perr, err0, err1, err2, err3, err4)
 	}
 
 	if len(meta.IP) <= 0 {
-		return nil, fmt.Errorf("proxy: client: %s ip lookup failed", idstr(p))
+		return nil, fmt.Errorf("proxy: client: %s %s lookup failed", idstr(p), network)
 	}
 
 	setCachedIPMeta(p, network, meta)
@@ -602,7 +620,24 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 					}
 				}
 
-				ips := dialers.For(host)
+				dnsid := x.Default
+				if hasDNS := len(p.DNS()) > 0; hasDNS {
+					dnsid = p.ID()
+				}
+
+				ips, err := dialers.Resolve(host, dnsid)
+				if err != nil {
+					if settings.DefaultDNSAsFallback.Load() {
+						log.D("proxy: client: %s on %s resolve %s err %s: %v; using Default",
+							idstr(p), network, dnsid, host, err)
+						ips = dialers.For(host)
+					} else {
+						log.E("proxy: client: %s on %s resolve %s err %s: %v",
+							idstr(p), network, dnsid, host, err)
+						return nil, err
+					}
+				}
+
 				filtered := make([]netip.Addr, 0, len(ips))
 				for _, ip := range ips {
 					if network == "tcp4" && ip.Is4() {
@@ -617,16 +652,19 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 					return nil, errNoSuitableAddress
 				}
 
-				log.VV("proxy: client: %s resolved %s to %v on port %d for %s", idstr(p), host, filtered, on, network)
+				log.VV("proxy: client: %s resolved %s to %v on port %d for %s",
+					idstr(p), host, filtered, on, network)
 
 				var lastErr error
 				for _, ip := range filtered {
 					dest := netip.AddrPortFrom(ip, uint16(on)).String()
 					if conn, err := p.Dial(network, dest); err == nil {
-						log.VV("proxy: client: %s dialed %s @ %s on %s", idstr(p), host, dest, network)
+						log.VV("proxy: client: %s dialed %s @ %s on %s",
+							idstr(p), host, dest, network)
 						return conn, nil
 					} else {
-						log.E("proxy: client: %s failed to dial %s @ %s on %s: %v", idstr(p), host, dest, network, err)
+						log.E("proxy: client: %s failed to dial %s @ %s on %s: %v",
+							idstr(p), host, dest, network, err)
 						lastErr = err
 					}
 				}
