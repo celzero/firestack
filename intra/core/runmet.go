@@ -46,7 +46,7 @@ const (
 	memoizationThreshold = 10 * time.Second
 
 	// format temporal units to nanos?
-	fmtTemporal = false
+	fmtTemporal = true
 )
 
 type metricUnit = int
@@ -414,7 +414,8 @@ func unit4float(v float64, u metricUnit) string {
 	switch u {
 	case unitTemporal:
 		if fmtTemporal {
-			return FmtNanos(v)
+			// go.dev/play/p/OroD8WDQyyb
+			return FmtSecsFloat(v)
 		}
 		return fmt.Sprintf("%f", v)
 	case unitPercent:
