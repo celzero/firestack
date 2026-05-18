@@ -44,6 +44,9 @@ const (
 	MetSchedPausesTotalOther    = MetSched + "/pauses/total/other"
 
 	memoizationThreshold = 10 * time.Second
+
+	// format temporal units to nanos?
+	fmtTemporal = false
 )
 
 type metricUnit = int
@@ -137,7 +140,7 @@ func Metrics() string {
 				s := fmt.Sprintf("%s: hist(%s)", name, histo2str(value.Float64Histogram(), u, '\n'))
 				sb.WriteString(s)
 				if strings.HasPrefix(name, MetGCHeap) {
-					s := fmt.Sprintf("%s: percentiles(%s)", name, histo2Ps(value.Float64Histogram(), u, '\n'))
+					s := fmt.Sprintf("\n%s: percentiles(%s)", name, histo2Ps(value.Float64Histogram(), u, '\n'))
 					sb.WriteString(s)
 					s = fmt.Sprintf("\n%s: dist(%s)", name, histo2Ms(value.Float64Histogram(), u, '\n'))
 					sb.WriteString(s)
@@ -410,7 +413,10 @@ func histo2Ms(h *metrics.Float64Histogram, u metricUnit, sepb byte) string {
 func unit4float(v float64, u metricUnit) string {
 	switch u {
 	case unitTemporal:
-		return FmtNanos(v)
+		if fmtTemporal {
+			return FmtNanos(v)
+		}
+		return fmt.Sprintf("%f", v)
 	case unitPercent:
 		return fmt.Sprintf("%.2f%%", v)
 	case unitBytes:
