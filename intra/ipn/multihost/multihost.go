@@ -430,21 +430,19 @@ func (h *MH) EqualAddrs(other *MH) bool {
 		return noteq
 	}
 
+	netipCmpFn := func(a, b netip.AddrPort) int {
+		return a.Compare(b)
+	}
+
 	us := core.CopyUniq(h.Addrs())
-	them := core.CopyUniq(other.Addrs())
+	them := core.Sort(core.CopyUniq(other.Addrs()), netipCmpFn)
 
 	if len(us) != len(them) {
 		return noteq
 	}
 
 	for _, u := range us {
-		found := false
-		for _, t := range them {
-			if u.Compare(t) == 0 {
-				found = true
-				break
-			}
-		}
+		_, found := slices.BinarySearchFunc(them, u, netipCmpFn)
 		if !found {
 			log.D("multihost: %s != %s; missing %s", h.o, other.o, u)
 			return noteq

@@ -494,6 +494,15 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		return anew
 	}
 
+	curdns := w.dns.Load()
+	if !curdns.EqualAddrs(opts.dns) {
+		log.W("proxy: wg: update(%s<>%s): failed; dns changed; old %v, new %v; must re-add DNS",
+			id, w.who(), curdns.Addrs(), opts.dns.Addrs())
+		// requires client to call intra.AddProxyDNS via OnProxyAdded
+		// that's called after proxifier.add() is complete.
+		return anew
+	}
+
 	if opts.willreplacepeers {
 		log.W("proxy: wg: update(%s<>%s): peers will be replaced", id, w.who())
 	}
