@@ -1642,7 +1642,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 	}
 
 	if s == TUP && op != wg.Opn { // ignore all else but open
-		h.statusReason.Store("TUP: waiting for wgconn")
+		h.statusReason.Store("TUP: waiting to connect")
 		return
 	}
 
@@ -1715,7 +1715,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 			h.latestGoodRead.Store(now)
 		} else if op.Write() {
 			h.latestGoodWrite.Store(now)
-		}
+		} // else: open, close, drop, etc
 	}
 
 	// s may also be TOK (for successful handshakes but not for transport data)

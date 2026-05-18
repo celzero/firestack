@@ -594,20 +594,24 @@ runagain:
 	log.V("dns: fwd: 1 for %s (%s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, who, qname, qtyp, run, pref, chosenids)
 
 	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
-	t := r.determineTransport(id) // id may be empty if pref is nil
 
-	log.V("dns: fwd: 2 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s, sid? %s, pid? %s, ips? %v",
-		uid, qname, qtyp, run, pref, chosenids, id, sid, pids, presetIPs)
+	t := r.determineTransport(id)         // id may be empty if pref is nil
+	t2 := r.determineTransport(sid)       // sid may be empty
+	hasT1 := t != nil && !core.IsNil(t)   // primary transport
+	hasT2 := t2 != nil && !core.IsNil(t2) // secondary transport
 
-	if t == nil || core.IsNil(t) {
-		smm.Latency = time.Since(starttime).Seconds()
-		smm.Status = TransportError
-		smm.Msg = strings.Join(append(chosenids, id, sid, errNoSuchTransport.Error()), ";")
-		return nil, NoDNS, errNoSuchTransport
-	}
-	var t2 Transport
-	if len(sid) > 0 {
-		t2 = r.determineTransport(sid)
+	log.V("dns: fwd: 2 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s, ips? %v",
+		uid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, presetIPs)
+
+	if !hasT1 {
+		if !hasT2 {
+			smm.Latency = time.Since(starttime).Seconds()
+			smm.Status = TransportError
+			smm.Msg = strings.Join(append(chosenids, id, sid, errNoSuchTransport.Error()), ";")
+			return nil, NoDNS, errNoSuchTransport
+		}
+		t = t2
+		t2 = nil
 	}
 
 	smm.Type = t.Type()
@@ -628,11 +632,11 @@ runagain:
 			} else {
 				smm.Msg = errNop.Error()
 			}
-			log.V("dns: fwd: 3 for %s; r%d, query blocked %s:%d by %s", uid, run, qname, qtyp, blocklists)
+			log.V("dns: fwd: 3 %s for %s; r%d, query blocked %s:%d by %s", smm.ID, uid, run, qname, qtyp, blocklists)
 			return b, smm.ID, e
 		}
 	} else {
-		log.V("dns: fwd: 4 for %s; r%d, query NOT blocked %s:%d; why? %v", uid, run, qname, qtyp, err)
+		log.V("dns: fwd: 4 %s for %s; r%d, query NOT blocked %s:%d; why? %v", smm.ID, uid, run, qname, qtyp, err)
 	}
 
 	var res2 []byte
@@ -653,7 +657,7 @@ runagain:
 
 	if nonalg == nil || err != nil { // TODO: servfail?
 		if isAlgErr(err) { // alg errs not set when gw.translate is off
-			log.W("dns: fwd: for %s; r%d, alg error %s for %s:%d", uid, run, err, qname, qtyp)
+			log.W("dns: fwd: 5 %s for %s; r%d, alg error %s for %s:%d", smm.ID, uid, run, err, qname, qtyp)
 			smm.Status = NoResponse
 		} else if smm.Status == Start {
 			smm.Status = InternalError
@@ -709,7 +713,7 @@ runagain:
 			smm.Msg = err.Error()
 		}
 
-		log.V("dns: fwd: 5 for %s[%s]; query %s:%d, r%d, smm[data: %s, status: %d] blocked",
+		log.V("dns: fwd: 6 for %s[%s]; query %s:%d, r%d, smm[data: %s, status: %d] blocked",
 			smm.ID, uid, qname, qtyp, run, smm.RData, smm.Status)
 		return res2, smm.ID, err
 	}
@@ -718,7 +722,7 @@ runagain:
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
 	if settings.Debug {
-		log.V("dns: fwd: 6 for %s[%s]; query %s:%d, r%d, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
+		log.V("dns: fwd: 7 for %s[%s]; query %s:%d, r%d, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
 			smm.ID, uid, qname, qtyp, run, realips, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
 	}
 
@@ -727,7 +731,7 @@ runagain:
 			return r.listener.OnUpstreamAnswer(smm, pref.Copy(), realips), nil
 		}, listenerTimeout)
 		if !ouacompleted {
-			log.W("dns: fwd: for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
+			log.W("dns: fwd: 8 for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
 			smm.Status = ClientError
 			smm.Msg = errOnUpstreamAnswerTimeout.Error()
 			smm.ID = NoDNS
@@ -739,7 +743,7 @@ runagain:
 			goto runagain // re-run with new pids
 		}
 
-		log.V("dns: fwd: 7 for %s[%s], r%d; preferences2 skipped for %s:%d [ips? %s]: %v",
+		log.V("dns: fwd: 9 for %s[%s], r%d; preferences2 skipped for %s:%d [ips? %s]: %v",
 			smm.ID, uid, run, qname, qtyp, realips, pref2)
 	}
 
@@ -836,13 +840,15 @@ func (r *resolver) determineTransport(id string) Transport {
 	tf = r.transports[Default]
 	r.RUnlock()
 
+	// id1 may be CT+Default which doesn't exist and so tf (Default) must be used
+	isanydefault := isAnyDefault(id0, id1)
 	mayusedefault := canUseDefaultDNS(id0)
 	if t0 != nil && (t1 == nil || !mayusedefault || activeTransport(t0)) {
 		return t0
 	} else if t1 != nil && (!mayusedefault || activeTransport(t1)) {
 		log.W("dns: fwd: %s missing or inactive; using %s instead", id0, id1)
 		return t1
-	} else if tf != nil && mayusedefault {
+	} else if tf != nil && (mayusedefault || isanydefault) {
 		log.W("dns: fwd: %s & %s missing or inactive; using default", id0, id1)
 		return tf // todo: assert tf != nil?
 	}
@@ -1173,7 +1179,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id1 = reqid
 		id2 = ""
 	} else if isAnyFixed(x...) || isAnyFixed(xx...) {
-		if id1 != Fixed && id1 != cacheprefix+Fixed { // Fixed must always be the primary transport
+		if id1 != Fixed && id1 != CT+Fixed { // Fixed must always be the primary transport
 			id2 = id1
 			id1 = Fixed
 		}
