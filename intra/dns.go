@@ -308,7 +308,7 @@ func fetchDNSInfo(r dnsx.Resolver, id string) string {
 
 		var sb strings.Builder
 		if tid != id {
-			sb.WriteString(id + " <<?>> " + tr.ID())
+			sb.WriteString(id + " <<?>> " + tid)
 		} else {
 			sb.WriteString(id)
 		}
