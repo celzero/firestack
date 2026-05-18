@@ -291,12 +291,14 @@ func csv2ssv(csv string) string {
 
 func fetchDNSInfo(r dnsx.Resolver, id string) string {
 	if tr, rerr := r.GetInternal(id); rerr == nil {
-		if tr.ID() != id {
+		tid := tr.ID()
+
+		if tid != id {
 			// replace tr with the actual transport, if it is TransportMult
 			// with one or more internal/hidden away transports.
 			var mtr dnsx.TransportMult
 			var err error
-			if mtr, err = r.GetMultInternal(id); err == nil {
+			if mtr, err = r.GetMultInternal(tid); err == nil {
 				tr, err = mtr.GetInternal(id)
 			}
 			if tr == nil {
@@ -305,7 +307,6 @@ func fetchDNSInfo(r dnsx.Resolver, id string) string {
 		}
 
 		var sb strings.Builder
-		tid := tr.ID()
 		if tid != id {
 			sb.WriteString(id + " <<?>> " + tr.ID())
 		} else {
