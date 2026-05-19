@@ -170,17 +170,9 @@ func (m *MHMap) Refresh() (n int64) {
 	}
 
 	for _, h := range hs {
+		m.Del(h)
 		n += int64(h.Refresh())
-	}
-
-	m.Lock()
-	defer m.Unlock()
-	for _, h := range hs {
-		// reindex new addrs
-		if _, ok := m.uniq[h]; ok {
-			m.delLocked(h)
-			m.putLocked(h)
-		}
+		m.Put(h)
 	}
 	return
 }
@@ -196,29 +188,21 @@ func (m *MHMap) MaybeRefresh() (n int64) {
 		return
 	}
 
-	var staleHs []*MH
+	var stale []*MH
 	for h := range m.cloneset() {
-		if _, stale := h.stale(); stale {
-			staleHs = append(staleHs, h)
+		if _, old := h.stale(); old {
+			stale = append(stale, h)
 		}
 	}
 
-	if len(staleHs) == 0 {
+	if len(stale) == 0 {
 		return
 	}
 
-	for _, h := range staleHs {
+	for _, h := range stale {
+		m.Del(h)
 		n += int64(h.Refresh())
-	}
-
-	m.Lock()
-	defer m.Unlock()
-	for _, h := range staleHs {
-		// reindex new addrs
-		if _, ok := m.uniq[h]; ok {
-			m.delLocked(h)
-			m.putLocked(h)
-		}
+		m.Put(h)
 	}
 	return
 }
