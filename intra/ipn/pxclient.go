@@ -620,7 +620,8 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 					}
 				}
 
-				dnsid := x.Default
+				// use preferred when proxy does not have dns
+				dnsid := x.Preferred
 				if hasDNS := len(p.DNS()) > 0; hasDNS {
 					dnsid = p.ID()
 				}
