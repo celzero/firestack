@@ -1074,7 +1074,7 @@ func (r *resolver) refreshAll() (string, error) {
 
 	core.Gx("r.refresh", r.refresh)
 	core.Gx("r.refresh.clearcache", dialers.Clear)
-	s := tr2csv(r.all())
+	s := tr2csv(true /*active*/, r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		if x, err := dc.Refresh(); err == nil {
 			s += "," + x
@@ -1093,7 +1093,7 @@ func (r *resolver) LiveTransports() string {
 		log.W("dns: liveTransports: closed for business")
 		return ""
 	}
-	s := tr2csv(r.all())
+	s := tr2csv(true /*active*/, r.all())
 	if dc, err := r.dcProxy(); err == nil {
 		x := dc.LiveTransports()
 		s += "," + x
@@ -1150,8 +1150,8 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		// no-op
 	} else {
 		// TODO: fallback on all id1s
-		id1 = r.chooseOne(x...)
-		id2 = r.chooseOne(xx...) // mostly, just 0 or 1 secondary
+		id1 = r.chooseOne(true /*at random*/, x...)
+		id2 = r.chooseOne(true /*at random*/, xx...) // mostly, just 0 or 1 secondary
 	}
 
 	if !firstEmpty(chosenids) && len(chosenids) > 0 {
@@ -1227,7 +1227,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	return
 }
 
-func (r *resolver) chooseOne(ids ...string) (theone string) {
+func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 	if len(ids) <= 0 {
 		return ""
 	}
@@ -1238,12 +1238,15 @@ func (r *resolver) chooseOne(ids ...string) (theone string) {
 		return ids[0]
 	}
 
+	miss := make([]string, 0)
 	trs := make([]Transport, 0, len(ids))
 	r.RLock()
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if t := r.transports[id]; t != nil {
 			trs = append(trs, t)
+		} else {
+			miss = append(miss, id)
 		}
 	}
 	r.RUnlock()
@@ -1251,19 +1254,31 @@ func (r *resolver) chooseOne(ids ...string) (theone string) {
 	best, preferred, recoverables, errored, ended := Categorize(trs)
 	if settings.Debug {
 		defer func() {
-			loged(len(theone) <= 0)("dns: pref: chose: %s from best(%v) prefer(%v) recov(%v) err(%v) dead(%v)",
-				theone, best, preferred, recoverables, errored, ended)
+			loged(len(theone) <= 0)("dns: pref: chose: %s from best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
+				theone, tr2csv2(best), tr2csv2(preferred), tr2csv2(recoverables), tr2csv2(errored), tr2csv2(ended), strings.Join(miss, ","))
 		}()
 	}
 
 	if len(best) > 0 {
+		if chooseRandom {
+			return idstr(core.ChooseOne(best))
+		}
 		return idstr(best[0])
 	} else if len(preferred) > 0 {
+		if chooseRandom {
+			return idstr(core.ChooseOne(preferred))
+		}
 		return idstr(preferred[0])
 	} else if len(recoverables) > 0 {
-		return idstr(core.ChooseOne(recoverables))
+		if chooseRandom {
+			return idstr(core.ChooseOne(recoverables))
+		}
+		return idstr(recoverables[0])
 	} else if len(errored) > 0 {
-		return idstr(core.ChooseOne(errored))
+		if chooseRandom {
+			return idstr(core.ChooseOne(errored))
+		}
+		return idstr(errored[0])
 	}
 	log.E("dns: pref: no transports for %v [all ended? %v]", ids, ended)
 	return ""
@@ -1286,6 +1301,8 @@ func Categorize(ts []Transport) (best []Transport, preferred []Transport, recove
 			errored = append(errored, t)
 		}
 	}
+	best = core.Sort(best, Fastest)
+	preferred = core.Sort(preferred, Fastest)
 	return
 }
 
@@ -1531,14 +1548,19 @@ func qtype(msg *dns.Msg) int {
 	return int(xdns.QType(msg))
 }
 
-func tr2csv(ts []Transport) string {
-	s := ""
+func tr2csv(activeOnly bool, ts []Transport) string {
+	var s strings.Builder
 	for _, t := range ts {
-		if activeTransport(t) {
-			s += idstr(t) + ","
+		if !activeOnly || activeTransport(t) {
+			s.WriteString(idstr(t))
+			s.WriteString(",")
 		}
 	}
-	return trimcsv(s)
+	return trimcsv(s.String())
+}
+
+func tr2csv2(ts []Transport) string {
+	return tr2csv(false /*activeOnly*/, ts)
 }
 
 func trimcsv(s string) string {
