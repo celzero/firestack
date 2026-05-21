@@ -1438,6 +1438,8 @@ func CanUseProxy(id string) bool {
 	case Preset, CT + Preset:
 		return false
 	case Default, CT + Default, Bootstrap, CT + Bootstrap:
+		// note that, if Default is System DNS, then upstream.go
+		// will not proxy even if CanUseProxy returns true, and pid is set.
 		return canProxyDefault()
 	}
 	return true

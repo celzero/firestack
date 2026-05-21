@@ -94,7 +94,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	}
 	ctx, done := context.WithCancel(pctx)
 	var relay string
-	if dnsx.CanUseProxy(id) {
+	if dnsx.CanUseProxy(id) { // see also: pxdial
 		if p, _ := px.ProxyFor(id); p != nil {
 			relay = p.ID()
 		}
@@ -143,6 +143,7 @@ func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn
 }
 
 func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, error) {
+	// dnsx.CanUseProxy may return true even when Bootstrap is System DNS
 	if t.id == dnsx.Bootstrap || t.id == dnsx.System { // bootstrap/default never be proxied
 		// never proxy dns53 transport with "bootstrap" id is a clone of dnsx.System
 		pid = dnsx.NetBaseProxy
