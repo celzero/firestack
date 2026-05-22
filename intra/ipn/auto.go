@@ -336,7 +336,7 @@ func (h *auto) Accept(network, local string) (l protect.Listener, err error) {
 	}
 	if settings.AutoAlwaysRemote() {
 		log.E("proxy: auto: accept(%s) on %s remote-dial unimplemented", network, local)
-		return nil, errNotRemote
+		return nil, errNoAutoSupport
 	}
 	exit, err := h.pxr.ProxyFor(Exit)
 	if err == nil {
@@ -355,7 +355,7 @@ func (h *auto) Probe(network, local string) (pc protect.PacketConn, err error) {
 	}
 	if settings.AutoAlwaysRemote() {
 		log.E("proxy: auto: probe(%s) on %s remote-dial unimplemented", network, local)
-		return nil, errNotRemote
+		return nil, errNoAutoSupport
 	}
 	// todo: rpnwg, rpnamz, rpnwin
 	exit, err := h.pxr.ProxyFor(Exit)
