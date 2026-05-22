@@ -680,6 +680,9 @@ func splitmsg(p []byte) (LogLevel, Logmsg) {
 			return STACKTRACE, Logmsg(p[2:])
 		case 'U':
 			return USR, Logmsg(p[2:])
+		case ' ':
+			return NONE, "" // drop
+		default: // may be "?"
 		}
 	}
 	return INFO, Logmsg(p)
