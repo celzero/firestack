@@ -38,11 +38,13 @@ var ctag = C.CString("Firestack")
 // xlog is a Console implementation that routes log entries to Android logcat
 // using the appropriate log priority for each LogLevel:
 //
-//   - VVERBOSE / VERBOSE / DEBUG = ANDROID_LOG_DEBUG
-//   - INFO                       = ANDROID_LOG_INFO
-//   - WARN                       = ANDROID_LOG_WARN
-//   - ERROR / STACKTRACE         = ANDROID_LOG_ERROR
-//   - USR                        = ANDROID_LOG_INFO
+// VVERBOSE / VERBOSE   = ANDROID_LOG_VERBOSE
+// DEBUG                = ANDROID_LOG_DEBUG
+// INFO                 = ANDROID_LOG_INFO
+// WARN                 = ANDROID_LOG_WARN
+// ERROR                = ANDROID_LOG_ERROR
+// STACKTRACE           = ANDROID_LOG_FATAL
+// USR                  = ANDROID_LOG_INFO
 type xlog struct{}
 
 var _ Console = (*xlog)(nil)
@@ -75,16 +77,21 @@ func (a *xlog) Write(p []byte) (n int, err error) {
 }
 
 // androidPriority maps a LogLevel to the corresponding Android log priority.
+// developer.android.com/ndk/reference/group/logging
 func androidPriority(level LogLevel) C.int {
 	switch level {
-	case VVERBOSE, VERBOSE, DEBUG:
+	case VVERBOSE, VERBOSE:
+		return C.ANDROID_LOG_VERBOSE
+	case DEBUG:
 		return C.ANDROID_LOG_DEBUG
 	case INFO, USR:
 		return C.ANDROID_LOG_INFO
 	case WARN:
 		return C.ANDROID_LOG_WARN
-	case ERROR, STACKTRACE:
+	case ERROR:
 		return C.ANDROID_LOG_ERROR
+	case STACKTRACE:
+		return C.ANDROID_LOG_FATAL
 	default:
 		return C.ANDROID_LOG_DEBUG
 	}
