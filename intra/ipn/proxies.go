@@ -112,7 +112,6 @@ var (
 	errNoOpts             = errors.New("proxy: no opts")
 	errNoAuto464XLAT      = errors.New("auto: no 464xlat")
 	errNotPinned          = errors.New("auto: another proxy pinned")
-	errNoAutoSupport      = errors.New("auto: unimplemented")
 	errInvalidAddr        = errors.New("proxy: invaild ip:port")
 	errMissingProxyID     = errors.New("proxy: missing proxy id")
 	errHopDefaultRoutes   = errors.New("proxy: hop must route all ip4/ip6")
