@@ -293,7 +293,7 @@ func Await1[T any](f func() T, until time.Duration) (v T, gotV bool) {
 
 func EitherOr(either <-chan struct{}, or Callback, until time.Duration) (esc bool) {
 	select {
-	case <-time.Tick(until):
+	case <-time.After(until):
 		if or != nil {
 			or()
 		}
