@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 )
 
 // based on: github.com/eycorsican/go-tun2socks/blob/301549c43/common/log/log.go#L5
@@ -192,6 +193,11 @@ func P(msg string, args ...any) {
 // Wtf logs a fatal message.
 func Wtf(msg string, args ...any) {
 	Glogger.Fatalf(callerat, msg, args...)
+}
+
+func S(alleast64k []byte) []byte {
+	n := runtime.Stack(alleast64k, true)
+	return alleast64k[:n]
 }
 
 // C logs the stack trace of the current goroutine to Console.

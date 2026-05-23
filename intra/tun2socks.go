@@ -305,7 +305,7 @@ func PrintStack(where int32) []byte {
 		return nil
 	}
 	recycle = false
-	return b
+	return log.S(b)
 }
 
 // PrintFlightRecord dumps the contents of the flight recorder
