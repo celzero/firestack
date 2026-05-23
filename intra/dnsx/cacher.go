@@ -234,8 +234,8 @@ func (cb *cache) scrubCache() {
 }
 
 func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
+	cb.mu.Lock() // write lock: bumps expiry/count on the shared *cres in-place
+	defer cb.mu.Unlock()
 
 	if v, ok = cb.c[key]; !ok {
 		return
