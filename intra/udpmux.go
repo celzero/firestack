@@ -167,23 +167,20 @@ func (x *muxer) awaiters() {
 
 // stop closes conns in the backlog, stops accepting new conns,
 // closes muxconn, and waits for demuxed conns to close.
-func (x *muxer) stop() error {
+func (x *muxer) stop() {
 	if settings.Debug {
 		log.D("udp: mux: %s stop", x.cid)
 	}
 
-	var err error
 	x.once.Do(func() {
 		close(x.doneCh)
-		x.drain()
-		err = x.mxconn.Close() // close the muxed conn
+		x.drain()               // drain all demuxconns
+		err := x.mxconn.Close() // close the muxed conn
 
-		x.dxconnWG.Wait()          // all conns close / error out
+		x.dxconnWG.Wait()          // until all demuxconn closed / errored out
 		core.Go("udpmux.cb", x.cb) // dissociate
-		log.I("udp: mux: %s stopped; stats: %s", x.cid, x.stats)
+		logei(err)("udp: mux: %s stopped; stats: %s; onclose: %v", x.cid, x.stats, err)
 	})
-
-	return err
 }
 
 func (x *muxer) drain() {
@@ -205,9 +202,7 @@ func (x *muxer) drain() {
 //  2. Creating a new Conn when receiving from a new remote.
 func (x *muxer) readers() {
 	// todo: recover must call "recycle()" if it wasn't.
-	defer func() {
-		_ = x.stop() // stop muxer
-	}()
+	defer x.stop()
 
 	timeouterrors := 0
 	for {
@@ -257,6 +252,9 @@ func (x *muxer) readers() {
 		if dst := x.route(todoCid, addr2netip(who), ingress); dst != nil {
 			select {
 			case dst.inCh <- &slice{v: b[:n], fin: recycle}: // incomingCh is never closed
+			case <-dst.closed:
+				err = errUdpUnconnected
+				recycle()
 			default: // dst probably closed, but not yet unrouted
 				err = errUdpIncomingDrop
 				recycle()
@@ -387,10 +385,13 @@ func (c *demuxconn) Read(p []byte) (int, error) {
 	defer c.rt.Reset(c.rto)
 	select {
 	case <-c.rt.C:
+		// TODO: close demuxconn?
 		log.W("udp: mux: %s demux: read: %v <= %v; timeout (sz: %d)",
 			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
+		// demuxconn may already be closed
+		defer core.Close(c)
 		log.W("udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
 			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
@@ -413,10 +414,13 @@ func (c *demuxconn) Write(p []byte) (n int, err error) {
 	defer c.wt.Reset(c.wto)
 	select {
 	case <-c.wt.C:
+		// TODO: close demuxconn?
 		log.W("udp: mux: %s demux: write: %v => %v; timeout (sz: %d)",
 			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
+		// demuxconn may already be closed
+		defer core.Close(c)
 		log.W("udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
 			c.out.id(), c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
@@ -478,13 +482,25 @@ func (c *demuxconn) Close() error {
 			c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
 	}
 	c.once.Do(func() {
-		close(c.closed) // sig close
-
-		c.readClosed.Store(true)
-		c.writeClosed.Store(true)
-
 		defer c.wt.Stop()
 		defer c.rt.Stop()
+
+		// leave c.inCh or c.overflowCh unclosed:
+		//  1. readers() races the drain loop: after the loop exits via
+		//     default, readers() can still non-deterministically send one
+		//     last *slice (16KB fin closure) to inCh before the deferred
+		//     close runs.
+		//  2. close(c.overflowCh) runs first (LIFO); if io() is concurrently
+		//     executing inside Read() and writes to overflowCh after the close,
+		//     that is a send-on-closed-channel panic.
+		//  3. after both channels are closed, Read()'s select may receive nil
+		//     from them (closed-empty), causing a nil-deref panic in io().
+		// Channels are GC'd with the demuxconn; Read() is already woken by
+		// <-c.closed so no goroutines are left blocked on inCh/overflowCh.
+
+		close(c.closed) // sig close
+		c.readClosed.Store(true)
+		c.writeClosed.Store(true)
 		for {
 			select {
 			case sx := <-c.inCh:

@@ -154,7 +154,7 @@ func (h *cm) delLocked(id string) (n int) {
 		// id maybe pid or uid
 	} else if cidsByUid := h.getByUidLocked(id); len(cidsByUid) > 0 {
 		// untrackBatchLocked calls delLocked per cid, which calls
-		// delByUidLocked → slices.Delete on the same backing array we are
+		// delByUidLocked => slices.Delete on the same backing array we are
 		// about to iterate; the in-place shift zeroes the tail and the range
 		// loop skips entries (e.g. [c1,c2,c3] => delete c1 => [c2,c3,""],
 		// loop reads index 1 = "c3", never sees "c2").

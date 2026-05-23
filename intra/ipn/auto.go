@@ -24,7 +24,7 @@ const (
 	delayForUnhealthyProxies = 2 * time.Second
 )
 
-// exit is a proxy that always dials out to the internet.
+// auto is a proxy that dials multiple, preset outbounds.
 type auto struct {
 	NoDNS
 	ProtoAgnostic
