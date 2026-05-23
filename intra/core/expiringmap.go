@@ -69,6 +69,13 @@ func (m *ExpMap[P, Q]) Get(key P) uint32 {
 			expiry: n,
 		}
 		m.m[key] = v
+		// new entries have expiry = now (immediately expired); signal the
+		// reaper so they are eventually cleaned up even if Set/K is never
+		// called. Without this, Get-only usage grows the map without bound.
+		select {
+		case m.sigreap <- struct{}{}:
+		default:
+		}
 	} else if n.After(v.expiry) {
 		v.hits = 0
 	} else {
@@ -113,7 +120,7 @@ func (m *ExpMap[P, Q]) Set(key P, expiry time.Duration) uint32 {
 	return v.hits
 }
 
-// Set sets the (value, expiry) for the given key and returns the number of hits.
+// K sets the (value, expiry) for the given key and returns the number of hits.
 // expiry must be greater than the minimum lifetime.
 func (m *ExpMap[P, Q]) K(key P, value Q, expiry time.Duration) uint32 {
 	if done(m.ctx) {
@@ -210,6 +217,7 @@ func (m *ExpMap[P, Q]) reaper(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			m.Clear()
 			return
 		case <-m.sigreap:
 		}
