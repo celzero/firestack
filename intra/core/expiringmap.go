@@ -15,7 +15,6 @@ import (
 var (
 	reapthreshold = 5 * time.Minute
 	maxreapiter   = 50
-	sizethreshold = 100
 	lifetime      = 0 * time.Millisecond
 )
 
@@ -216,12 +215,6 @@ func (m *ExpMap[P, Q]) reaper(ctx context.Context) {
 		}
 
 		m.Lock()
-
-		l := len(m.m)
-		if l < sizethreshold {
-			m.Unlock()
-			continue
-		}
 
 		now := time.Now()
 		treap := m.lastreap.Add(reapthreshold)
