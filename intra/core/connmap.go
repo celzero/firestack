@@ -153,9 +153,14 @@ func (h *cm) delLocked(id string) (n int) {
 		h.sz -= n
 		// id maybe pid or uid
 	} else if cidsByUid := h.getByUidLocked(id); len(cidsByUid) > 0 {
-		return len(h.untrackBatchLocked(cidsByUid))
+		// untrackBatchLocked calls delLocked per cid, which calls
+		// delByUidLocked → slices.Delete on the same backing array we are
+		// about to iterate; the in-place shift zeroes the tail and the range
+		// loop skips entries (e.g. [c1,c2,c3] => delete c1 => [c2,c3,""],
+		// loop reads index 1 = "c3", never sees "c2").
+		return len(h.untrackBatchLocked(slices.Clone(cidsByUid)))
 	} else if cidsByPid := h.getByPidLocked(id); len(cidsByPid) > 0 {
-		return len(h.untrackBatchLocked(cidsByPid))
+		return len(h.untrackBatchLocked(slices.Clone(cidsByPid)))
 	} else {
 		log.VV("connmap: untrack: id not tracked %s", id)
 	}
@@ -253,7 +258,10 @@ func (h *cm) GetAll(uidOrPid string) (conns []MinConn) {
 	}
 	cidsByPid := h.getByPidLocked(uidOrPid)
 	cidsByUid := h.getByUidLocked(uidOrPid)
-	for _, cid := range append(cidsByPid, cidsByUid...) {
+	// slices.Concat always allocates a new slice; using append(cidsByPid, cidsByUid...)
+	// would mutate the map-owned backing array when cidsByPid has spare capacity
+	// (left by slices.Delete), causing a data race between concurrent RLock readers.
+	for _, cid := range slices.Concat(cidsByPid, cidsByUid) {
 		if cs := h.getLocked(cid); cs != nil {
 			conns = append(conns, cs.c...)
 		}
