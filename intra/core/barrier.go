@@ -189,11 +189,21 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	if _, completed := Grx("ba.do."+c.id(), func(_ context.Context) (*V[T, K], error) {
-		c.Val, c.Err = once()
-		return c, c.Err
-	}, ba.to); !completed {
-		c.Err = JoinErr(c.Err, errTimeout)
+	type res struct {
+		val T
+		err error
+	}
+	rch := make(chan res, 1)
+	Go("ba.do."+c.id(), func() {
+		v, e := once()
+		rch <- res{v, e}
+	})
+
+	select {
+	case r := <-rch:
+		c.Val, c.Err = r.val, r.err
+	case <-time.After(ba.to):
+		c.Err = errTimeout
 	}
 
 	c.wg.Done() // unblock all waiters
@@ -214,11 +224,21 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 	c = ba.addLocked(k)
 	ba.mu.Unlock()
 
-	if _, completed := Grx("ba.do1."+c.id(), func(_ context.Context) (*V[T, K], error) {
-		c.Val, c.Err = once(arg)
-		return c, c.Err
-	}, ba.to); !completed {
-		c.Err = JoinErr(c.Err, errTimeout)
+	type res struct {
+		val T
+		err error
+	}
+	rch := make(chan res, 1)
+	Go("ba.do1."+c.id(), func() {
+		v, e := once(arg)
+		rch <- res{v, e}
+	})
+
+	select {
+	case r := <-rch:
+		c.Val, c.Err = r.val, r.err
+	case <-time.After(ba.to):
+		c.Err = errTimeout
 	}
 
 	c.wg.Done() // unblock all waiters
@@ -227,7 +247,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 
 // untested
 func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
-	ch := make(chan *V[T, K])
+	ch := make(chan *V[T, K], 1) // buffered: prevents goroutine leak if caller drops the channel
 
 	Go("ba.go", func() {
 		defer close(ch)
