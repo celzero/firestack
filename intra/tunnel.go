@@ -533,13 +533,18 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	l, all, crash := core.RuntimeGotraceback()
 	out.GOSt.Trac = fmt.Sprintf("%d; all? %t; crash? %t", l, all, crash)
 
+	cachedir, _ := os.UserCacheDir()
+	homedir, _ := os.UserHomeDir()
+	cfgdir, _ := os.UserConfigDir()
 	sm1, sm2 := core.RuntimeSecureMode()
 	uid := fmt.Sprintf("uid=%d", syscall.Getuid())
 	pid := fmt.Sprintf("pid=%d", syscall.Getpid())
 	pgsz := fmt.Sprintf("pgsz=%d", os.Getpagesize())
 	sec := fmt.Sprintf("sec=%t/%t", sm1, sm2)
 	out.GOSt.Args = strings.Join(append(os.Args, uid, pid, pgsz, sec), ";")
-	out.GOSt.Env = strings.Join(core.RuntimeEnviron(), ";")
+	out.GOSt.Env = strings.Join(core.RuntimeEnviron(), ";") +
+		" / " +
+		strings.Join([]string{cachedir, homedir, cfgdir}, ";")
 	out.GOSt.Pers, _ = os.Executable()
 
 	if r := t.resolver; r != nil {
