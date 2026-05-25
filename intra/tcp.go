@@ -48,6 +48,7 @@ type tcpHandler struct {
 	nat *tcpNat
 }
 
+// TODO: replace with ExpMap
 type tcpNat struct {
 	sync.Mutex
 	m map[string]map[netip.AddrPort]netip.AddrPort // proxyID => src => ext

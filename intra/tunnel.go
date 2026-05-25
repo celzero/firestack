@@ -123,16 +123,20 @@ type Tunnel interface {
 }
 
 type rtunnel struct {
-	t        *core.Volatile[tunnel.Tunnel]
-	ctx      context.Context
-	done     context.CancelFunc
+	ctx  context.Context
+	done context.CancelFunc
+
+	t *core.Volatile[tunnel.Tunnel]
+
 	handlers netstack.GConnHandler
 	proxies  ipn.Proxies
 	resolver dnsx.Resolver
 	services rnet.Services
-	linkmtu  *core.Volatile[int]
-	closed   atomic.Bool
-	once     sync.Once
+
+	linkmtu *core.Volatile[int]
+
+	closed atomic.Bool
+	once   sync.Once
 }
 
 var _ Tunnel = (*rtunnel)(nil)
