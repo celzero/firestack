@@ -1204,12 +1204,17 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id1 = Local
 		id2 = ""
 	}
+	ipblock := isAnyIPUnspecified(ips)
+	trblock := isAnyBlockAll(id1, id2)
+	reqblock := isAnyBlockAll(x...)
 	if isAnyBlockFree(id1, id2) {
 		if !s.NOBLOCK {
-			log.W("dns: pref: tr for %s; override NOBLOCK", id1, id2, qname)
+			log.W("dns: pref: tr for %s over %s+%s; override NOBLOCK", qname, id1, id2)
 			s.NOBLOCK = true
 		}
-	} else if isAnyIPUnspecified(ips) || isAnyBlockAll(id1, id2) || isAnyBlockAll(x...) {
+	} else if ipblock || trblock || reqblock {
+		log.D("dns: pref: tr for %s over %s+%s; block ip? %t, pref? %t, chose? %t",
+			qname, id1, id2, ipblock, trblock, reqblock)
 		// BlockAll must appear in primary TIDCSV
 		id1 = BlockAll // just one transport, BlockAll, if set
 		id2 = ""
