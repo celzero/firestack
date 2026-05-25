@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/netip"
 	"slices"
 	"strings"
@@ -1025,6 +1026,7 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 func (r *resolver) StopAll() {
 	r.once.Do(func() {
 		defer core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
+		r.closed.Store(true)
 		r.done()
 
 		if dc, err := r.dcProxy(); err == nil {
