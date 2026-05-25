@@ -245,7 +245,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
 
 	core.Go("r.Listener", r.sendSummaries)
-	context.AfterFunc(ctx, r.StopAll)
+	context.AfterFunc(pctx, r.StopAll)
 	return r
 }
 
