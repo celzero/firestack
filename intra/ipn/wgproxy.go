@@ -396,18 +396,13 @@ func (w *wgproxy) Refresh() (err error) {
 		// for now, never reset since resetDeviceOnTNT is false
 		resetDevice = resetDevice && w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
 		if resetDevice {
-			var newdev *device.Device
 			// Close the old device before creating the new one.
 			// w.Device.Down() already set bind.ipv4/ipv6 to nil, so Close() is a
 			// near no-op on the bind here. Doing it in the other order would have
 			// Close() re-enter Down() and close the bind that newdevice just opened.
 			w.Device.Close() // tun.Close() is ignored via ignoreTUNClose
 			w.events <- tun.EventUp
-			if newdev, err = newdevice(w.wgtun, w.wgep); err == nil {
-				w.Device = newdev // TODO: core.Volatile[device.Device]
-			} else {
-				w.wgtun.ignoreTUNClose.Store(false) // next Close() must not be silently ignored
-			}
+			w.Device = newdevice(w.wgtun, w.wgep) // TODO: core.Volatile[device.Device]
 		} else {
 			// err = w.Device.Down()
 			// prefer sending commands over the events channel to prevent
@@ -764,7 +759,7 @@ func loadIPNets(id string, out *[]netip.Prefix, v string) (err error) {
 }
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
-func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProps, cfg string) (*wgproxy, error) {
+func NewWgProxy(pctx context.Context, id string, ctl protect.Controller, px ProxyProvider, lp LinkProps, cfg string) (*wgproxy, error) {
 	ogcfg := cfg
 	opts, err := wgIfConfigOf(id, &cfg)
 	if err != nil {
@@ -772,7 +767,7 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 		return nil, err
 	}
 
-	wgtun, err := makeWgTun(id, ogcfg, ctl, px, lp, opts)
+	wgtun, err := makeWgTun(pctx, id, ogcfg, ctl, px, lp, opts)
 	if err != nil {
 		log.E("proxy: wg: %s failed to create tun %v", id, err)
 		return nil, err
@@ -782,13 +777,10 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 	if wgtun.preferOffload {
 		wgep = wg.NewEndpoint2(wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	} else {
-		wgep = wg.NewEndpoint(wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
+		wgep = wg.NewEndpoint(pctx, wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
 	}
 
-	wgdev, err := newdevice(wgtun, wgep)
-	if err != nil {
-		return nil, err
-	}
+	wgdev := newdevice(wgtun, wgep)
 
 	w := &wgproxy{
 		wgtun, // stack
@@ -796,13 +788,15 @@ func NewWgProxy(id string, ctl protect.Controller, px ProxyProvider, lp LinkProp
 		wgep,  // endpoint
 	}
 
+	defer context.AfterFunc(pctx, func() { _ = w.Close() })
+
 	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)",
 		wgtun.tag(), opts.ifaddrs, opts.mtu, w.ep.MTU(), len(opts.peers), wgtun.IP4(), wgtun.IP6())
 
 	return w, nil
 }
 
-func newdevice(wgtun *wgtun, wgep wgconn) (*device.Device, error) {
+func newdevice(wgtun *wgtun, wgep wgconn) *device.Device {
 	wgdev := device.NewDevice(wgtun, wgep, wglogger(wgtun))
 
 	wgtun.ipcset(wgdev) // apply initial config to device
@@ -816,7 +810,7 @@ func newdevice(wgtun *wgtun, wgep wgconn) (*device.Device, error) {
 	// err = wgdev.Up()
 	// TODO: wait for wgconn to open?
 	log.I("proxy: wg: %s new device created %s", wgtun.tag(), core.LocStr(wgdev))
-	return wgdev, nil
+	return wgdev
 }
 
 func (t *wgtun) setupReverserIfNeeded(set bool) (didSet bool) {
@@ -901,8 +895,8 @@ func (t *wgtun) maybeSpoof(spoof bool) {
 }
 
 // ref: github.com/WireGuard/wireguard-go/blob/469159ecf7/tun/netstack/tun.go#L54
-func makeWgTun(id, cfg string, ctl protect.Controller, px ProxyProvider, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
-	ctx, done := context.WithCancel(context.Background())
+func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px ProxyProvider, lp LinkProps, ifopts wgifopts) (*wgtun, error) {
+	ctx, done := context.WithCancel(pctx)
 
 	allowIncoming := settings.ExperimentalWireGuard.Load()
 	opts := stack.Options{

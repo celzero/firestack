@@ -207,7 +207,7 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 		lp := pxr.lp
 		pxr.RUnlock()
 		if force {
-			p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
+			p, err = NewWgProxy(pxr.ctx, id, pxr.ctl, pxr, lp, txt)
 		} else if p, _ = pxr.proxyFor(id); p != nil {
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				newcfg, readd := wgp.OnProtoChange(lp)
@@ -225,7 +225,7 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 		}
 		if !force && p == nil {
 			// txt is both wg ifconfig and peercfg
-			p, err = NewWgProxy(id, pxr.ctl, pxr, lp, txt)
+			p, err = NewWgProxy(pxr.ctx, id, pxr.ctl, pxr, lp, txt)
 		}
 	} else if len(txt) <= 0 {
 		p = NewBasicProxy(id, pxr.ctx, pxr.ctl, pxr)

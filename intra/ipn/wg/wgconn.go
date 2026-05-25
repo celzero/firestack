@@ -14,6 +14,7 @@
 package wg
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -124,6 +125,8 @@ func (op PktDir) Write() bool {
 }
 
 type StdNetBind struct {
+	// TODO: use ctx for cleanup
+	ctx     context.Context
 	id      string
 	connect connector
 	pm      *core.Volatile[*multihost.MHMap] // peer ip:port or host => preferred-addrs
@@ -140,7 +143,8 @@ type StdNetBind struct {
 	blackhole6 bool
 
 	epmu sync.RWMutex
-	eps  map[net.Addr]StdNetEndpoint // peer-addr => std-net-endpoint
+	// TODO: bound eps size?
+	eps map[net.Addr]StdNetEndpoint // peer-addr => std-net-endpoint
 
 	observer rwobserver
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
@@ -150,8 +154,9 @@ type StdNetBind struct {
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind {
+func NewEndpoint(ctx context.Context, id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind {
 	s := &StdNetBind{
+		ctx:      ctx,
 		id:       id,
 		connect:  d,
 		pm:       pm,
