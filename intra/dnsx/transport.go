@@ -507,12 +507,13 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 		return nil, NoDNS, errResolverClosed
 	}
 
-	loopingBack := settings.Loopingback.Load()
+	// when loopingback, Goos queries will be sent right back to us
+	goosWillLoopback := settings.Loopingback.Load()
 	defaultIsSystemDNS := r.isDefaultSystemDNS()
 
 	// including dns64 and/or alg
 	ans, tid, err := r.forward(q, OriginInternal, protect.UidSelf, Default)
-	if !defaultIsSystemDNS || loopingBack {
+	if !defaultIsSystemDNS || goosWillLoopback {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
 
@@ -529,10 +530,15 @@ func (r *resolver) forward(q []byte, who, uid string, chosenids ...string) (res0
 	starttime := time.Now()
 	ogsmm := &x.DNSSummary{
 		ID:     NoDNS,
+		Origin: who,
 		UID:    uid, // may be overwritten to by Cacher via fillSummary
 		QName:  invalidQname,
 		Status: Start,
 		Msg:    errNop.Error(),
+	}
+
+	if len(chosenids) > 0 {
+		ogsmm.Extra = "Prechose: " + strings.Join(chosenids, ";")
 	}
 
 	msg, err := unpack(q)
@@ -602,6 +608,9 @@ runagain:
 
 	log.V("dns: fwd: 2 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s, ips? %v",
 		uid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, presetIPs)
+
+	smm.Extra += fmt.Sprintf("Prefs: %s+%s over %s; Actual: %s+%s over %s",
+		pref.TIDCSV, pref.TIDSECCSV, pref.PIDCSV, id, sid, pids)
 
 	if !hasT1 {
 		if !hasT2 {
@@ -1169,10 +1178,6 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			}
 			log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
 		}
-	} else if isAnyIPUnspecified(ips) || isAnyBlockAll(x...) {
-		// BlockAll must appear in primary TIDCSV
-		id1 = BlockAll // just one transport, BlockAll, if set
-		id2 = ""
 	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 {
 		// use approp transport given a qname
 		log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
@@ -1204,6 +1209,10 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			log.W("dns: pref: tr for %s; override NOBLOCK", id1, id2, qname)
 			s.NOBLOCK = true
 		}
+	} else if isAnyIPUnspecified(ips) || isAnyBlockAll(id1, id2) || isAnyBlockAll(x...) {
+		// BlockAll must appear in primary TIDCSV
+		id1 = BlockAll // just one transport, BlockAll, if set
+		id2 = ""
 	}
 
 	if len(s.PIDCSV) > 0 {
@@ -1463,6 +1472,7 @@ func CanUseProxy(id string) bool {
 }
 
 func overrideProxyIfNeeded(pid string, ids ...string) string {
+	// TODO: if in proxy lockdown + loopback mode, do not override
 	for _, id := range ids {
 		switch id {
 		// notes:

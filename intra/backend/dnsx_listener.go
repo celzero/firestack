@@ -20,6 +20,8 @@ type DNSSummary struct {
 	ID string
 	// owner uid that sent this request. May be empty.
 	UID string
+	// tunnel or internal originated query
+	Origin string
 	// Response (or failure) latency in seconds
 	Latency float64
 	// Queried domain name
@@ -59,6 +61,8 @@ type DNSSummary struct {
 	ECH bool
 	// Diag message from Transport, if any. Typically, "no error"
 	Msg string
+	// Diag extras, if any. For example, list of proxy & transport overrides.
+	Extra string
 	// Region of the Rethink DNS+ server (if used)
 	Region string
 }
@@ -109,8 +113,8 @@ func (s *DNSSummary) String() string {
 	if s == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("id: %s (%s), t: %s, q: %s (do? %t), a: %s (cache? %t / ad? %t), code: %d, ttl: %d, by: %s / via: %s / relay: %s, status: %d, blocklists: %s / upstreamBlocks? %t, msg: %s, loc: %s",
-		s.ID, s.Type, core.FmtSecsFloat(s.Latency), s.QName, s.DO, s.RData, s.Cached, s.AD, s.RCode, s.RTtl, s.Server, s.PID, s.RPID, s.Status, s.Blocklists, s.UpstreamBlocks, s.Msg, s.Region)
+	return fmt.Sprintf("id: %s (%s by %s), t: %s, q: %s (do? %t), a: %s (cache? %t / ad? %t), code: %d, ttl: %d, by: %s / via: %s / relay: %s, status: %d, blocklists: %s / upstreamBlocks? %t, msg: %s, loc: %s",
+		s.ID, s.Type, s.Origin, core.FmtSecsFloat(s.Latency), s.QName, s.DO, s.RData, s.Cached, s.AD, s.RCode, s.RTtl, s.Server, s.PID, s.RPID, s.Status, s.Blocklists, s.UpstreamBlocks, s.Msg, s.Region)
 }
 
 // DNSListener receives Summaries.

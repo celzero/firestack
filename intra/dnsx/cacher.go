@@ -567,6 +567,9 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	if len(out.Type) == 0 {
 		out.Type = s.Type
 	}
+	if len(out.Origin) <= 0 {
+		out.Origin = s.Origin
+	}
 	if len(out.ID) <= 0 {
 		out.ID = s.ID
 		out.Server = s.Server
