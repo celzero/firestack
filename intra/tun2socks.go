@@ -198,8 +198,8 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 
 	gotracelevel, gotraceall, gotracecrash := core.RuntimeGotraceback()
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s => %s (l: %d / a? %t / c? %t); sm? %t",
-		dlvl, clvl, dbg, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, prevsm)
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s => %s (l: %d / a? %t / c? %t); sm? %t; args: %v",
+		dlvl, clvl, dbg, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, prevsm, os.Args)
 }
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,
