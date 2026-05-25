@@ -306,7 +306,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	log.I("com: %s: forward: new conn %s rwext? %t (%T), optset? %t (%ds); %s for %s",
 		h.proto, via, isrwext, remote, didSet, timeoutsecs, tup, uid)
 
-	uploadch := make(chan ioinfo)
+	uploadch := make(chan ioinfo, 1)
 
 	go upload(via, local, remote, uploadch)
 	dbytes, derr := download(via, local, remote)
