@@ -298,11 +298,13 @@ func (r *resolver) Translate(tr, fix bool) {
 // then deletes it from the map.
 func (r *resolver) stopIfExistsLocked(id string) {
 	if t, ok := r.transports[id]; ok && t != nil {
-		core.Go("r.gateway.stopTid", func() {
-			err := t.Stop()
-			r.gateway.onStopped(id)
-			log.VV("dns: stop: %s; err? %v", id, err)
-		})
+		if hasNotEnded(t) {
+			core.Go("r.gateway.stopTid."+id, func() {
+				err := t.Stop()
+				r.gateway.onStopped(id)
+				log.VV("dns: stop: %s; err? %v", id, err)
+			})
+		}
 		delete(r.transports, id)
 	}
 }
@@ -345,13 +347,16 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		r.Lock()
 		// stop existing transport if different
-		if oldt := r.transports[tid]; t != oldt {
+		if oldt := r.transports[tid]; core.Loc(t) != core.Loc(oldt) {
 			r.stopIfExistsLocked(tid)
+			// close cache if corresponding tid is closed
+			r.stopIfExistsLocked(CT + tid)
 			r.transports[tid] = t
 		}
 		// always recreate caching transport
-		if ct := NewCachingTransport(t, ttl10m); ct != nil {
+		if ct := NewCachingTransport(r.ctx, t, ttl10m); ct != nil {
 			ctid := idstr(ct)
+			// re-attempt closing cache if closing it above was skipped
 			r.stopIfExistsLocked(ctid)
 			r.transports[ctid] = ct
 			caching = true
@@ -1040,13 +1045,14 @@ func (r *resolver) StopAll() {
 		// Stop all transports in a separate goroutine to avoid blocking
 		core.Go("r.stopAllTransports", func() {
 			r.Lock()
-			for _, tr := range r.transports {
+			all := maps.Clone(r.transports)
+			clear(r.transports)
+			r.Unlock()
+			for _, tr := range all {
 				_ = tr.Stop()
 				// r.gateway.onStopped(id) is not required
 				// as the entire setup is closed and going away
 			}
-			clear(r.transports)
-			r.Unlock()
 		})
 
 		close(r.smms) // close listener chan
@@ -1655,6 +1661,13 @@ func isPlus(id string) bool {
 func activeTransport(t Transport) bool {
 	st := t.Status()
 	return st != DEnd && st != Paused && st != Unknown
+}
+
+func hasNotEnded(t Transport) bool {
+	if t == nil {
+		return false
+	}
+	return t.Status() != DEnd
 }
 
 func clos(c io.Closer) {
