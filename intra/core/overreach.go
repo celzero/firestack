@@ -9,6 +9,8 @@ package core
 import (
 	"os"
 	_ "unsafe" // for go:linkname
+
+	"github.com/celzero/firestack/intra/log"
 )
 
 // pushing / pulling symbols work provided
@@ -65,7 +67,7 @@ func RuntimeEnviron() []string {
 
 // SetRuntimeEnviron sets / adds a key-value pair in the Go runtime's
 // cached environment vars.
-func SetRuntimeEnviron(key, val string) (didSet bool, err error) {
+func SetRuntimeEnviron(key, val string) (didSet, overwrote bool, err error) {
 	envs := runtime_environ()
 	kv := key + "="
 	for i, e := range envs {
@@ -73,6 +75,16 @@ func SetRuntimeEnviron(key, val string) (didSet bool, err error) {
 			envs[i] = kv + val
 			err = os.Setenv(key, val)
 			didSet = true
+			break
+		}
+	}
+	// override both key and val from last index
+	if !didSet {
+		for i := len(envs) - 1; i >= 0; i-- {
+			log.W("core: SetRuntimeEnviron: key %s not found; overriding %s; val %s", key, envs[i], val)
+			envs[i] = kv + val
+			err = os.Setenv(key, val)
+			overwrote = true
 			break
 		}
 	}
