@@ -160,11 +160,8 @@ func (r *rpnp) Resume() bool {
 
 // Stop implements x.Proxy.
 func (r *rpnp) Stop() error {
-	p, err := r.requireProxy()
-	if err != nil {
-		return err
-	}
-	return p.Stop()
+	r.PurgeAll()
+	return nil
 }
 
 // Refresh implements x.Proxy.
