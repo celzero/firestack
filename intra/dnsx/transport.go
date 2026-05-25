@@ -226,13 +226,13 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 		localdomains: ipmap.UndelegatedDomainsTrie,
 	}
 	r.loadaddrs(fakeaddrs)
-	r.gateway = NewDNSGateway(ctx, r.dnsaddrs, r, pt)
+	r.gateway = NewDNSGateway(r.ctx, r.dnsaddrs, r, pt)
 	if dtr.ID() != Default {
 		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
 	} else if tr, ok := dtr.(Transport); !ok {
 		log.W("dns: not a transport; ignoring", dtr.ID(), dtr.GetAddr())
 	} else {
-		ctr := NewCachingTransport(tr, ttl10m)
+		ctr := NewCachingTransport(r.ctx, tr, ttl10m)
 		r.Lock()
 		r.transports[idstr(tr)] = tr // regular
 		if ctr != nil {

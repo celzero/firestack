@@ -108,10 +108,10 @@ type ctransport struct {
 var _ Cacher = (*ctransport)(nil)
 
 func NewDefaultCachingTransport(t Transport) Transport {
-	return NewCachingTransport(t, defttl)
+	return NewCachingTransport(context.Background(), t, defttl)
 }
 
-func NewCachingTransport(t Transport, ttl time.Duration) Transport {
+func NewCachingTransport(pctx context.Context, t Transport, ttl time.Duration) Transport {
 	if t == nil {
 		return nil
 	}
@@ -125,7 +125,7 @@ func NewCachingTransport(t Transport, ttl time.Duration) Transport {
 		log.W("cache: (%s) no-op for alg: %s", t.ID(), t.GetAddr())
 		return t
 	}
-	ctx, done := context.WithCancel(context.Background())
+	ctx, done := context.WithCancel(pctx)
 	ct := &ctransport{
 		Transport:  t,
 		ctx:        ctx,
