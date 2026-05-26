@@ -69,7 +69,7 @@ func (v *V[t, k]) E() string {
 }
 
 func (v *V[t, k]) id() string {
-	return fmt.Sprintf("%p", v)
+	return LocStr(v)
 }
 
 // Barrier represents a class of work and forms a namespace in

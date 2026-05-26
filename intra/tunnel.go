@@ -52,8 +52,6 @@ import (
 
 const mktunTimeout = 8 * time.Second
 
-var bar = core.NewKeyedBarrier[*x.NetStat, string]("tunnel.bar", 30*time.Second)
-
 var (
 	errNoStatCache = errors.New("netstat: stat in cache is nil")
 	errClosed      = errors.New("tunnel closed for business")
@@ -126,7 +124,8 @@ type rtunnel struct {
 	ctx  context.Context
 	done context.CancelFunc
 
-	t *core.Volatile[tunnel.Tunnel]
+	t   *core.Volatile[tunnel.Tunnel]
+	bar *core.Barrier[*x.NetStat, string]
 
 	handlers netstack.GConnHandler
 	proxies  ipn.Proxies
@@ -138,6 +137,8 @@ type rtunnel struct {
 	closed atomic.Bool
 	once   sync.Once
 }
+
+var statttl = 30 * time.Second
 
 var _ Tunnel = (*rtunnel)(nil)
 
@@ -259,6 +260,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 
 	t = &rtunnel{
 		t:        core.NewVolatile[tunnel.Tunnel](gt),
+		bar:      core.NewKeyedBarrier[*x.NetStat, string]("t.stat.bar", statttl),
 		ctx:      ctx,
 		done:     cancel,
 		handlers: hdl,
@@ -441,7 +443,7 @@ func (t *rtunnel) Stat() (*x.NetStat, error) {
 		return t.stat()
 	}
 
-	v, err := bar.DoIt("stat", func() (*x.NetStat, error) {
+	v, err := t.bar.DoIt("stat", func() (*x.NetStat, error) {
 		return t.stat()
 	})
 
