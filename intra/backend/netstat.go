@@ -239,6 +239,7 @@ type GoStat struct {
 
 type GoMetrics struct {
 	M string
+	C string
 }
 
 // NetStat is a collection of network engine statistics.

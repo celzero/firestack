@@ -9,39 +9,67 @@ package core
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // Sieve2K is a map of expiring maps. The outer map is keyed to K1,
 // while the inner expiring maps are keyed to K2.
 type Sieve2K[K1, K2 comparable, V any] struct {
+	id   string // identifier; used in metrics
 	ctx  context.Context
 	mu   sync.RWMutex // protects m, c
 	m    map[K1]*Sieve[K2, V]
 	d    map[K1]context.CancelFunc
 	life time.Duration
+
+	nputs atomic.Uint64 // count of Put() calls
+	ngets atomic.Uint64 // count of Get() calls
+	ndels atomic.Uint64 // count of Del() calls
 }
 
 // NewSieve2K returns a new Sieve2K with keys expiring after lifetime.
-func NewSieve2K[K1, K2 comparable, V any](ctx context.Context, dur time.Duration) *Sieve2K[K1, K2, V] {
-	return &Sieve2K[K1, K2, V]{
+func NewSieve2K[K1, K2 comparable, V any](ctx context.Context, id string, dur time.Duration) *Sieve2K[K1, K2, V] {
+	s := &Sieve2K[K1, K2, V]{
+		id:   id,
 		ctx:  ctx,
 		m:    make(map[K1]*Sieve[K2, V]),
 		d:    make(map[K1]context.CancelFunc),
 		life: dur,
 	}
+	s.id = s.id + "." + LocStr(s)
+	dereg := trackmap(s.id, s.Stat)
+	context.AfterFunc(ctx, dereg)
+	return s
 }
 
 // Sieve is a thread-safe map with expiring keys.
 type Sieve[K comparable, V any] struct {
-	c *ExpMap[K, V]
+	id string
+	c  *ExpMap[K, V]
 }
 
 // NewSieve returns a new Sieve with keys expiring after lifetime.
-func NewSieve[K comparable, V any](ctx context.Context, dur time.Duration) *Sieve[K, V] {
-	return &Sieve[K, V]{
-		c: NewExpiringMapLifetime[K, V](ctx, dur),
+func NewSieve[K comparable, V any](ctx context.Context, id string, dur time.Duration) *Sieve[K, V] {
+	s := &Sieve[K, V]{
+		id: id,
+		c:  NewExpiringMapLifetime[K, V](ctx, id, dur),
 	}
+	s.id = s.id + "." + LocStr(s)
+	dereg := trackmap(s.id, s.Stat)
+	context.AfterFunc(ctx, dereg)
+	return s
+}
+
+// newInnerSieve creates a Sieve without registering it in the global map registry.
+// Used internally by Sieve2K to avoid polluting the registry with implementation details.
+func newInnerSieve[K comparable, V any](ctx context.Context, id string, dur time.Duration) *Sieve[K, V] {
+	s := &Sieve[K, V]{
+		id: id,
+		c:  NewExpiringMapLifetime[K, V](ctx, id, dur),
+	}
+	s.id = s.id + "." + LocStr(s)
+	return s
 }
 
 // Get returns the value associated with the given key,
@@ -77,9 +105,18 @@ func (s *Sieve[K, V]) Clear() int {
 	return s.c.Clear()
 }
 
+// Stat returns a snapshot of the sieve's current state.
+func (s *Sieve[K, V]) Stat() MapState {
+	if s == nil || s.c == nil {
+		return MapState{}
+	}
+	return s.c.Stat()
+}
+
 // Get returns the value associated with the given key,
 // and a boolean indicating whether the key was found.
 func (s *Sieve2K[K1, K2, V]) Get(k1 K1, k2 K2) (zz V, ok bool) {
+	s.ngets.Add(1)
 	s.mu.RLock()
 	inn := s.m[k1]
 	s.mu.RUnlock()
@@ -92,6 +129,7 @@ func (s *Sieve2K[K1, K2, V]) Get(k1 K1, k2 K2) (zz V, ok bool) {
 
 // Put adds an element to the sieve with the given key and value.
 func (s *Sieve2K[K1, K2, V]) Put(k1 K1, k2 K2, v V) (replaced bool) {
+	s.nputs.Add(1)
 	s.mu.RLock()
 	inn := s.m[k1]
 	s.mu.RUnlock()
@@ -101,7 +139,7 @@ func (s *Sieve2K[K1, K2, V]) Put(k1 K1, k2 K2, v V) (replaced bool) {
 		inn = s.m[k1]
 		if inn == nil {
 			ctx, done := context.WithCancel(s.ctx)
-			inn = NewSieve[K2, V](ctx, s.life)
+			inn = newInnerSieve[K2, V](ctx, s.id+".inner", s.life)
 			s.m[k1] = inn
 			s.d[k1] = done
 		}
@@ -113,6 +151,7 @@ func (s *Sieve2K[K1, K2, V]) Put(k1 K1, k2 K2, v V) (replaced bool) {
 
 // Del removes the element with the given key from the sieve.
 func (s *Sieve2K[K1, K2, V]) Del(k1 K1, k2 K2) {
+	s.ndels.Add(1)
 	s.mu.RLock()
 	inn := s.m[k1]
 	if inn != nil {
@@ -162,4 +201,15 @@ func (s *Sieve2K[K1, K2, V]) Clear() (n int) {
 	clear(s.m)
 	clear(s.d)
 	return
+}
+
+// Stat returns a snapshot of the sieve's current state.
+func (s *Sieve2K[K1, K2, V]) Stat() MapState {
+	return MapState{
+		ID:   s.id,
+		Len:  s.Len(),
+		Puts: s.nputs.Load(),
+		Gets: s.ngets.Load(),
+		Dels: s.ndels.Load(),
+	}
 }

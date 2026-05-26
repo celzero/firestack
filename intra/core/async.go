@@ -14,11 +14,25 @@ import (
 	"time"
 )
 
+// ActiveWorkers returns a snapshot of all goroutines currently running
+// inside async.go helpers (Go, Gx, Gg, Grx, etc.).
+func ActiveWorkers() []WorkersState {
+	var out []WorkersState
+	workmap.Range(func(k, v any) bool {
+		e := v.(roent)
+		out = append(out, WorkersState{Typ: e.typ, ID: k.(string), Since: time.Since(e.dob)})
+		return true
+	})
+	return out
+}
+
 // Go runs f in a goroutine and recovers from any panics.
 func Go(who string, f func()) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
+		untrack := trackwork(who, "go")
+		defer untrack()
 
 		f()
 	}()
@@ -29,6 +43,8 @@ func Go1[T any](who string, f func(T), arg T) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
+		untrack := trackwork(who, "go1")
+		defer untrack()
 
 		f(arg)
 	}()
@@ -39,6 +55,8 @@ func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
+		untrack := trackwork(who, "go2")
+		defer untrack()
 
 		f(a0, a1)
 	}()
@@ -50,6 +68,8 @@ func Gg(who string, f func(), cb func()) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer RecoverFn(who, cb)
+		untrack := trackwork(who, "gg")
+		defer untrack()
 
 		f()
 	}()
@@ -60,6 +80,8 @@ func Gx(who string, f func()) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(Exit11, who)
+		untrack := trackwork(who, "gx")
+		defer untrack()
 
 		f()
 	}()
@@ -70,6 +92,8 @@ func Gx1[T any](who string, f func(T), arg T) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(Exit11, who)
+		untrack := trackwork(who, "gx1")
+		defer untrack()
 
 		f(arg)
 	}()
@@ -94,6 +118,8 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 		debug.SetPanicOnFault(true)
 		defer Recover(Exit11, who)
 		defer close(ch)
+		untrack := trackwork(who, "grx")
+		defer untrack()
 
 		out, _ := f(ctx) // TODO: log error?
 		ch <- out
@@ -112,6 +138,8 @@ func Gxe(who string, f func() error) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(Exit11, who)
+		untrack := trackwork(who, "gxe")
+		defer untrack()
 
 		_ = f()
 	}()

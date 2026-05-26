@@ -136,7 +136,7 @@ func NewCachingTransport(pctx context.Context, t Transport, ttl time.Duration) T
 		halflife:   ttl / 2,
 		bumps:      defbumps,
 		size:       defsize,
-		reqbarrier: core.NewBarrier[*cres](battl),
+		reqbarrier: core.NewBarrier[*cres]("cache.reqbarrier", battl),
 		hangover:   core.NewHangover(),
 	}
 	context.AfterFunc(ctx, ct.Clear)

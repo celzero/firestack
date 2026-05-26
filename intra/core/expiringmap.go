@@ -26,30 +26,53 @@ type val[V any] struct {
 
 // ExpMap holds expiring keys and read hits.
 type ExpMap[P comparable, Q any] struct {
-	sync.Mutex // guards ExpMap.
+	id         string // identifier; used in metrics
+	sync.Mutex        // guards ExpMap.
 	ctx        context.Context
 	m          map[P]*val[Q]
 	sigreap    chan struct{}
 	lastreap   time.Time
 	minlife    time.Duration
+	ngets      uint64 // count of Get() calls; under Mutex
+	nsets      uint64 // count of Set()/K() calls; under Mutex
+	ndels      uint64 // count of Delete() calls; under Mutex
 }
 
 // NewExpiringMap returns a new ExpMap with min lifetime of 0.
-func NewExpiringMap[P comparable, Q any](ctx context.Context) *ExpMap[P, Q] {
-	return NewExpiringMapLifetime[P, Q](ctx, lifetime)
+func NewExpiringMap[P comparable, Q any](ctx context.Context, id string) *ExpMap[P, Q] {
+	m := NewExpiringMapLifetime[P, Q](ctx, id, lifetime)
+	dereg := trackmap(m.id, m.Stat)
+	context.AfterFunc(ctx, dereg)
+	return m
 }
 
-func NewExpiringMapLifetime[P comparable, Q any](ctx context.Context, min time.Duration) *ExpMap[P, Q] {
+func NewExpiringMapLifetime[P comparable, Q any](ctx context.Context, id string, min time.Duration) *ExpMap[P, Q] {
 	m := &ExpMap[P, Q]{
+		id:       id,
 		ctx:      ctx,
 		m:        make(map[P]*val[Q]),
 		sigreap:  make(chan struct{}),
 		lastreap: time.Now(),
 		minlife:  min,
 	}
-	Gx1("expm.reaper", m.reaper, ctx)
+	m.id = m.id + "." + LocStr(m)
+	Gx1("expm.reaper."+m.id, m.reaper, ctx)
 	// test: go.dev/play/p/EYq_STKvugb
 	return m
+}
+
+// Stat returns a snapshot of the map's current state.
+func (m *ExpMap[P, Q]) Stat() MapState {
+	m.Lock()
+	defer m.Unlock()
+	return MapState{
+		Typ:  "expmap",
+		ID:   m.id,
+		Len:  len(m.m),
+		Gets: m.ngets,
+		Puts: m.nsets,
+		Dels: m.ndels,
+	}
 }
 
 // Get returns the number of hits for the given key.
@@ -62,6 +85,7 @@ func (m *ExpMap[P, Q]) Get(key P) uint32 {
 
 	m.Lock()
 	defer m.Unlock()
+	m.ngets++
 
 	v, ok := m.m[key]
 	if !ok {
@@ -99,6 +123,7 @@ func (m *ExpMap[P, Q]) Set(key P, expiry time.Duration) uint32 {
 
 	m.Lock()
 	defer m.Unlock()
+	m.nsets++
 
 	v, ok := m.m[key]
 	if v == nil || !ok { // add new val
@@ -135,6 +160,7 @@ func (m *ExpMap[P, Q]) K(key P, value Q, expiry time.Duration) uint32 {
 
 	m.Lock()
 	defer m.Unlock()
+	m.nsets++
 
 	v, ok := m.m[key]
 	if v == nil || !ok { // add new val
@@ -189,7 +215,7 @@ func (m *ExpMap[P, Q]) Alive(key P) bool {
 func (m *ExpMap[P, Q]) Delete(key P) {
 	m.Lock()
 	defer m.Unlock()
-
+	m.ndels++
 	delete(m.m, key)
 }
 

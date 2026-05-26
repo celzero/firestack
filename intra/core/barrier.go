@@ -75,6 +75,7 @@ func (v *V[t, k]) id() string {
 // Barrier represents a class of work and forms a namespace in
 // which units of work can be executed with duplicate suppression.
 type Barrier[T any, K comparable] struct {
+	id string         // identifier; used in metrics
 	mu sync.Mutex     // protects m
 	m  map[K]*V[T, K] // caches in-flight and completed Vs
 
@@ -83,27 +84,54 @@ type Barrier[T any, K comparable] struct {
 	to  time.Duration // timeout for Do(), Do1(), Go()
 
 	lastscrub time.Time // last scrub time
+
+	typ     string        // type tag; used in metrics
+	nanew   atomic.Uint64 // calls that owned the request (ran once())
+	nshared atomic.Uint64 // calls that coalesced with an in-flight request
 }
 
-func NewKeyedBarrier[T any, K comparable](ttl time.Duration) *Barrier[T, K] {
-	return NewBarrier2[T, K](ttl, ttl/5)
+func NewKeyedBarrier[T any, K comparable](id string, ttl time.Duration) *Barrier[T, K] {
+	ba := NewBarrier2[T, K](id, ttl, ttl/5)
+	ba.typ = "keyedbar"
+	return ba
 }
 
 // NewBarrier returns a new Barrier with the given time-to-live for
 // completed Vs.
-func NewBarrier[T any](ttl time.Duration) *Barrier[T, string] {
-	return NewBarrier2[T, string](ttl, ttl/5)
+func NewBarrier[T any](id string, ttl time.Duration) *Barrier[T, string] {
+	ba := NewBarrier2[T, string](id, ttl, ttl/5)
+	ba.typ = "bar"
+	return ba
 }
 
 // NewBarrier2 returns a new Barrier with the time-to-lives for
 // completed Vs (ttl) and errored Vs (neg).
-func NewBarrier2[T any, K comparable](ttl, neg time.Duration) *Barrier[T, K] {
-	return &Barrier[T, K]{
+func NewBarrier2[T any, K comparable](id string, ttl, neg time.Duration) *Barrier[T, K] {
+	ba := &Barrier[T, K]{
+		typ:       "bar2",
+		id:        id,
 		m:         make(map[K]*V[T, K]),
 		ttl:       ttl,
 		neg:       max(1*time.Second /*min neg*/, neg),
 		to:        ttl,
 		lastscrub: time.Now(),
+	}
+	ba.id = ba.id + "." + LocStr(ba)
+	trackbar(ba.id, ba.Stat)
+	return ba
+}
+
+// Stat returns a snapshot of the barrier's current state.
+func (ba *Barrier[T, K]) Stat() BarrierState {
+	ba.mu.Lock()
+	l := len(ba.m)
+	ba.mu.Unlock()
+	return BarrierState{
+		Typ:    ba.typ,
+		ID:     ba.id,
+		Len:    l,
+		Anew:   ba.nanew.Load(),
+		Shared: ba.nshared.Load(),
 	}
 }
 
@@ -114,7 +142,7 @@ func (ba *Barrier[T, K]) maybeScrubLocked() {
 	}
 	ba.lastscrub = now
 
-	Go("ba.scrub", func() {
+	Go("ba.scrub."+ba.id, func() {
 		ba.mu.Lock()
 		defer ba.mu.Unlock()
 
@@ -184,6 +212,7 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 
 		c.N.Add(1)  // register presence
 		c.wg.Wait() // wait for the in-flight req to complete
+		ba.nshared.Add(1)
 		return c, Shared
 	}
 	c = ba.addLocked(k)
@@ -194,7 +223,7 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 		err error
 	}
 	rch := make(chan res, 1)
-	Go("ba.do."+c.id(), func() {
+	Go("ba.do."+ba.id+">"+c.id(), func() {
 		v, e := once()
 		rch <- res{v, e}
 	})
@@ -207,6 +236,7 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 	}
 
 	c.wg.Done() // unblock all waiters
+	ba.nanew.Add(1)
 	return c, Anew
 }
 
@@ -219,6 +249,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 
 		c.N.Add(1)  // register presence
 		c.wg.Wait() // wait for the in-flight req to complete
+		ba.nshared.Add(1)
 		return c, Shared
 	}
 	c = ba.addLocked(k)
@@ -229,7 +260,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 		err error
 	}
 	rch := make(chan res, 1)
-	Go("ba.do1."+c.id(), func() {
+	Go("ba.do1."+ba.id+">"+c.id(), func() {
 		v, e := once(arg)
 		rch <- res{v, e}
 	})
@@ -242,6 +273,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 	}
 
 	c.wg.Done() // unblock all waiters
+	ba.nanew.Add(1)
 	return c, Anew
 }
 
@@ -249,7 +281,7 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
 	ch := make(chan *V[T, K], 1) // buffered: prevents goroutine leak if caller drops the channel
 
-	Go("ba.go", func() {
+	Go("ba.go."+ba.id, func() {
 		defer close(ch)
 
 		ba.mu.Lock()
@@ -259,6 +291,7 @@ func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
 
 			c.N.Add(1)  // register presence
 			c.wg.Wait() // wait for the in-flight req to complete
+			ba.nshared.Add(1)
 			ch <- c
 			return
 		}
@@ -268,6 +301,7 @@ func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
 		c.Val, c.Err = once()
 
 		c.wg.Done() // unblock all waiters
+		ba.nanew.Add(1)
 		ch <- c
 	})
 

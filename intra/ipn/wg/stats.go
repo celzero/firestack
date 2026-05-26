@@ -34,7 +34,7 @@ var (
 
 	baTtl    = 30 * time.Second
 	baNegTtl = 2 * time.Second
-	ba       = core.NewBarrier2[*ifstats, uintptr](baTtl, baNegTtl)
+	ba       = core.NewBarrier2[*ifstats, uintptr]("wg.stats.ba", baTtl, baNegTtl)
 )
 
 // peerstats represents the statistics for a peer.

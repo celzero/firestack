@@ -305,9 +305,9 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 	pxr.base = NewBaseProxy(pctx, c, pxr)
 	pxr.grounded = NewGroundProxy()
 	pxr.auto = NewAutoProxy(pctx, pxr)
-	pxr.staller = core.NewExpiringMap[string, string](pctx)
-	pxr.ipPins = core.NewSieve[netip.AddrPort, string](pctx, pintimeout)
-	pxr.uidPins = core.NewSieve2K[string, netip.AddrPort, string](pctx, pintimeout)
+	pxr.staller = core.NewExpiringMap[string, string](pctx, "proxies.staller")
+	pxr.ipPins = core.NewSieve[netip.AddrPort, string](pctx, "proxies.ipPins", pintimeout)
+	pxr.uidPins = core.NewSieve2K[string, netip.AddrPort, string](pctx, "proxies.uidPins", pintimeout)
 
 	pxr.extc = rpn.NewExtClient(pxr.base)
 

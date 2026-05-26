@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"math"
 	"runtime/metrics"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -273,7 +275,7 @@ func histo2Ps(h *metrics.Float64Histogram, u metricUnit, sep byte) string {
 			threshold := uint64(math.Ceil(percentiles[pi] / 100.0 * float64(total)))
 			if cumulative >= threshold {
 				sb.WriteByte(sep)
-				sb.WriteString(fmt.Sprintf("p%g=%s", percentiles[pi], unit4float(b.mid, u)))
+				fmt.Fprintf(&sb, "p%g=%s", percentiles[pi], unit4float(b.mid, u))
 				pi++
 			} else {
 				break
@@ -287,7 +289,7 @@ func histo2Ps(h *metrics.Float64Histogram, u metricUnit, sep byte) string {
 	last := buckets[len(buckets)-1]
 	for ; pi < len(percentiles); pi++ {
 		sb.WriteByte(sep)
-		sb.WriteString(fmt.Sprintf("p%g=%s", percentiles[pi], unit4float(last.mid, u)))
+		fmt.Fprintf(&sb, "p%g=%s", percentiles[pi], unit4float(last.mid, u))
 	}
 	return sb.String()
 }
@@ -429,4 +431,104 @@ func unit4float(v float64, u metricUnit) string {
 	default:
 		return fmt.Sprintf("%.3g", v)
 	}
+}
+
+// BarrierState is a snapshot of a Barrier's metrics.
+type BarrierState struct {
+	Typ    string
+	ID     string
+	Len    int
+	Anew   uint64 // calls that owned the request (ran once())
+	Shared uint64 // calls that coalesced with an in-flight request
+}
+
+// MapState is a snapshot of a map's metrics.
+type MapState struct {
+	Typ  string
+	ID   string
+	Len  int
+	Puts uint64
+	Gets uint64
+	Dels uint64
+}
+
+// WorkersState is a snapshot of an active goroutine.
+type WorkersState struct {
+	Typ   string
+	ID    string
+	Since time.Duration
+}
+
+// CoreState is a snapshot of all registered barriers, maps, and active goroutines.
+type CoreState struct {
+	Workers  []WorkersState
+	Barriers []BarrierState
+	Maps     []MapState
+}
+
+var (
+	barmap  sync.Map      // string -> func() BarrierState; see registerBarrier
+	mapmap  sync.Map      // string -> func() MapState; see registerMap
+	workmap sync.Map      // goroutine key -> time.Time (start time)
+	workctr atomic.Uint64 // monotone counter for unique goroutine keys
+)
+
+type roent struct {
+	dob time.Time
+	typ string
+}
+
+// trackwork registers a goroutine under the given id and typ, and returns a
+// function that removes it from the registry. Callers must defer the returned function.
+func trackwork(who, typ string) func() {
+	key := who + "#" + strconv.FormatUint(workctr.Add(1), 10)
+	workmap.Store(key, roent{dob: time.Now(), typ: typ})
+	return func() { workmap.Delete(key) }
+}
+
+// trackbar registers snap under id for use in Snapshot().
+// Returns a deregister function that removes it from the registry.
+func trackbar(id string, snap func() BarrierState) (deregister func()) {
+	barmap.Store(id, snap)
+	return func() { barmap.Delete(id) }
+}
+
+// trackmap registers snap under id for use in Snapshot().
+// Returns a deregister function that removes it from the registry.
+func trackmap(id string, snap func() MapState) (deregister func()) {
+	mapmap.Store(id, snap)
+	return func() { mapmap.Delete(id) }
+}
+
+// Snapshot returns a snapshot of all registered barriers, maps, and active
+// goroutines managed by this package. Safe to call concurrently.
+func Snapshot() string {
+	cs := &CoreState{Workers: ActiveWorkers()}
+	barmap.Range(func(_, v any) bool {
+		cs.Barriers = append(cs.Barriers, v.(func() BarrierState)())
+		return true
+	})
+	mapmap.Range(func(_, v any) bool {
+		cs.Maps = append(cs.Maps, v.(func() MapState)())
+		return true
+	})
+	return cs.String()
+}
+
+func (c *CoreState) String() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "\n=== Core Snapshot ===\n")
+	fmt.Fprintf(&sb, "Workers: %d\n", len(c.Workers))
+	for _, w := range c.Workers {
+		fmt.Fprintf(&sb, "   - %s (%s) since %s\n", w.ID, w.Typ, w.Since)
+	}
+	fmt.Fprintf(&sb, "Barriers: %d\n", len(c.Barriers))
+	for _, b := range c.Barriers {
+		fmt.Fprintf(&sb, "   - %s (%s): len=%d anew=%d shared=%d\n", b.ID, b.Typ, b.Len, b.Anew, b.Shared)
+	}
+	fmt.Fprintf(&sb, "Maps: %d\n", len(c.Maps))
+	for _, m := range c.Maps {
+		fmt.Fprintf(&sb, "   - %s (%s): len=%d puts=%d gets=%d dels=%d\n", m.ID, m.Typ, m.Len, m.Puts, m.Gets, m.Dels)
+	}
+	return sb.String()
 }

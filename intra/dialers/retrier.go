@@ -65,7 +65,7 @@ const (
 // ippPins maintains a limited-time mapping between ip:port addresses and dialer IDs.
 // TODO: invalidate cache on network changes.
 // TODO: with context.TODO, expmap's reaper goroutine will leak.
-var ippPins = core.NewSieve[netip.AddrPort, string](context.TODO(), desync_cache_ttl)
+var ippPins = core.NewSieve[netip.AddrPort, string](context.TODO(), "d.ippPins", desync_cache_ttl)
 
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)

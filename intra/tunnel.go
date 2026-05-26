@@ -52,7 +52,7 @@ import (
 
 const mktunTimeout = 8 * time.Second
 
-var bar = core.NewKeyedBarrier[*x.NetStat, string](30 * time.Second)
+var bar = core.NewKeyedBarrier[*x.NetStat, string]("tunnel.bar", 30*time.Second)
 
 var (
 	errNoStatCache = errors.New("netstat: stat in cache is nil")
@@ -580,6 +580,8 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	}
 
 	out.GOMet.M = core.Metrics()
+
+	out.GOMet.C = core.Snapshot()
 
 	return out, nil
 }

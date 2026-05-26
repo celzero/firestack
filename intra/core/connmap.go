@@ -12,6 +12,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unique"
 
@@ -53,24 +54,47 @@ type connstat struct {
 }
 
 type cm struct {
+	id string // identifier; used in metrics
 	sync.RWMutex
-	tracc map[string]connstat // cid -> conns
-	tracp map[string][]string // pid -> cid
-	tracu map[string][]string // uid -> cid
-	sz    int
+	tracc     map[string]connstat // cid -> conns
+	tracp     map[string][]string // pid -> cid
+	tracu     map[string][]string // uid -> cid
+	sz        int
+	ntracks   atomic.Uint64 // count of Track() calls
+	nuntracks atomic.Uint64 // count of Untrack() calls
+	ngets     atomic.Uint64 // count of Get() / GetAll() calls
 }
 
 var _ ConnMapper = (*cm)(nil)
 
-func NewConnMap() *cm {
-	return &cm{
+func NewConnMap(id string) *cm {
+	m := &cm{
+		id:    id,
 		tracc: make(map[string]connstat),
 		tracp: make(map[string][]string),
 		tracu: make(map[string][]string),
 	}
+	m.id = m.id + "." + LocStr(m)
+	trackmap(m.id, m.Stat)
+	return m
+}
+
+// Stat returns a snapshot of the map's current state.
+func (h *cm) Stat() MapState {
+	h.RLock()
+	l := h.sz
+	h.RUnlock()
+	return MapState{
+		ID:   h.id,
+		Len:  l,
+		Puts: h.ntracks.Load(),
+		Gets: h.ngets.Load(),
+		Dels: h.nuntracks.Load(),
+	}
 }
 
 func (h *cm) Track(cid, uid, pid string, conns ...MinConn) (n int) {
+	h.ntracks.Add(1)
 	h.Lock()
 	defer h.Unlock()
 
@@ -81,6 +105,7 @@ func (h *cm) Track(cid, uid, pid string, conns ...MinConn) (n int) {
 }
 
 func (h *cm) Untrack(cid string) (n int) {
+	h.nuntracks.Add(1)
 	h.Lock()
 	defer h.Unlock()
 
@@ -240,6 +265,7 @@ func (h *cm) untrackBatchLocked(cidsOrUidsOrPids []string) (out []string) {
 }
 
 func (h *cm) Get(cid string) (conns []MinConn) {
+	h.ngets.Add(1)
 	h.RLock()
 	defer h.RUnlock()
 
@@ -250,6 +276,7 @@ func (h *cm) Get(cid string) (conns []MinConn) {
 }
 
 func (h *cm) GetAll(uidOrPid string) (conns []MinConn) {
+	h.ngets.Add(1)
 	h.RLock()
 	defer h.RUnlock()
 

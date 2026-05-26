@@ -162,7 +162,7 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *core.Volatile[
 		pm:       pm,
 		observer: f,
 		amnezia:  a,
-		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](minFloodInterval),
+		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort]("wg.floodba", minFloodInterval),
 		eps:      make(map[net.Addr]StdNetEndpoint),
 		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}

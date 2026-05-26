@@ -38,7 +38,7 @@ const (
 // ttlcache stores the TTL for a given IP address for a limited time.
 // TODO: invalidate cache on network changes.
 // TODO: with context.TODO, expmap's reaper goroutine will leak.
-var ttlcache = core.NewSieve[netip.Addr, int](context.TODO(), desync_cache_ttl)
+var ttlcache = core.NewSieve[netip.Addr, int](context.TODO(), "d.ttl", desync_cache_ttl)
 
 // Combines direct split with TCB Desynchronization Attack
 // Inspired by byedpi: github.com/hufrea/byedpi/blob/82e5229df00/desync.c#L69-L123
