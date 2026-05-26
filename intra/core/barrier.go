@@ -17,7 +17,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
+	"weak"
 	"sync/atomic"
 	"time"
 )
@@ -118,7 +120,14 @@ func NewBarrier2[T any, K comparable](ctx context.Context, id string, ttl, neg t
 		lastscrub: time.Now(),
 	}
 	ba.id = ba.id + "." + LocStr(ba)
-	trackbar(ba.id, ba.Stat)
+	wba := weak.Make(ba)
+	deregister := trackbar(ba.id, func() BarrierState {
+		if p := wba.Value(); p != nil {
+			return p.Stat()
+		}
+		return BarrierState{}
+	})
+	runtime.AddCleanup(ba, func(f func()) { f() }, deregister)
 	context.AfterFunc(ctx, func() {
 		ba.closed.Store(true)
 		ba.mu.Lock()

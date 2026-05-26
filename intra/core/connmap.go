@@ -12,9 +12,11 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"runtime"
 	"sync/atomic"
 	"time"
 	"unique"
+	"weak"
 
 	"slices"
 
@@ -75,7 +77,14 @@ func NewConnMap(id string) *cm {
 		tracu: make(map[string][]string),
 	}
 	m.id = m.id + "." + LocStr(m)
-	trackmap(m.id, m.Stat)
+	wm := weak.Make(m)
+	deregister := trackmap(m.id, func() MapState {
+		if p := wm.Value(); p != nil {
+			return p.Stat()
+		}
+		return MapState{}
+	})
+	runtime.AddCleanup(m, func(f func()) { f() }, deregister)
 	return m
 }
 
