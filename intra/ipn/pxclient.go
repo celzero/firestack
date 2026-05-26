@@ -69,7 +69,7 @@ type ipmeta struct {
 	*x.IPMetadata
 }
 
-var ipm = core.NewExpiringMap[string, *ipmeta](context.Background(), "pxclient.ipm")
+var ipm = core.NewExpiringMap[string, *ipmeta](context.Background(), "ipn.pxc.ipm")
 
 func getCachedIPMeta(p Proxy, network string) *x.IPMetadata {
 	key := p.ID() + "/" + network

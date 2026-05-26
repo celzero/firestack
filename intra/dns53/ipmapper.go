@@ -59,7 +59,7 @@ func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 			id: dnsx.IpMapper,
 			r:  r,
 			g:  r.Gateway(),
-			ba: core.NewBarrier[answer]("ipm.bar", battl),
+			ba: core.NewBarrier[answer](context.Background(), "ipm.bar", battl),
 		}
 	} // else remove; m is nil
 	if clear {

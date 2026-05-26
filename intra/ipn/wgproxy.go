@@ -942,7 +942,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		amnezia:       core.NewVolatile(ifopts.amnezia),
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
-		refreshBa:     core.NewBarrier[bool]("wg.r.bar", refreshInterval),
+		refreshBa:     core.NewBarrier[bool](ctx, "wg.r.bar", refreshInterval),
 		uapicfg:       core.NewVolatile(cfg),
 		since:         now(),
 	}

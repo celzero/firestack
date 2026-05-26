@@ -88,25 +88,26 @@ type Barrier[T any, K comparable] struct {
 	typ     string        // type tag; used in metrics
 	nanew   atomic.Uint64 // calls that owned the request (ran once())
 	nshared atomic.Uint64 // calls that coalesced with an in-flight request
+	closed  atomic.Bool   // true after ctx is done; disables deduplication
 }
 
-func NewKeyedBarrier[T any, K comparable](id string, ttl time.Duration) *Barrier[T, K] {
-	ba := NewBarrier2[T, K](id, ttl, ttl/5)
+func NewKeyedBarrier[T any, K comparable](ctx context.Context, id string, ttl time.Duration) *Barrier[T, K] {
+	ba := NewBarrier2[T, K](ctx, id, ttl, ttl/5)
 	ba.typ = "keyedbar"
 	return ba
 }
 
 // NewBarrier returns a new Barrier with the given time-to-live for
 // completed Vs.
-func NewBarrier[T any](id string, ttl time.Duration) *Barrier[T, string] {
-	ba := NewBarrier2[T, string](id, ttl, ttl/5)
+func NewBarrier[T any](ctx context.Context, id string, ttl time.Duration) *Barrier[T, string] {
+	ba := NewBarrier2[T, string](ctx, id, ttl, ttl/5)
 	ba.typ = "bar"
 	return ba
 }
 
 // NewBarrier2 returns a new Barrier with the time-to-lives for
 // completed Vs (ttl) and errored Vs (neg).
-func NewBarrier2[T any, K comparable](id string, ttl, neg time.Duration) *Barrier[T, K] {
+func NewBarrier2[T any, K comparable](ctx context.Context, id string, ttl, neg time.Duration) *Barrier[T, K] {
 	ba := &Barrier[T, K]{
 		typ:       "bar2",
 		id:        id,
@@ -118,6 +119,12 @@ func NewBarrier2[T any, K comparable](id string, ttl, neg time.Duration) *Barrie
 	}
 	ba.id = ba.id + "." + LocStr(ba)
 	trackbar(ba.id, ba.Stat)
+	context.AfterFunc(ctx, func() {
+		ba.closed.Store(true)
+		ba.mu.Lock()
+		clear(ba.m)
+		ba.mu.Unlock()
+	})
 	return ba
 }
 
@@ -164,6 +171,9 @@ func (ba *Barrier[T, K]) maybeScrubLocked() {
 }
 
 func (ba *Barrier[T, K]) getLocked(k K) (v *V[T, K], ok bool) {
+	if ba.closed.Load() {
+		return nil, false
+	}
 	defer ba.maybeScrubLocked()
 
 	v, ok = ba.m[k]
@@ -184,7 +194,9 @@ func (ba *Barrier[T, K]) addLocked(k K) *V[T, K] {
 	v := new(V[T, K])
 	v.wg.Add(1)
 	v.dob = time.Now()
-	ba.m[k] = v
+	if !ba.closed.Load() {
+		ba.m[k] = v
+	}
 	return v
 }
 

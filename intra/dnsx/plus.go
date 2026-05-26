@@ -56,7 +56,7 @@ func NewPlusTransport(ctx context.Context, r TransportProviderInternal, ts ...Tr
 	t := &plus{
 		ctx:        ctx,
 		transports: make(map[string]Transport, len(ts)),
-		ba:         core.NewBarrier[[]Transport]("dnsx.p.bar", ttl10s),
+		ba:         core.NewBarrier[[]Transport](ctx, "dnsx.p.bar", ttl10s),
 		r:          r,
 		done:       done,
 		ipports:    fakePlusIpports,

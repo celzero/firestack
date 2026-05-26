@@ -51,7 +51,7 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 		viaID:  core.NewZeroVolatile[string](),
 		addr:   "127.5.51.52:5321",
 		exp:    core.NewSieve[string, int](ctx, "ipn.a.exp", ttl30s),
-		ba:     core.NewBarrier[bool]("ipn.a.bar", ttl30s),
+		ba:     core.NewBarrier[bool](ctx, "ipn.a.bar", ttl30s),
 		status: core.NewVolatile(TUP),
 	}
 	h.via, err = core.NewWeakRef(h.viafor, viaok)

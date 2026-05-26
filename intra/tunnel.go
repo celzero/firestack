@@ -260,7 +260,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 
 	t = &rtunnel{
 		t:        core.NewVolatile[tunnel.Tunnel](gt),
-		bar:      core.NewKeyedBarrier[*x.NetStat, string]("t.stat.bar", statttl),
+		bar:      core.NewKeyedBarrier[*x.NetStat, string](ctx, "t.stat.bar", statttl),
 		ctx:      ctx,
 		done:     cancel,
 		handlers: hdl,
