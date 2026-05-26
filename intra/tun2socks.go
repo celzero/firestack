@@ -50,9 +50,10 @@ type DNSListener x.DNSListener
 type ServerListener rnet.ServerListener
 
 const (
+	// none traceout = "none"   // 0; no stack trace
 	one  traceout = "single" // offending go routine
-	usr  traceout = "all"    // all user go routines
-	sys  traceout = "system" // all user + system go routines
+	usr  traceout = "all"    // 1; all user go routines
+	sys  traceout = "system" // 2; all user + system go routines
 	abrt traceout = "crash"  // GOOS-specific crash after tracing
 )
 
