@@ -79,14 +79,12 @@ func SetRuntimeEnviron(key, val string) (didSet, overwrote bool, err error) {
 		}
 	}
 	// override both key and val from last index
-	if !didSet {
-		for i := len(envs) - 1; i >= 0; i-- {
-			log.W("core: SetRuntimeEnviron: key %s not found; overriding %s; val %s", key, envs[i], val)
-			envs[i] = kv + val
-			err = os.Setenv(key, val)
-			overwrote = true
-			break
-		}
+	if !didSet && len(envs) > 0 {
+		last := len(envs) - 1
+		log.W("core: SetRuntimeEnviron: key %s not found; overriding %s; val %s", key, envs[last], val)
+		envs[last] = kv + val
+		err = os.Setenv(key, val)
+		overwrote = true
 	}
 	return
 }
