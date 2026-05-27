@@ -953,6 +953,8 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 
 	if viaref, verr := core.NewWeakRef(t.viafor, viaok); verr != nil {
 		done()
+		ep.Close()
+		s.Destroy()
 		return nil, fmt.Errorf("wg: %s create tun (via ref): %v", t.id, verr)
 	} else {
 		t.via = viaref
@@ -965,6 +967,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	if err := s.CreateNIC(wgnic, ep); err != nil {
 		done()
 		ep.Close()
+		s.Destroy()
 		return nil, fmt.Errorf("wg: %s create nic: %v", t.who(), err)
 	}
 
@@ -975,7 +978,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 
 	if err := t.setRoutes(ifopts.ifaddrs); err != nil {
 		done()
-		ep.Close()
+		s.Destroy() // also closes ep via NIC removal
 		return nil, err
 	}
 
@@ -1193,9 +1196,15 @@ func (tun *wgtun) Close() error {
 		// close(tun.events) }
 		// drain any views remaining in ingress to release gvisor chunks
 		n := 0
-		for v := range tun.ingress {
-			v.Release()
-			n++
+	drain:
+		for {
+			select {
+			case v := <-tun.ingress:
+				v.Release()
+				n++
+			default:
+				break drain
+			}
 		}
 		close(tun.ingress)
 
