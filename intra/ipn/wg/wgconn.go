@@ -144,7 +144,7 @@ type StdNetBind struct {
 
 	epmu sync.RWMutex
 	// TODO: bound eps size?
-	eps map[net.Addr]StdNetEndpoint // peer-addr => std-net-endpoint
+	eps map[string]StdNetEndpoint // peer-addr => std-net-endpoint
 
 	observer rwobserver
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
@@ -163,9 +163,10 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *core.Volatile[
 		observer: f,
 		amnezia:  a,
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](ctx, "wg.floodba", minFloodInterval),
-		eps:      make(map[net.Addr]StdNetEndpoint),
+		eps:      make(map[string]StdNetEndpoint),
 		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
+	context.AfterFunc(ctx, s.quit)
 	return s
 }
 
@@ -397,6 +398,10 @@ func (s *StdNetBind) Closed() bool {
 }
 
 func (s *StdNetBind) Close() error {
+	s.epmu.Lock()
+	clear(s.eps)
+	s.epmu.Unlock()
+
 	// Do NOT do a pre-lock s.closed.Load() check here.
 	// Open() writes s.closed under s.mu; a read outside the lock races with it.
 	// The CAS below (also under s.mu) is the only correct guard.
@@ -430,6 +435,10 @@ func (s *StdNetBind) Close() error {
 	return nil
 }
 
+func (s *StdNetBind) quit() {
+	_ = s.Close()
+}
+
 func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
@@ -461,6 +470,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			numMsgs++
 		}
 
+		var epsz int
 		for i := range numMsgs {
 			anyProcessed = true
 			if overwritten {
@@ -470,15 +480,15 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 				sizes[i] = n
 			}
 			anyTransportTyp = anyTransportTyp || transportType(bufs[i])
-			eps[i] = s.asEndpoint(addr)
+			epsz, eps[i] = s.asEndpoint(addr)
 		}
 
 		if err != nil && !timedout(err) {
-			log.E("wg: bind: recv: %s recvfrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
-				s.id, addr, n, usingamz, overwritten, anyTransportTyp, err)
+			log.E("wg: bind: recv: %s recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
+				s.id, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
 		} else if settings.Debug {
-			log.V("wg: bind: recv: %s recvfrom(%v): %d / ov? %t<=%t / trans? %t / err? %v",
-				s.id, addr, n, usingamz, overwritten, anyTransportTyp, err)
+			log.V("wg: bind: recv: %s recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
+				s.id, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
 		}
 		return numMsgs, err
 	}
@@ -678,37 +688,40 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 // asEndpoint returns an Endpoint containing ap.
 // pooling disabled due to data race:
 // github.com/WireGuard/wireguard-go/commit/334b605e726
-func (s *StdNetBind) asEndpoint(ap net.Addr) conn.Endpoint {
+func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
 	// TODO: avoid allocations
-	if ap == nil {
-		return invalidStdNetEndpoint
+	if x == nil {
+		return -1, invalidStdNetEndpoint
 	}
+	ap := x.String()
 	s.epmu.RLock()
 	ep, ok := s.eps[ap]
+	sz := len(s.eps)
 	s.epmu.RUnlock()
 
 	if ok {
-		return ep
+		return sz, ep
 	}
 
 	s.epmu.Lock()
 	defer s.epmu.Unlock()
 	ep, ok = s.eps[ap]
+	sz = len(s.eps)
 	if ok {
-		return ep
+		return sz, ep
 	}
 
-	if tcp, ok := ap.(*net.TCPAddr); ok {
+	if tcp, ok := x.(*net.TCPAddr); ok {
 		ipp := tcp.AddrPort()
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
-	} else if udp, ok := ap.(*net.UDPAddr); ok {
+	} else if udp, ok := x.(*net.UDPAddr); ok {
 		ipp := udp.AddrPort()
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)} // copy udp addr
-	} else if ipp, err := netip.ParseAddrPort(ap.String()); err == nil {
+	} else if ipp, err := netip.ParseAddrPort(ap); err == nil {
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
 	}
 	s.eps[ap] = ep // ep may be zero value
-	return ep
+	return sz + 1, ep
 }
 
 func loge(err error) log.LogFn {
