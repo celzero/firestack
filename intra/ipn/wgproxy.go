@@ -1083,6 +1083,7 @@ func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 	}
 
 	n, err := view.Read(buf[0][offset:])
+	view.Release()
 	if err != nil {
 		log.W("wg: %s tun: read(%d): %v",
 			tun.tag(), n, err)
@@ -1109,7 +1110,6 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 		b := buffer.MakeWithData(pkt)
 		pko := stack.PacketBufferOptions{Payload: b}
 		pkb := stack.NewPacketBuffer(pko)
-		defer pkb.DecRef()
 		protoid := pkt[0] >> 4
 		switch protoid {
 		case 4: // IPv4
@@ -1117,10 +1117,12 @@ func (tun *wgtun) Write(bufs [][]byte, offset int) (int, error) {
 		case 6: // IPv6
 			tun.ep.InjectInbound(header.IPv6ProtocolNumber, pkb) // write to ep
 		default:
+			pkb.DecRef()
 			log.W("wg: %s tun: write: unknown proto %d; discard %d",
 				tun.tag(), protoid, sz)
 			return 0, syscall.EAFNOSUPPORT
 		}
+		pkb.DecRef()
 		if settings.Debug {
 			log.VV("wg: %s tun: write: sz(%d); proto %d",
 				tun.tag(), sz, protoid)
@@ -1145,17 +1147,20 @@ func (tun *wgtun) WriteNotify() {
 
 	select {
 	case <-tun.finalize: // dave.cheney.net/2013/04/30/curious-channels
+		view.Release()
 		log.I("wg: %s tun: write: finalize; dropped pkt; sz(%d)",
 			tun.tag(), sz)
 	default:
 		select {
 		case <-tun.finalize:
+			view.Release()
 		case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
 			if settings.Debug {
 				log.VV("wg: %s tun: write: notify sz(%d)",
 					tun.tag(), sz)
 			}
 		default: // ingress is full and finalize is blocked
+			view.Release()
 			e := tun.status.Load()
 			log.W("wg: %s tun: write: closed? %s; dropped pkt; sz(%d)",
 				tun.tag(), pxstatus(e), sz)
@@ -1186,6 +1191,12 @@ func (tun *wgtun) Close() error {
 		// if tun.events != nil {
 		// panics; is it closed by device.Device.Close()?
 		// close(tun.events) }
+		// drain any views remaining in ingress to release gvisor chunks
+		n := 0
+		for v := range tun.ingress {
+			v.Release()
+			n++
+		}
 		close(tun.ingress)
 
 		tun.viaID.Store(noviaid) // via is nil
@@ -1197,7 +1208,7 @@ func (tun *wgtun) Close() error {
 		// tun.ep.Close()
 		// destroy waits for the stack to close
 		tun.stack.Destroy()
-		log.I("wg: %s tun: closed", tun.tag())
+		log.I("wg: %s tun: closed; released %d views", tun.tag(), n)
 	})
 	return err
 }
