@@ -276,6 +276,7 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 	laddr := conn.LocalAddr()
 	if laddr == nil {
 		log.E("wg: bind: listen: %s %s: on(%v); local-addr nil", s.id, network, saddr)
+		clos(conn)
 		return nil, 0, errNoLocalAddr
 	}
 	uaddr, err := net.ResolveUDPAddr(
@@ -283,9 +284,11 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 		laddr.String(),
 	)
 	if err != nil {
+		clos(conn)
 		return nil, 0, err
 	}
 	if uaddr == nil {
+		clos(conn)
 		return nil, 0, errNoLocalAddr
 	}
 	if settings.Debug {
