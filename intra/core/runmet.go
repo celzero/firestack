@@ -468,9 +468,12 @@ type CoreState struct {
 }
 
 var (
-	barmap  sync.Map      // string -> func() BarrierState; see registerBarrier
-	mapmap  sync.Map      // string -> func() MapState; see registerMap
-	workmap sync.Map      // goroutine key -> time.Time (start time)
+	barmap  sync.Map // string -> func() BarrierState; see registerBarrier
+	mapmap  sync.Map // string -> func() MapState; see registerMap
+	workmap sync.Map // goroutine key -> time.Time (start time)
+
+	barctr  atomic.Uint64 // monotone counter for unique barrier keys
+	mapctr  atomic.Uint64 // monotone counter for unique map keys
 	workctr atomic.Uint64 // monotone counter for unique goroutine keys
 )
 
@@ -490,15 +493,23 @@ func trackwork(who, typ string) func() {
 // trackbar registers snap under id for use in Snapshot().
 // Returns a deregister function that removes it from the registry.
 func trackbar(id string, snap func() BarrierState) (deregister func()) {
-	barmap.Store(id, snap)
-	return func() { barmap.Delete(id) }
+	key := id + "#" + strconv.FormatUint(barctr.Add(1), 10)
+	barmap.Store(key, snap)
+	return func() { barmap.Delete(key) }
 }
 
 // trackmap registers snap under id for use in Snapshot().
 // Returns a deregister function that removes it from the registry.
 func trackmap(id string, snap func() MapState) (deregister func()) {
-	mapmap.Store(id, snap)
-	return func() { mapmap.Delete(id) }
+	key := id + "#" + strconv.FormatUint(mapctr.Add(1), 10)
+	mapmap.Store(key, snap)
+	return func() { mapmap.Delete(key) }
+}
+
+// TrackMap registers snap under id for use in Snapshot().
+// Returns a deregister function that removes it from the registry.
+func TrackMap(id string, snap func() MapState) (deregister func()) {
+	return trackmap(id, snap)
 }
 
 // Snapshot returns a snapshot of all registered barriers, maps, and active

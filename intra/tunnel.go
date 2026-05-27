@@ -39,6 +39,7 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	"github.com/celzero/firestack/intra/core/wire"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
@@ -269,6 +270,10 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 		services: services,
 		linkmtu:  core.NewVolatile(linkmtu),
 	}
+
+	context.AfterFunc(ctx, wire.Pool.Clear)
+	context.AfterFunc(ctx, dialers.Clear)
+	context.AfterFunc(ctx, ipn.ClearIPMeta)
 
 	log.I("tun: <<< new >>>; tunnel ok; reverser? %v", rerr)
 	return t, nil

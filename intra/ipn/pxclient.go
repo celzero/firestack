@@ -71,6 +71,11 @@ type ipmeta struct {
 
 var ipm = core.NewExpiringMap[string, *ipmeta](context.Background(), "ipn.pxc.ipm")
 
+// ClearIPMeta clears the cached IP metadata for all proxies.
+func ClearIPMeta() {
+	ipm.Clear()
+}
+
 func getCachedIPMeta(p Proxy, network string) *x.IPMetadata {
 	key := p.ID() + "/" + network
 	handle := p.DialerHandle()

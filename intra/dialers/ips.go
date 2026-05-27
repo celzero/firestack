@@ -122,7 +122,9 @@ func Mapper(m ipmap.IPMapper) {
 
 func Clear() {
 	// do not need to handle panics w/ core.Recover
-	ipm.Clear() // does not clear UidSelf, UidSystem (protected)
+	ipm.Clear()      // does not clear UidSelf, UidSystem (protected)
+	ippPins.Clear()  // clear dialer-id pins
+	ttlcache.Clear() // clear desync TTL cache
 }
 
 // Confirm3 marks addr as preferred for hostOrIP

@@ -19,6 +19,9 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
+
+	"github.com/celzero/firestack/intra/core"
 )
 
 const unknown = UnknownProto
@@ -55,17 +58,41 @@ const (
 
 type ParsedPool sync.Pool
 
+var ppgets atomic.Uint64
+var ppputs atomic.Uint64
+
 // Pool holds a pool of Parsed structs for use in filtering.
 var Pool = ParsedPool{New: func() any { return new(Parsed) }}
 
+func init() {
+	_ = core.TrackMap("w.pool", Pool.Stat)
+}
+
 func (p *ParsedPool) Get() *Parsed {
+	ppgets.Add(1)
 	pp := (*sync.Pool)(p)
 	return pp.Get().(*Parsed)
 }
 
 func (p *ParsedPool) Put(parsed *Parsed) {
+	ppputs.Add(1)
 	pp := (*sync.Pool)(p)
 	pp.Put(parsed)
+}
+
+func (p *ParsedPool) Clear() {
+	pp := (*sync.Pool)(p)
+	*pp = sync.Pool{New: pp.New}
+}
+
+// Stat returns a snapshot of the pool's current state.
+func (p *ParsedPool) Stat() core.MapState {
+	return core.MapState{
+		Typ:  "parsedpool",
+		ID:   "wire",
+		Gets: ppgets.Load(),
+		Puts: ppputs.Load(),
+	}
 }
 
 // Parsed is a minimal decoding of a packet suitable for use in filters.
