@@ -19,9 +19,9 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"weak"
 	"sync/atomic"
 	"time"
+	"weak"
 )
 
 const (
@@ -90,6 +90,7 @@ type Barrier[T any, K comparable] struct {
 	typ     string        // type tag; used in metrics
 	nanew   atomic.Uint64 // calls that owned the request (ran once())
 	nshared atomic.Uint64 // calls that coalesced with an in-flight request
+	ndels   atomic.Uint64 // count of Vs removed by scrubbing
 	closed  atomic.Bool   // true after ctx is done; disables deduplication
 }
 
@@ -120,17 +121,19 @@ func NewBarrier2[T any, K comparable](ctx context.Context, id string, ttl, neg t
 		lastscrub: time.Now(),
 	}
 	ba.id = ba.id + "." + LocStr(ba)
+	id = ba.id
 	wba := weak.Make(ba)
 	deregister := trackbar(ba.id, func() BarrierState {
 		if p := wba.Value(); p != nil {
 			return p.Stat()
 		}
-		return BarrierState{}
+		return BarrierState{Typ: "barrier", ID: "gc." + id}
 	})
 	runtime.AddCleanup(ba, func(f func()) { f() }, deregister)
 	context.AfterFunc(ctx, func() {
 		ba.closed.Store(true)
 		ba.mu.Lock()
+		ba.ndels.Add(uint64(len(ba.m)))
 		clear(ba.m)
 		ba.mu.Unlock()
 	})
@@ -148,6 +151,7 @@ func (ba *Barrier[T, K]) Stat() BarrierState {
 		Len:    l,
 		Anew:   ba.nanew.Load(),
 		Shared: ba.nshared.Load(),
+		Dels:   ba.ndels.Load(),
 	}
 }
 
@@ -173,6 +177,7 @@ func (ba *Barrier[T, K]) maybeScrubLocked() {
 			}
 			if time.Since(v.dob.Add(ttl)) > 0 {
 				delete(ba.m, k)
+				ba.ndels.Add(1)
 			}
 			i++
 		}
@@ -193,6 +198,7 @@ func (ba *Barrier[T, K]) getLocked(k K) (v *V[T, K], ok bool) {
 		}
 		if time.Since(v.dob.Add(ttl)) > 0 {
 			delete(ba.m, k)
+			ba.ndels.Add(1)
 			return nil, false
 		}
 	}
