@@ -76,6 +76,7 @@ func (p *ParsedPool) Get() *Parsed {
 
 func (p *ParsedPool) Put(parsed *Parsed) {
 	ppputs.Add(1)
+	parsed.b = nil // release the packet copy so it can be GC'd before the next reuse
 	pp := (*sync.Pool)(p)
 	pp.Put(parsed)
 }
@@ -90,6 +91,7 @@ func (p *ParsedPool) Stat() core.MapState {
 	return core.MapState{
 		Typ:  "parsedpool",
 		ID:   "wire",
+		Len:  0, // sync.Pool does not expose Length
 		Gets: ppgets.Load(),
 		Puts: ppputs.Load(),
 	}
