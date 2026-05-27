@@ -10,9 +10,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
-	"runtime"
 	"sync/atomic"
 	"time"
 	"unique"
@@ -58,10 +58,11 @@ type connstat struct {
 type cm struct {
 	id string // identifier; used in metrics
 	sync.RWMutex
-	tracc     map[string]connstat // cid -> conns
-	tracp     map[string][]string // pid -> cid
-	tracu     map[string][]string // uid -> cid
-	sz        int
+	tracc map[string]connstat // cid -> conns
+	tracp map[string][]string // pid -> cid
+	tracu map[string][]string // uid -> cid
+	sz    int
+
 	ntracks   atomic.Uint64 // count of Track() calls
 	nuntracks atomic.Uint64 // count of Untrack() calls
 	ngets     atomic.Uint64 // count of Get() / GetAll() calls
@@ -77,12 +78,13 @@ func NewConnMap(id string) *cm {
 		tracu: make(map[string][]string),
 	}
 	m.id = m.id + "." + LocStr(m)
+	id = m.id
 	wm := weak.Make(m)
 	deregister := trackmap(m.id, func() MapState {
 		if p := wm.Value(); p != nil {
 			return p.Stat()
 		}
-		return MapState{}
+		return MapState{Typ: "connmap", ID: "gc." + id}
 	})
 	runtime.AddCleanup(m, func(f func()) { f() }, deregister)
 	return m
@@ -95,6 +97,7 @@ func (h *cm) Stat() MapState {
 	h.RUnlock()
 	return MapState{
 		ID:   h.id,
+		Typ:  "connmap",
 		Len:  l,
 		Puts: h.ntracks.Load(),
 		Gets: h.ngets.Load(),

@@ -13,10 +13,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+	"weak"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/miekg/dns"
@@ -57,11 +59,12 @@ type MultConnPool[T comparable] struct {
 
 // NewMultConnPool creates a new multi connection-pool.
 func NewMultConnPool[T comparable](ctx context.Context) *MultConnPool[T] {
-	return &MultConnPool[T]{
+	p := &MultConnPool[T]{
 		ctx:       ctx,
 		m:         make(map[T]*superpool[T]),
 		scrubtime: time.Now(),
 	}
+	return p
 }
 
 // scrub closes and removes old conns from all conn pools.
@@ -193,8 +196,12 @@ func newAgingConn(c net.Conn) agingconn {
 type ConnPool[T comparable] struct {
 	ctx    context.Context
 	id     T
+	sid    string         // string id; used in metrics
 	p      chan agingconn // never closed
 	closed atomic.Bool
+	nputs  atomic.Uint64 // count of successful Put() calls
+	ngets  atomic.Uint64 // count of successful Get() calls
+	ndels  atomic.Uint64 // count of conns evicted/closed within the pool
 }
 
 // NewConnPool creates a new conn pool with preset capacity and ttl.
@@ -204,9 +211,33 @@ func NewConnPool[T comparable](ctx context.Context, id T) *ConnPool[T] {
 		id:  id,
 		p:   make(chan agingconn, poolcapacity),
 	}
-
-	context.AfterFunc(ctx, c.clean)
+	c.sid = fmt.Sprintf("connpool.%v", id) + "." + LocStr(c)
+	sid := c.sid
+	wc := weak.Make(c)
+	deregister := trackmap(c.sid, func() MapState {
+		if p := wc.Value(); p != nil {
+			return p.Stat()
+		}
+		return MapState{Typ: "connpool", ID: "gc." + sid}
+	})
+	runtime.AddCleanup(c, func(f func()) { f() }, deregister)
+	context.AfterFunc(ctx, func() {
+		c.clean()
+		deregister()
+	})
 	return c
+}
+
+// Stat returns a snapshot of the pool's current state.
+func (c *ConnPool[T]) Stat() MapState {
+	return MapState{
+		Typ:  "connpool",
+		ID:   c.sid,
+		Len:  len(c.p),
+		Puts: c.nputs.Load(),
+		Gets: c.ngets.Load(),
+		Dels: c.ndels.Load(),
+	}
 }
 
 // Get returns a conn from the pool, if available, within 3 seconds.
@@ -231,6 +262,7 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 					return aconn.c, nil
 				}
 				(&aconn).close()
+				c.ndels.Add(1)
 			case <-ctx.Done():
 				return // signal stop
 			default:
@@ -245,6 +277,9 @@ func (c *ConnPool[T]) Get() (zz net.Conn) {
 	logevif(timedout || empty)("pool: %v get: empty? %t, timedout? %t",
 		c.id, empty, timedout)
 
+	if !empty {
+		c.ngets.Add(1)
+	}
 	return pooled
 }
 
@@ -273,6 +308,7 @@ func (c *ConnPool[T]) Put(conn net.Conn) (ok bool) {
 
 	select {
 	case c.p <- aconn:
+		c.nputs.Add(1)
 		aconn.keepalive(true)
 		return true
 	case <-c.ctx.Done(): // stop
@@ -302,6 +338,7 @@ func (c *ConnPool[T]) clean() {
 		select {
 		case aconn := <-c.p:
 			(&aconn).close()
+			c.ndels.Add(1)
 		default:
 			return
 		}
@@ -330,6 +367,7 @@ func (c *ConnPool[T]) scrub() {
 			}
 			if !kept {
 				(&aconn).close()
+				c.ndels.Add(1)
 			}
 		}
 	}()
@@ -339,6 +377,7 @@ func (c *ConnPool[T]) scrub() {
 		case aconn := <-c.p:
 			if aconn.old() || !aconn.ok() {
 				(&aconn).close()
+				c.ndels.Add(1)
 			} else {
 				staged = append(staged, aconn)
 			} // next

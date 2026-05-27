@@ -33,9 +33,10 @@ type ExpMap[P comparable, Q any] struct {
 	sigreap    chan struct{}
 	lastreap   time.Time
 	minlife    time.Duration
-	ngets      uint64 // count of Get() calls; under Mutex
-	nsets      uint64 // count of Set()/K() calls; under Mutex
-	ndels      uint64 // count of Delete() calls; under Mutex
+
+	ngets uint64 // count of Get() calls; under Mutex
+	nsets uint64 // count of Set()/K() calls; under Mutex
+	ndels uint64 // count of Delete() calls; under Mutex
 }
 
 // NewExpiringMap returns a new ExpMap with min lifetime of 0.
@@ -233,6 +234,7 @@ func (m *ExpMap[P, Q]) Clear() int {
 	defer m.Unlock()
 
 	l := len(m.m)
+	m.ndels += uint64(l)
 	clear(m.m)
 	return l
 }
@@ -263,6 +265,7 @@ func (m *ExpMap[P, Q]) reaper(ctx context.Context) {
 		for k, v := range m.m {
 			i += 1
 			if now.Sub(v.expiry) > 0 {
+				m.ndels++
 				delete(m.m, k)
 			}
 			if i > maxreapiter {

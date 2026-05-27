@@ -440,6 +440,7 @@ type BarrierState struct {
 	Len    int
 	Anew   uint64 // calls that owned the request (ran once())
 	Shared uint64 // calls that coalesced with an in-flight request
+	Dels   uint64 // count of barriers removed by scrubbing
 }
 
 // MapState is a snapshot of a map's metrics.
@@ -517,18 +518,19 @@ func Snapshot() string {
 
 func (c *CoreState) String() string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "\n=== Core Snapshot ===\n")
-	fmt.Fprintf(&sb, "Workers: %d\n", len(c.Workers))
+	fmt.Fprintf(&sb, "\nWorkers: %d\n", len(c.Workers))
 	for _, w := range c.Workers {
 		fmt.Fprintf(&sb, "   - %s (%s) since %s\n", w.ID, w.Typ, w.Since)
 	}
-	fmt.Fprintf(&sb, "Barriers: %d\n", len(c.Barriers))
+	fmt.Fprintf(&sb, "\nBarriers: %d\n", len(c.Barriers))
 	for _, b := range c.Barriers {
-		fmt.Fprintf(&sb, "   - %s (%s): len=%d anew=%d shared=%d\n", b.ID, b.Typ, b.Len, b.Anew, b.Shared)
+		fmt.Fprintf(&sb, "   - %s (%s): len=%d anew=%d shared=%d dels=%d\n ",
+			b.ID, b.Typ, b.Len, b.Anew, b.Shared, b.Dels)
 	}
-	fmt.Fprintf(&sb, "Maps: %d\n", len(c.Maps))
+	fmt.Fprintf(&sb, "\nMaps: %d\n", len(c.Maps))
 	for _, m := range c.Maps {
-		fmt.Fprintf(&sb, "   - %s (%s): len=%d puts=%d gets=%d dels=%d\n", m.ID, m.Typ, m.Len, m.Puts, m.Gets, m.Dels)
+		fmt.Fprintf(&sb, "   - %s (%s): len=%d puts=%d gets=%d dels=%d\n",
+			m.ID, m.Typ, m.Len, m.Puts, m.Gets, m.Dels)
 	}
 	return sb.String()
 }
