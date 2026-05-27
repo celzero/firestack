@@ -41,7 +41,12 @@ import (
 // from: github.com/WireGuard/wireguard-go/blob/ebbd4a433/conn/bind_std.go
 
 const maxbindtries = 50
+
+// udp read/write deadline extension
 const wgtimeout = 60 * time.Second
+
+// max cached source endpoints; excess cleared on eviction
+const maxEpsSize = 64
 
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 var (
@@ -143,8 +148,7 @@ type StdNetBind struct {
 	blackhole6 bool
 
 	epmu sync.RWMutex
-	// TODO: bound eps size?
-	eps map[string]StdNetEndpoint // peer-addr => std-net-endpoint
+	eps  map[string]StdNetEndpoint // peer-addr => std-net-endpoint
 
 	observer rwobserver
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
@@ -722,6 +726,11 @@ func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)} // copy udp addr
 	} else if ipp, err := netip.ParseAddrPort(ap); err == nil {
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
+	}
+	if len(s.eps) >= maxEpsSize { // evict all; entries repopulate as packets arrive
+		log.E("wg: bind: %s eps full; clearing %d", s.id, sz)
+		clear(s.eps)
+		sz = 0
 	}
 	s.eps[ap] = ep // ep may be zero value
 	return sz + 1, ep
