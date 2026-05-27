@@ -45,6 +45,15 @@ const (
 	HDLEND
 )
 
+const (
+	retryTimeout = 15 * time.Second
+
+	// onFlowTimeout takes in to account "testWithBackoff" on Kolin side (which is around 9s)
+	onFlowTimeout    = 15 * time.Second
+	onPreFlowTimeout = 5 * time.Second
+	onInFlowTimeout  = 5 * time.Second
+)
+
 var (
 	anyaddr4 = netip.IPv4Unspecified()
 	anyaddr6 = netip.IPv6Unspecified()

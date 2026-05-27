@@ -93,15 +93,6 @@ type ioinfo struct {
 	err   error
 }
 
-const (
-	retryTimeout = 15 * time.Second
-
-	// onFlowTimeout takes in to account "testWithBackoff" on Kolin side (which is around 9s)
-	onFlowTimeout    = 10 * time.Second
-	onPreFlowTimeout = 5 * time.Second
-	onInFlowTimeout  = 5 * time.Second
-)
-
 var (
 	errTcpFirewalled = errors.New("tcp: firewalled")
 	errTcpSetupConn  = errors.New("tcp: could not create conn")
