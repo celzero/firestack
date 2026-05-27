@@ -92,12 +92,13 @@ func (r *icmpResponder) handle(h *icmpForwarder, nic tcpip.NICID, pkt *stack.Pac
 
 	v := c.ToView()
 	b := v.ToSlice()
+	v.Release() // ToSlice returns an owned copy; release the view's chunk ref immediately
 	n := len(b)
 
 	notok := n <= 0 || h == nil
 	if settings.Debug || notok {
-		logwv(notok)("icmp: responder: read to writer (sz: %d / %d / %d); h? %t / fwd? %t",
-			n, v.Size(), inSize, h != nil, useIcmpForwarder)
+		logwv(notok)("icmp: responder: read to writer (sz: %d / %d); h? %t / fwd? %t",
+			n, inSize, h != nil, useIcmpForwarder)
 	}
 	if notok {
 		return
