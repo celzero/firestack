@@ -95,8 +95,8 @@ func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.
 		prox:        px,
 		smmch:       make(chan *SocketSummary, smmchSize),
 		listener:    l,
-		fwtracker:   core.NewExpiringMap[string, string](pctx, "c.fwtrack"),
-		conntracker: core.NewConnMap("c.conntrack"),
+		fwtracker:   core.NewExpiringMap[string, string](pctx, proto+".fwtrack"),
+		conntracker: core.NewConnMap(proto + ".conntrack"),
 		status:      core.NewVolatile(HDLOK),
 	}
 	context.AfterFunc(pctx, h.End)
