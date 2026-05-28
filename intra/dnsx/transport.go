@@ -605,18 +605,26 @@ runagain:
 
 	log.V("dns: fwd: 1 for %s (%s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, who, qname, qtyp, run, pref, chosenids)
 
-	id, sid, pids, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
+	id, sid, pids, diag, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 
 	t := r.determineTransport(id)         // id may be empty if pref is nil
 	t2 := r.determineTransport(sid)       // sid may be empty
 	hasT1 := t != nil && !core.IsNil(t)   // primary transport
 	hasT2 := t2 != nil && !core.IsNil(t2) // secondary transport
+	hasPre := len(presetIPs) > 0
+	diffT1 := hasT1 && id != idstr(t)
+	diffT2 := hasT2 && sid != idstr(t2)
 
 	log.V("dns: fwd: 2 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s, ips? %v",
 		uid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, presetIPs)
 
-	smm.Extra += fmt.Sprintf("Prefs: %s+%s over %s; Actual: %s+%s over %s",
-		pref.TIDCSV, pref.TIDSECCSV, pref.PIDCSV, id, sid, pids)
+	if settings.Debug || (!hasPre && (diffT1 || diffT2)) || !hasT1 {
+		smm.Extra += fmt.Sprintf(" Prefs: %s+%s over %s; Actual: %s+%s over %s",
+			pref.TIDCSV, pref.TIDSECCSV, pref.PIDCSV, id, sid, pids)
+	}
+	if len(diag) > 0 {
+		smm.Extra += "{" + diag + "}"
+	}
 
 	if !hasT1 {
 		if !hasT2 {
@@ -1122,10 +1130,17 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv string, ips []netip.Addr) {
+func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv, diag string, ips []netip.Addr) {
 	var x []string  // primary
 	var xx []string // secondary
-	if s == nil {   // should never happen; but it has during testing (on End())
+	var diags []string
+
+	defer func() {
+		diag = strings.Join(diags, ";")
+	}()
+
+	if s == nil { // should never happen; but it has during testing (on End())
+		diags = append(diags, "nil prefs")
 		log.W("dns: pref: no ns opts for %s", qname)
 		return // no-op
 	} else {
@@ -1133,6 +1148,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		xx = strings.Split(s.TIDSECCSV, ",")
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
 			ips = make([]netip.Addr, 0, len(y))
+			badip := 0
 			for _, a := range y {
 				a = strings.TrimSpace(a)
 				if len(a) <= 0 {
@@ -1140,10 +1156,14 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 				}
 				ip, err := netip.ParseAddr(a)
 				if err != nil || !ip.IsValid() {
+					badip++
 					log.W("dns: pref: skip bad ip %s for %s", a, qname)
 					continue
 				}
 				ips = append(ips, ip) // unmap?
+			}
+			if badip > 0 {
+				diags = append(diags, fmt.Sprintf("%d invalid ipcsv", badip))
 			}
 		}
 		if len(ips) > 0 {
@@ -1158,12 +1178,15 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 				// see: synthesizeOrQuery
 			} else {
 				ips = nil // mismatch in query type and ip family
+				diags = append(diags, fmt.Sprintf("ip ignored %d", qtyp))
+				log.D("dns: pref: ignore ips for %s; qtype %d not A/AAAA/HTTPS/SVCB", qname, qtyp)
 			}
 		}
 	}
 
 	if len(x) <= 0 { // x may be nil
 		log.W("dns: pref: no tids for %s", qname)
+		diags = append(diags, "no tids")
 		// no-op
 	} else {
 		// TODO: fallback on all id1s
@@ -1172,11 +1195,13 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 	}
 
 	if !firstEmpty(chosenids) && len(chosenids) > 0 {
+		diags = append(diags, fmt.Sprintf("req(%s,%s)", id1, id2))
 		// chosen ID overrides all except:
 		if (isPlus(id1) || isPlus(id2)) && isAnyDefault(chosenids...) {
 			// Plus overrides Default
 			id1 = Plus
 			id2 = ""
+			diags = append(diags, "plus over default")
 			log.D("dns: pref: use Plus instead of Default for %s", qname)
 		} else {
 			id1 = chosenids[0] // never empty
@@ -1184,6 +1209,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			if len(chosenids) > 1 {
 				id2 = chosenids[1] // may be empty, but that's ok
 			}
+			diags = append(diags, fmt.Sprintf("chosen(%s,%s)", id1, id2))
 			log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
 		}
 	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 {
@@ -1191,6 +1217,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
 		id1 = reqid
 		id2 = ""
+		diags = append(diags, fmt.Sprintf("local(%s)", qname))
 	} else if isAnyFixed(x...) || isAnyFixed(xx...) {
 		if id1 != Fixed && id1 != CT+Fixed { // Fixed must always be the primary transport
 			id2 = id1
@@ -1221,6 +1248,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			s.NOBLOCK = true
 		}
 	} else if ipblock || trblock || reqblock {
+		diags = append(diags, fmt.Sprintf("block(ip?%t, tr?%t, req?%t)", ipblock, trblock, reqblock))
 		log.D("dns: pref: tr for %s over %s+%s; block ip? %t, pref? %t, chose? %t",
 			qname, id1, id2, ipblock, trblock, reqblock)
 		// BlockAll must appear in primary TIDCSV
@@ -1230,6 +1258,10 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 
 	if len(s.PIDCSV) > 0 {
 		pidcsv = overrideProxyIfNeeded(s.PIDCSV, id1, id2)
+		if pidcsv != s.PIDCSV {
+			diags = append(diags, fmt.Sprintf("pid %s <> %s", pidcsv, s.PIDCSV))
+			log.D("dns: pref: override pidcsv to %s for %s; tr(%s, %s)", pidcsv, qname, id1, id2)
+		}
 	} else {
 		pidcsv = NetNoProxy
 	}
