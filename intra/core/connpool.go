@@ -233,7 +233,7 @@ func (c *ConnPool[T]) Stat() MapState {
 	return MapState{
 		Typ:  "connpool",
 		ID:   c.sid,
-		Len:  len(c.p),
+		Len:  uint64(len(c.p)),
 		Puts: c.nputs.Load(),
 		Gets: c.ngets.Load(),
 		Dels: c.ndels.Load(),

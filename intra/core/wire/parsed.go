@@ -58,11 +58,12 @@ const (
 
 type ParsedPool sync.Pool
 
+var ppnews atomic.Uint64
 var ppgets atomic.Uint64
 var ppputs atomic.Uint64
 
 // Pool holds a pool of Parsed structs for use in filtering.
-var Pool = ParsedPool{New: func() any { return new(Parsed) }}
+var Pool = ParsedPool{New: func() any { ppnews.Add(1); return new(Parsed) }}
 
 func init() {
 	_ = core.TrackMap("w.pool", Pool.Stat)
@@ -91,7 +92,7 @@ func (p *ParsedPool) Stat() core.MapState {
 	return core.MapState{
 		Typ:  "parsedpool",
 		ID:   "wire",
-		Len:  0, // sync.Pool does not expose Length
+		Len:  ppnews.Load(), // sync.Pool does not expose Length
 		Gets: ppgets.Load(),
 		Puts: ppputs.Load(),
 	}

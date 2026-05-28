@@ -447,7 +447,7 @@ type BarrierState struct {
 type MapState struct {
 	Typ  string
 	ID   string
-	Len  int
+	Len  uint64
 	Puts uint64
 	Gets uint64
 	Dels uint64
@@ -516,12 +516,16 @@ func TrackMap(id string, snap func() MapState) (deregister func()) {
 // goroutines managed by this package. Safe to call concurrently.
 func Snapshot() string {
 	cs := &CoreState{Workers: ActiveWorkers()}
-	barmap.Range(func(_, v any) bool {
-		cs.Barriers = append(cs.Barriers, v.(func() BarrierState)())
+	barmap.Range(func(k, v any) bool {
+		s := v.(func() BarrierState)()
+		s.ID = k.(string)
+		cs.Barriers = append(cs.Barriers, s)
 		return true
 	})
-	mapmap.Range(func(_, v any) bool {
-		cs.Maps = append(cs.Maps, v.(func() MapState)())
+	mapmap.Range(func(k, v any) bool {
+		s := v.(func() MapState)()
+		s.ID = k.(string)
+		cs.Maps = append(cs.Maps, s)
 		return true
 	})
 	return cs.String()
@@ -531,11 +535,11 @@ func (c *CoreState) String() string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "\nWorkers: %d\n", len(c.Workers))
 	for _, w := range c.Workers {
-		fmt.Fprintf(&sb, "   - %s (%s) since %s\n", w.ID, w.Typ, w.Since)
+		fmt.Fprintf(&sb, "   - %s (%s) since %s\n", w.ID, w.Typ, FmtPeriod(w.Since))
 	}
 	fmt.Fprintf(&sb, "\nBarriers: %d\n", len(c.Barriers))
 	for _, b := range c.Barriers {
-		fmt.Fprintf(&sb, "   - %s (%s): len=%d anew=%d shared=%d dels=%d\n ",
+		fmt.Fprintf(&sb, "   - %s (%s): len=%d new=%d shared=%d dels=%d\n ",
 			b.ID, b.Typ, b.Len, b.Anew, b.Shared, b.Dels)
 	}
 	fmt.Fprintf(&sb, "\nMaps: %d\n", len(c.Maps))

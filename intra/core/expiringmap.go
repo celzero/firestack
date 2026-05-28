@@ -69,7 +69,7 @@ func (m *ExpMap[P, Q]) Stat() MapState {
 	return MapState{
 		Typ:  "expmap",
 		ID:   m.id,
-		Len:  len(m.m),
+		Len:  uint64(len(m.m)),
 		Gets: m.ngets,
 		Puts: m.nsets,
 		Dels: m.ndels,

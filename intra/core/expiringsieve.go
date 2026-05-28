@@ -208,7 +208,7 @@ func (s *Sieve2K[K1, K2, V]) Clear() (n int) {
 func (s *Sieve2K[K1, K2, V]) Stat() MapState {
 	return MapState{
 		ID:   s.id,
-		Len:  s.Len(),
+		Len:  uint64(s.Len()),
 		Puts: s.nputs.Load(),
 		Gets: s.ngets.Load(),
 		Dels: s.ndels.Load(),

@@ -98,7 +98,7 @@ func (h *cm) Stat() MapState {
 	return MapState{
 		ID:   h.id,
 		Typ:  "connmap",
-		Len:  l,
+		Len:  uint64(l),
 		Puts: h.ntracks.Load(),
 		Gets: h.ngets.Load(),
 		Dels: h.nuntracks.Load(),
