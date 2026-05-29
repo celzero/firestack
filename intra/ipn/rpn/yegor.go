@@ -2080,10 +2080,21 @@ func overrideDid(ent *WsEntitlement, did string) error {
 	if !ent.ok() {
 		return errWsBadEntitlement
 	}
-	if existing := ent.Did; len(existing) > 0 && existing != did {
-		log.W("ws: did overriden: existing %s, incoming %s", trunc8(existing), trunc8(did))
+	existing := ent.Did
+
+	hasNewDid := len(did) > 0
+	hasExistingDid := len(existing) > 0
+
+	if !hasNewDid && !hasExistingDid {
+		return errWsNoDid
 	}
-	ent.Did = did
+
+	if hasNewDid && existing != did {
+		log.I("ws: did overriden: existing %s, incoming %s", trunc8(existing), trunc8(did))
+		ent.Did = did
+	} else {
+		log.W("ws: did not overriden: existing %s over incoming %s", trunc8(existing), trunc8(did))
+	}
 	return nil
 }
 
@@ -2144,13 +2155,17 @@ func makeWsWg(h *http.Client, ent *WsEntitlement, ops x.RpnOps) (*WsClient, erro
 	return newWsGw(cfg, h, ops)
 }
 
-func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string) (x.RpnEntitlement, error) {
+// Did can be left empty if entitlementOrStateJson has one.
+func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string) (out x.RpnEntitlement, err error) {
 	if len(entitlementOrStateJson) <= 0 {
 		return nil, errWsNoEntitlement
 	}
-	if len(did) <= 0 {
-		return nil, errWsNoDid
-	}
+
+	defer func() {
+		if err == nil && out != nil && len(out.DID()) <= 0 {
+			err = errWsNoDid
+		}
+	}()
 
 	var ent WsEntitlement
 	err1 := json.Unmarshal(entitlementOrStateJson, &ent)
