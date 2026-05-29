@@ -1365,6 +1365,15 @@ func logDidToken(tok string) {
 	log.I("ws: didtoken: expiry %s; expired? %t", fmtTime(expTime), expTime.Before(time.Now()))
 }
 
+// cfray returns the CF-Ray header value from res, or an empty string if res is nil
+// or the header is absent.
+func cfray(res *http.Response) string {
+	if res == nil {
+		return ""
+	}
+	return res.Header.Get("CF-Ray")
+}
+
 // updateDidTokenIfNeeded reads didTokenHeader from the response, logs its expiry,
 // and – when it differs from ent.DidToken – overwrites it in ent.
 func updateDidTokenIfNeeded(ent *WsEntitlement, res *http.Response) {
@@ -1420,21 +1429,23 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 	if res == nil {
 		return nil, log.EE("ws: %s: %v", op, errWsNoResponse)
 	}
+	ray := cfray(res)
+
 	if out == nil {
-		return nil, log.EE("ws: %s: out is nil", op)
+		return nil, log.EE("ws: %s: %s: out is nil", op, ray)
 	}
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, log.EE("ws: %s: read res err: %v", op, err)
+		return nil, log.EE("ws: %s: %s: read res err: %v", op, ray, err)
 	}
 
 	err = json.Unmarshal(body, out)
 	if err != nil {
-		return nil, log.EE("ws: %s: unmarshal err: %v; res: %s", op, err, truncate2k(body))
+		return nil, log.EE("ws: %s: %s: unmarshal err: %v; res: %s", op, ray, err, truncate2k(body))
 	}
 
 	if settings.Debug {
-		log.V("ws: wgconfs: %s: res json: %+v", op, out)
+		log.V("ws: wgconfs: %s: %s: res json: %+v", op, ray, out)
 	}
 
 	return out, nil
