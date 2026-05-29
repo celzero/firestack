@@ -226,6 +226,8 @@ type WsErrorResponse struct {
 	// RPN errors
 	Error   string `json:"error"`
 	Details string `json:"details,omitempty"`
+	// TODO: Ray is present in all svc responses; not just error
+	Ray string `json:"ray,omitempty"`
 }
 
 /*
@@ -1335,6 +1337,7 @@ func didAndDBHeader(req *http.Request, did, tok string, test bool) {
 	if len(tok) > 0 {
 		req.Header.Set(didTokenHeader, tok)
 	} else {
+		// if didtoken is missing, force primary db evals for cid/did
 		bmh := dbBookmarkHeader
 		if test {
 			bmh = dbBookmarkHeaderTest
@@ -1396,9 +1399,6 @@ func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 		return nil, log.EE("ws: %s: (%d) unmarshal err: %v; body: %s", op, code, err, truncate2k(body))
 	}
 
-	if len(wsErr.Error) > 0 {
-		wsErr.Msg += "/" + wsErr.Error
-	}
 	if len(wsErr.Details) > 0 {
 		if len(wsErr.Desc) > 0 {
 			wsErr.Desc += "/" + wsErr.Details
@@ -1409,8 +1409,11 @@ func wsErr2(res *http.Response, op string) (*WsErrorResponse, error) {
 	if len(wsErr.Msg) <= 0 {
 		wsErr.Msg = string(truncate2k(body))
 	}
+	if len(wsErr.Error) > 0 {
+		wsErr.Msg += " / " + wsErr.Error
+	}
 
-	return &wsErr, log.EE("ws: %s: (%d) error %d: %s; why: %s", op, code, wsErr.Code, wsErr.Msg, wsErr.Desc)
+	return &wsErr, log.EE("ws: %s: (%d) error %d: %s; ray: %s; why: %s", op, code, wsErr.Code, wsErr.Msg, wsErr.Ray, wsErr.Desc)
 }
 
 func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {

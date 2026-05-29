@@ -646,10 +646,10 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 
 				filtered := make([]netip.Addr, 0, len(ips))
 				for _, ip := range ips {
-					if network == "tcp4" && ip.Is4() {
+					if network == "tcp" || network == "tcp4" && ip.Is4() {
 						filtered = append(filtered, ip)
 					}
-					if network == "tcp6" && ip.Is6() {
+					if network == "tcp" || network == "tcp6" && ip.Is6() {
 						filtered = append(filtered, ip)
 					}
 				}
