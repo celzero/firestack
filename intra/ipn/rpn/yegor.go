@@ -2291,7 +2291,8 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	if active {
 		// sync Robert DNS filters with the desired preset configuration (best-effort; non-fatal).
 		if dnsConfig := ops.DNSConfig(); len(dnsConfig) > 0 {
-			go syncDNSFilters(h, existingEnt, newSess, dnsConfig)
+			// sync DNS filters when not performing an update (that is, creating a new config)
+			go syncDNSFilters(h, existingEnt, newSess, dnsConfig, !performingUpdate || force)
 		} // else: no-op
 
 		maybeNewServers := existingServers
@@ -2398,18 +2399,18 @@ func getDNSFilters(h *http.Client, ent *WsEntitlement, bearer string) ([]WsFilte
 	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wsgetfilterspath)
 	req, err := http.NewRequest("GET", u.String(), nil)
 	if err != nil {
-		return nil, log.EE("ws: getfilters: req err: %v", err)
+		return nil, log.EE("ws: filters: get: req err: %v", err)
 	}
 	authHeader(req, bearer)
 	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
 	if settings.Debug {
-		log.V("ws: getfilters: req: %s tok %s", u.String(), tokst)
+		log.V("ws: filters: get: req: %s tok %s", u.String(), tokst)
 	}
 
 	res, err := h.Do(req)
 	if err != nil || res == nil {
-		return nil, log.EE("ws: getfilters: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
+		return nil, log.EE("ws: filters: get: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
 	}
 	defer core.Close(res.Body)
 	updateDidTokenIfNeeded(ent, res)
@@ -2422,9 +2423,9 @@ func getDNSFilters(h *http.Client, ent *WsEntitlement, bearer string) ([]WsFilte
 		return nil, err
 	}
 	if len(out.Data.Filters) <= 0 {
-		return nil, log.EE("ws: getfilters: %v; tok? %s", errWsNoFilters, tokst)
+		return nil, log.EE("ws: filters: get: %v; tok? %s", errWsNoFilters, tokst)
 	}
-	log.I("ws: getfilters: ok (tok? %s); %d filters", tokst, len(out.Data.Filters))
+	log.I("ws: filters: get: ok (tok? %s); %d filters", tokst, len(out.Data.Filters))
 	return out.Data.Filters, nil
 }
 
@@ -2440,25 +2441,25 @@ func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, e
 	tokst := tokenState(bearer)
 	body, err := json.Marshal(WsFilterSetRequest{Filter: filterID, Status: status})
 	if err != nil {
-		return log.EE("ws: setfilter: marshal err: %v", err)
+		return log.EE("ws: filters: set: marshal err: %v", err)
 	}
 
 	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wssetfilterpath)
 	req, err := http.NewRequest("PUT", u.String(), strings.NewReader(string(body)))
 	if err != nil {
-		return log.EE("ws: setfilter: req err: %v", err)
+		return log.EE("ws: filters: set: req err: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	authHeader(req, bearer)
 	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
 	if settings.Debug {
-		log.V("ws: setfilter: %s status=%d req: %s tok %s", filterID, status, u.String(), tokst)
+		log.V("ws: filters: set: %s status=%d req: %s tok %s", filterID, status, u.String(), tokst)
 	}
 
 	res, err := h.Do(req)
 	if err != nil || res == nil {
-		return log.EE("ws: setfilter: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
+		return log.EE("ws: filters: set: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
 	}
 	defer core.Close(res.Body)
 	updateDidTokenIfNeeded(ent, res)
@@ -2471,9 +2472,9 @@ func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, e
 		return err
 	}
 	if out.Data.Success != 1 {
-		return log.EE("ws: setfilter: %s status=%d success!=1; tok? %s", filterID, status, tokst)
+		return log.EE("ws: filters: set: %s status=%d success!=1; tok? %s", filterID, status, tokst)
 	}
-	log.I("ws: setfilter: ok %s status=%d (tok? %s)", filterID, status, tokst)
+	log.I("ws: filters: set: ok %s status=%d (tok? %s)", filterID, status, tokst)
 	return nil
 }
 
@@ -2481,7 +2482,7 @@ func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, e
 // derived from dnsConfig (a csv of presets such as "family,privacy").
 // It fetches the current filter states once, then issues one PUT per filter that
 // needs to change. The call is a no-op when dnsConfig is empty.
-func syncDNSFilters(h *http.Client, ent *WsEntitlement, sess *WsSession, dnsConfig string) error {
+func syncDNSFilters(h *http.Client, ent *WsEntitlement, sess *WsSession, dnsConfig string, force bool) error {
 	if len(dnsConfig) <= 0 {
 		return nil
 	}
@@ -2493,28 +2494,27 @@ func syncDNSFilters(h *http.Client, ent *WsEntitlement, sess *WsSession, dnsConf
 		return errWsNoToken
 	}
 
+	// desired is never nil
 	desired := dnsConfigToFilters(dnsConfig)
-
+	// all is nil on errs
 	all, err := getDNSFilters(h, ent, bearer)
-	if err != nil {
-		return err
-	}
 
-	if settings.Debug {
-		log.D("ws: syncfilters: desired: %s => %v; all: %d", dnsConfig, desired, len(all))
+	loge(err)("ws: filters: sync: desired: %s => %v; all: %d; force? %t", dnsConfig, desired, len(all), force)
+	if err != nil || len(all) <= 0 {
+		return core.OneErr(err, errWsNoResponse)
 	}
 
 	errs := make([]error, 0)
 	for _, f := range all {
 		wantEnabled := desired[f.ID]
 		isEnabled := f.Status == 1
-		if wantEnabled == isEnabled {
+		if !force && wantEnabled == isEnabled {
 			continue // already in the desired state
 		}
 		if serr := setDNSFilter(h, ent, bearer, f.ID, wantEnabled); serr != nil {
-			errs = append(errs, fmt.Errorf("ws: syncfilters: %s => %t; err: %v", f.ID, wantEnabled, serr))
+			errs = append(errs, fmt.Errorf("ws: filters: sync: %s => %t; err: %v", f.ID, wantEnabled, serr))
 		} else {
-			log.I("ws: syncfilters: %s => %t (tok? %s)", f.ID, wantEnabled, tokenState(bearer))
+			log.I("ws: filters: sync: %s => %t (tok? %s / force? %t)", f.ID, wantEnabled, tokenState(bearer), force)
 		}
 	}
 	return core.JoinErr(errs...)
