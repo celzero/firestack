@@ -619,8 +619,8 @@ runagain:
 		uid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, presetIPs)
 
 	if settings.Debug || (!hasPre && (diffT1 || diffT2)) || !hasT1 {
-		smm.Extra += fmt.Sprintf(" Prefs: %s+%s over %s; Actual: %s+%s over %s",
-			pref.TIDCSV, pref.TIDSECCSV, pref.PIDCSV, id, sid, pids)
+		smm.Extra += fmt.Sprintf(" #%d Prefs: %s+%s over %s; Actual: %s+%s over %s",
+			run, pref.TIDCSV, pref.TIDSECCSV, pref.PIDCSV, id, sid, pids)
 	}
 	if len(diag) > 0 {
 		smm.Extra += "{" + diag + "}"

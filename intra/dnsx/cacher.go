@@ -422,6 +422,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			smm2.Msg = err.Error()
 			smm2.RCode = dns.RcodeBadTime
 			smm2.Status = SendFailed
+			smm2.Cached = true
 			// do not return any response (stall / drop silently)
 			return nil, err
 		}
@@ -429,6 +430,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		// fres may be nil
 		fres, cachedsmm, ferr := asResponse(q2, cachedres, fresh)
 		fillSummary(cachedsmm, smm2) // cachedsmm may itself be smm2
+		smm2.Cached = true
 
 		return fres, core.JoinErr(err, ferr)
 	}
@@ -608,6 +610,7 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 		out.DO = s.DO
 	}
 
+	out.Origin = s.Origin
 	out.ECH = s.ECH
 	out.Cached = s.Cached
 	out.RCode = s.RCode
@@ -617,6 +620,8 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	out.BlockedTarget = s.BlockedTarget
 	out.Msg = s.Msg
 	out.UpstreamBlocks = s.UpstreamBlocks
+	out.Extra = s.Extra
+	out.Region = s.Region
 }
 
 func rand33pc() bool {
