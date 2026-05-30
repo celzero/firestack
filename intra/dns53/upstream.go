@@ -23,8 +23,6 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
-
-	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
 const (

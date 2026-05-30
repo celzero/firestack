@@ -532,7 +532,6 @@ func httpclient(p Proxy, url *url.URL) (client *http.Client) {
 func every(who string, tests [][]core.WorkCtx[bool]) []core.WorkCtx[bool] {
 	all := make([]core.WorkCtx[bool], 0, len(tests))
 	for _, t := range tests {
-		t := t
 		all = append(all, func(ctx context.Context) (bool, error) {
 			okays, errs := core.All("reach.all."+who, getproxytimeout, t...)
 			// overall is false if any okays is false, or if all errs are not nil

@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -197,13 +198,7 @@ func FindUnique(s []string, n []string) (u []string) {
 	}
 
 	for _, e := range n {
-		uniq := true
-		for _, x := range s {
-			if e == x {
-				uniq = false
-				break
-			}
-		}
+		uniq := !slices.Contains(s, e)
 		if uniq {
 			u = append(u, e)
 		}
@@ -252,8 +247,8 @@ func GetBlocklistStampFromURL(rawurl string) (string, error) {
 		return "", errors.New("no path")
 	}
 	s := strings.TrimLeft(u.Path, "/")
-	i := strings.Index(s, ":") // stamps with ":" are versioned
-	if i == -1 {
+	found := strings.Contains(s, ":") // stamps with ":" are versioned
+	if !found {
 		return url.QueryEscape(s), nil
 	} else { // versioned stamps use path-escape
 		return url.PathEscape(s), nil

@@ -50,7 +50,7 @@ func (s *Scheduler) Retry(id string, t time.Time, f Job, retries uint16, multipl
 			retrierDone(errs)
 		}()
 
-		for i := uint16(0); i < retries; i++ {
+		for i := range retries {
 			select {
 			case <-retrierCtx.Done():
 				errs = JoinErr(errs, context.Cause(retrierCtx))

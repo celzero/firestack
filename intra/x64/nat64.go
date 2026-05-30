@@ -46,7 +46,7 @@ func ip6to4(prefix64 *net.IPNet, ip6 net.IP) net.IP {
 		return nil
 	}
 
-	for i := 0; i < net.IPv4len; i++ {
+	for i := range net.IPv4len {
 		i6 := startByte + i
 		// skip byte 8, datatracker.ietf.org/doc/html/rfc6052#section-2.2
 		if i6 == 8 {

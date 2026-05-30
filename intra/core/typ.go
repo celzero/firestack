@@ -9,6 +9,8 @@ package core
 import (
 	"fmt"
 	"reflect"
+
+	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
 func Loc(x any) uintptr {

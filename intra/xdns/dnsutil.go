@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -186,11 +187,8 @@ func WithTtl(msg *dns.Msg, secs uint32, typ ...uint16) (ok bool) {
 			continue
 		}
 		resetTtl := len(typ) <= 0
-		for _, t := range typ {
-			if a.Header().Rrtype == t {
-				resetTtl = true
-				break
-			}
+		if slices.Contains(typ, a.Header().Rrtype) {
+			resetTtl = true
 		}
 		if resetTtl {
 			a.Header().Ttl = secs

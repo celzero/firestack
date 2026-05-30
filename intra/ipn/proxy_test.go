@@ -145,7 +145,6 @@ func TestDot(t *testing.T) {
 	log.Output(10, xdns.Ans(ans6))
 }
 
-
 func TestProxyReaches(t *testing.T) {
 	netr := &fakeResolver{}
 	ctx := context.TODO()

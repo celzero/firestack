@@ -9,6 +9,7 @@ package ipn
 import (
 	"errors"
 	"net/netip"
+	"slices"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -76,12 +77,7 @@ func (w *GW) Reaches(hostportOrIPPortCsvStr string) bool {
 		return true
 	}
 	ips := dialers.For(hostportOrIPPortCsv)
-	for _, ip := range ips {
-		if w.ok(ip) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ips, w.ok)
 }
 
 // ProxyNoGateway is a Router that routes nothing.

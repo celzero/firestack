@@ -170,7 +170,6 @@ func Race[T any](who string, timeout time.Duration, fs ...WorkCtx[T]) (zz T, fid
 	defer cancel()
 
 	for i, f := range fs {
-		i, f := i, f
 		fid := who + ".race." + strconv.Itoa(i)
 		Gg(fid, func() {
 			out, err := f(ctx)

@@ -182,7 +182,8 @@ func (rwg *RegionalWgConf) MakeUapiConfig(creds *WsWgCreds, port string) (string
 	}
 
 	// not added: listen_port, persistent_keepalive_interval
-	conf := fmt.Sprintf(`private_key=%s
+	var conf strings.Builder
+	conf.WriteString(fmt.Sprintf(`private_key=%s
 replace_peers=true
 address=%s
 dns=%s
@@ -192,24 +193,24 @@ public_key=%s`,
 		addr4,
 		dns4,
 		toHex(peerpub),
-	)
+	))
 	if len(ipp4str) > 0 {
-		conf += "\nendpoint=" + ipp4str
+		conf.WriteString("\nendpoint=" + ipp4str)
 	}
 	if len(ipp6str) > 0 {
-		conf += "\nendpoint=" + ipp6str
+		conf.WriteString("\nendpoint=" + ipp6str)
 	}
 	if len(domstr) > 0 {
-		conf += "\nendpoint=" + domstr
+		conf.WriteString("\nendpoint=" + domstr)
 	}
 	if len(psk) > 0 {
-		conf += "\npreshared_key=" + toHex(psk)
+		conf.WriteString("\npreshared_key=" + toHex(psk))
 	}
 	for _, ip := range allowedips {
-		conf += fmt.Sprintf("\nallowed_ip=%s", ip)
+		conf.WriteString(fmt.Sprintf("\nallowed_ip=%s", ip))
 	}
 
-	return conf, true
+	return conf.String(), true
 }
 
 func changeport(endpoint, newPort string) string {

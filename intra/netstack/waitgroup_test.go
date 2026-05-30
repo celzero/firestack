@@ -38,7 +38,7 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 	var wg sync.WaitGroup
 	errors := make(chan error, 10)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -49,7 +49,7 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 			}()
 
 			// Call Wait() multiple times to increase chance of race condition
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				magicLink.Wait()
 				time.Sleep(time.Millisecond)
 			}
@@ -58,7 +58,7 @@ func TestWaitGroupRaceCondition(t *testing.T) {
 
 	// Swap endpoints multiple times while Wait() is being called
 	go func() {
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			// Create another temp file for swapping
 			tmpFile2, err := os.CreateTemp("", "test_tun2")
 			if err != nil {
@@ -135,14 +135,14 @@ func TestStackTraceScenario(t *testing.T) {
 			close(done)
 		}()
 
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			magicLink.Wait()
 			time.Sleep(time.Millisecond)
 		}
 	}()
 
 	// Concurrently perform rapid endpoint swaps
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tmpFile2, err := os.CreateTemp("", "test_tun2")
 		if err != nil {
 			continue

@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -822,7 +823,7 @@ var wsDNSPresetFilters = map[string][]string{
 // all filters; absent presets leave the set unchanged.
 func dnsConfigToFilters(dnsConfig string) map[string]bool {
 	enabled := make(map[string]bool)
-	for _, part := range strings.Split(dnsConfig, ",") {
+	for part := range strings.SplitSeq(dnsConfig, ",") {
 		preset := strings.TrimSpace(strings.ToLower(part))
 		switch preset {
 		case "none", "default", "":
@@ -1758,11 +1759,9 @@ func initAndConnectCreds(h *http.Client, existingCreds *WsWgCreds, perma bool, s
 				wsBriefPauseBeforeRetry()
 				continue
 			}
-			for _, k := range keys.Data.PubKeys {
-				if k == existingCreds.PublicKey {
-					log.I("ws: wgconfs: perma: existing key %s active (%s); reusing", trunc8(existingCreds.PublicKey), tokst)
-					return existingCreds, nil
-				}
+			if slices.Contains(keys.Data.PubKeys, existingCreds.PublicKey) {
+				log.I("ws: wgconfs: perma: existing key %s active (%s); reusing", trunc8(existingCreds.PublicKey), tokst)
+				return existingCreds, nil
 			}
 			if len(keys.Data.PubKeys) >= wsMaxPermaWgKeys {
 				force = "1" // does not yet work
@@ -2551,11 +2550,9 @@ func managedPermaCredsFn(h *http.Client, existingCreds *WsWgPermanentConfig, ent
 				wsBriefPauseBeforeRetry()
 				continue
 			}
-			for _, k := range keys.Data.PubKeys {
-				if k == existingCreds.PublicKey {
-					log.I("ws: wgconfs: perma(managed): existing key %s active (%s); reusing", trunc8(existingCreds.PublicKey), tokst)
-					return existingCreds, nil
-				}
+			if slices.Contains(keys.Data.PubKeys, existingCreds.PublicKey) {
+				log.I("ws: wgconfs: perma(managed): existing key %s active (%s); reusing", trunc8(existingCreds.PublicKey), tokst)
+				return existingCreds, nil
 			}
 			// key not found in list; fall through to generate a new remote keypair
 			log.I("ws: wgconfs: perma(managed): existing key %s missing from list_keys (%s); regenerating", trunc8(existingCreds.PublicKey), tokst)
