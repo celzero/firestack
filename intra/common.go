@@ -65,13 +65,13 @@ var immediate = time.Duration(0)
 // zeroListener is a no-op implementation of SocketListener.
 type zeroListener struct{}
 
-var _ SocketListener = (*zeroListener)(nil)
+var _ FlowListener = (*zeroListener)(nil)
 
 func (*zeroListener) Preflow(_, _ int32, _, _ string) *PreMark       { return nil }
 func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
 func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
-func (*zeroListener) PostFlow(*Mark)                                 {}
-func (*zeroListener) OnSocketClosed(*SocketSummary)                  {}
+func (*zeroListener) Flowing(*Mark)                                  {}
+func (*zeroListener) Postflow(*FlowSummary)                          {}
 
 var nooplistener = new(zeroListener)
 
@@ -81,8 +81,8 @@ type baseHandler struct {
 
 	resolver dnsx.Resolver     // dns resolver to forward queries to
 	prox     ipn.ProxyProvider // proxy provider
-	smmch    chan *SocketSummary
-	listener SocketListener // listener for socket summaries
+	smmch    chan *FlowSummary
+	listener FlowListener // listener for socket summaries
 
 	conntracker core.ConnMapper              // connid -> [local,remote]
 	fwtracker   *core.ExpMap[string, string] // uid+dst(domainOrIP) -> blockSecs
@@ -96,13 +96,13 @@ type baseHandler struct {
 
 var _ netstack.GBaseConnHandler = (*baseHandler)(nil)
 
-func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.ProxyProvider, l SocketListener) *baseHandler {
+func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.ProxyProvider, l FlowListener) *baseHandler {
 	h := &baseHandler{
 		ctx:         pctx,
 		proto:       proto,
 		resolver:    r,
 		prox:        px,
-		smmch:       make(chan *SocketSummary, smmchSize),
+		smmch:       make(chan *FlowSummary, smmchSize),
 		listener:    l,
 		fwtracker:   core.NewExpiringMap[string, string](pctx, proto+".fwtrack"),
 		conntracker: core.NewConnMap(proto + ".conntrack"),
@@ -289,7 +289,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 // remote, wired to egress, is wrapped in rwext; but the underlying conn may
 // be *net.TCPConn, *net.UDPConn, *demuxconn, or dialers.retrier|splitter etc.
 // It also sends a summary to the listener when done. Always called in a goroutine.
-func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
+func (h *baseHandler) forward(local, remote net.Conn, smm *FlowSummary) {
 	cid := smm.ID
 	uid := smm.UID
 	pid := smm.PID
@@ -330,7 +330,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *SocketSummary) {
 	h.queueSummary(smm.done(derr, uploaded.err))
 }
 
-func (h *baseHandler) queueSummary(s *SocketSummary) {
+func (h *baseHandler) queueSummary(s *FlowSummary) {
 	if s == nil {
 		return
 	}
@@ -375,7 +375,7 @@ func (h *baseHandler) processSummaries() {
 	}
 }
 
-func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
+func (h *baseHandler) sendSummary(s *FlowSummary, after time.Duration) {
 	defer core.Recover(core.DontExit, "c.sendNotif: "+s.ID)
 
 	if after > 0 {
@@ -388,7 +388,7 @@ func (h *baseHandler) sendSummary(s *SocketSummary, after time.Duration) {
 	if settings.Debug {
 		log.VV("com: %s: end? sendNotif: %s", h.proto, s)
 	}
-	h.listener.OnSocketClosed(s) // s.Duration may be uninitialized (zero)
+	h.listener.Postflow(s) // s.Duration may be uninitialized (zero)
 }
 
 // OpenConns implements netstack.GBaseConnHandler
@@ -447,7 +447,7 @@ func (h *baseHandler) isDNS(addr netip.AddrPort) bool {
 	return addr.IsValid() && h.resolver.IsDnsAddr(addr)
 }
 
-func (h *baseHandler) dnsOverride(conn net.Conn, uid string, smm *SocketSummary) bool {
+func (h *baseHandler) dnsOverride(conn net.Conn, uid string, smm *FlowSummary) bool {
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
 	// conn closed by the resolver
@@ -460,7 +460,7 @@ func (h *baseHandler) dnsOverride(conn net.Conn, uid string, smm *SocketSummary)
 		smm.Tx = tx
 		// smm.Rtt
 		// smm.Target = DNS resolver?
-		h.listener.OnSocketClosed(smm.done(errs...))
+		h.listener.Postflow(smm.done(errs...))
 	})
 	return true
 }

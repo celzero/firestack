@@ -67,7 +67,7 @@ type Bridge interface {
 // Listener receives usage statistics when a UDP or TCP socket is closed,
 // or a DNS query is completed.
 type Listener interface {
-	SocketListener
+	FlowListener
 	DNSListener
 	ServerListener
 	ProxyListener

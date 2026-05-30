@@ -118,7 +118,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer h.conntracker.Untrack(cid)
 
 	awaited := core.Await(func() {
-		h.listener.PostFlow(smm.postMark())
+		h.listener.Flowing(smm.postMark())
 	}, onFlowTimeout)
 
 	tx = len(msg)

@@ -104,7 +104,7 @@ var _ netstack.GTCPConnHandler = (*tcpHandler)(nil)
 // Connections to `fakedns` are redirected to DOH.
 // All other traffic is forwarded using `dialer`.
 // `listener` is provided with a summary of each socket when it is closed.
-func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener SocketListener) netstack.GTCPConnHandler {
+func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener FlowListener) netstack.GTCPConnHandler {
 	if listener == nil || core.IsNil(listener) {
 		log.W("tcp: using noop listener")
 		listener = nooplistener
@@ -186,7 +186,7 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 	return true
 }
 
-func (h *tcpHandler) handshakeIfNeededOrClose(gconn *netstack.GTCPConn, smm *SocketSummary) (bool, error) {
+func (h *tcpHandler) handshakeIfNeededOrClose(gconn *netstack.GTCPConn, smm *FlowSummary) (bool, error) {
 	const allow bool = true  // allowed
 	const deny bool = !allow // blocked
 
@@ -237,7 +237,7 @@ func sameFamily(a, b netip.Addr) bool {
 func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort) (open bool) {
 	const allow bool = true  // allowed
 	const deny bool = !allow // blocked
-	var smm *SocketSummary
+	var smm *FlowSummary
 	var err error
 
 	defer core.Recover(core.Exit11, "tcp.Proxy")
@@ -361,7 +361,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 }
 
 // handle connects to the target via the proxy, and pipes data between the src, target; thread-safe.
-func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target netip.AddrPort, errOnNoRoute bool, smm *SocketSummary) (cont bool, err error) {
+func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target netip.AddrPort, errOnNoRoute bool, smm *FlowSummary) (cont bool, err error) {
 	cont = true
 	stop := !cont
 	targetstr := target.String()
@@ -447,7 +447,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	}
 
 	core.Go("tcp.forward."+smm.ID, func() {
-		h.listener.PostFlow(smm.postMark())
+		h.listener.Flowing(smm.postMark())
 		h.forward(gconn, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
 		// TODO assoc if forward was successful
 		if eim {

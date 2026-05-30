@@ -72,7 +72,7 @@ var _ netstack.GUDPConnHandler = (*udpHandler)(nil)
 // `timeout` controls the effective NAT mapping lifetime.
 // `config` is used to bind new external UDP ports.
 // `listener` receives a summary about each UDP binding when it expires.
-func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener SocketListener) netstack.GUDPConnHandler {
+func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener FlowListener) netstack.GUDPConnHandler {
 	if listener == nil || core.IsNil(listener) {
 		log.W("udp: using noop listener")
 		listener = nooplistener
@@ -185,14 +185,14 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 
 	cid := smm.ID
 	core.Go("udp.forward."+cid, func() {
-		h.listener.PostFlow(smm.postMark())
+		h.listener.Flowing(smm.postMark())
 		h.forward(gconn, rwext{remote, udptimeout}, smm)
 	})
 	return true // ok
 }
 
 // Connect connects the proxy server; thread-safe.
-func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *SocketSummary, err error) {
+func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *FlowSummary, err error) {
 	mux := dmx != nil
 
 	// flow is alg/nat-aware, do not change target or any addrs
