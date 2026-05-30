@@ -186,12 +186,12 @@ type WgProxy interface {
 }
 
 // Handle implements Proxy.
-func (h *wgproxy) Handle() uintptr {
+func (h *wgproxy) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *wgproxy) DialerHandle() uintptr {
+func (h *wgproxy) DialerHandle() uint64 {
 	via, up := h.getViaWithStatus()
 	if up {
 		return via.Handle()

@@ -53,7 +53,7 @@ type transport struct {
 	proxies ipn.ProxyProvider // should never be nil
 	relay   string            // may be empty
 
-	pool    *core.MultConnPool[uintptr]
+	pool    *core.MultConnPool[uint64]
 	usepool bool
 
 	est      core.P2QuantileEstimator
@@ -105,7 +105,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		port:     do.Port(),
 		status:   core.NewVolatile(dnsx.Start),
 		lastaddr: core.NewZeroVolatile[string](),
-		pool:     core.NewMultConnPool[uintptr](ctx),
+		pool:     core.NewMultConnPool[uint64](ctx),
 		// todo: renable once we know why pooled wireguard dns conns are troublesome
 		usepool: false,
 		proxies: px,    // never nil; see above
@@ -140,7 +140,7 @@ func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn
 	return newTransport(ctx, id, do, px)
 }
 
-func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, error) {
+func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uint64, error) {
 	// dnsx.CanUseProxy may return true even when Bootstrap is System DNS
 	if t.id == dnsx.Bootstrap || t.id == dnsx.System { // bootstrap/default never be proxied
 		// never proxy dns53 transport with "bootstrap" id is a clone of dnsx.System
@@ -182,7 +182,7 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uintptr, err
 }
 
 // toPool takes ownership of c.
-func (t *transport) toPool(id uintptr, c *dns.Conn) {
+func (t *transport) toPool(id uint64, c *dns.Conn) {
 	if !t.usepool || id == core.Nobody {
 		clos(c)
 		return
@@ -192,7 +192,7 @@ func (t *transport) toPool(id uintptr, c *dns.Conn) {
 }
 
 // fromPool returns a conn from the pool, if available.
-func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
+func (t *transport) fromPool(id uint64) (c *dns.Conn) {
 	if !t.usepool || id == core.Nobody {
 		return
 	}
@@ -212,7 +212,7 @@ func (t *transport) fromPool(id uintptr) (c *dns.Conn) {
 	return
 }
 
-func (t *transport) connect(network, pid string) (conn *dns.Conn, rpid string, who uintptr, err error) {
+func (t *transport) connect(network, pid string) (conn *dns.Conn, rpid string, who uint64, err error) {
 	useudp := network == dnsx.NetTypeUDP
 	userelay := len(t.relay) > 0
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block

@@ -47,7 +47,7 @@ type dot struct {
 	relay         string            // may be empty
 	skipTLSVerify bool
 
-	pool    *core.MultConnPool[uintptr]
+	pool    *core.MultConnPool[uint64]
 	usepool bool
 
 	echconfig      *core.Volatile[*tls.Config] // echconfig for the endpoint; may be nil
@@ -106,7 +106,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		status:         core.NewVolatile(x.Start),
 		proxies:        px,
 		relay:          relay,
-		pool:           core.NewMultConnPool[uintptr](ctx),
+		pool:           core.NewMultConnPool[uint64](ctx),
 		usepool:        usepool,
 		est:            core.NewP50Estimator(ctx),
 		echconfig:      core.NewZeroVolatile[*tls.Config](),
@@ -168,7 +168,7 @@ func (t *dot) doQuery(pid string, q *dns.Msg) (response *dns.Msg, rpid string, e
 	return
 }
 
-func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uintptr, usingech bool, err error) {
+func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uint64, usingech bool, err error) {
 	who = p.Handle()
 
 	defer func() {
@@ -213,7 +213,7 @@ func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uintptr, usingech bool, er
 	return nil, who, false, err
 }
 
-func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, bool, error) {
+func (t *dot) pxdial(pid string) (*dns.Conn, string, uint64, bool, error) {
 	var px ipn.Proxy
 	if len(t.relay) > 0 { // relay takes precedence
 		pid = t.relay
@@ -239,7 +239,7 @@ func (t *dot) pxdial(pid string) (*dns.Conn, string, uintptr, bool, error) {
 }
 
 // toPool takes ownership of c.
-func (t *dot) toPool(id uintptr, c *dns.Conn) {
+func (t *dot) toPool(id uint64, c *dns.Conn) {
 	if !t.usepool || id == core.Nobody {
 		clos(c)
 		return
@@ -249,7 +249,7 @@ func (t *dot) toPool(id uintptr, c *dns.Conn) {
 }
 
 // fromPool returns a conn from the pool, if available.
-func (t *dot) fromPool(id uintptr) (c *dns.Conn) {
+func (t *dot) fromPool(id uint64) (c *dns.Conn) {
 	if !t.usepool || id == core.Nobody {
 		return
 	}
@@ -281,7 +281,7 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, ec
 	}
 
 	var conn *dns.Conn
-	var who uintptr
+	who := core.Nobody
 	userelay := len(t.relay) > 0
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Block
 	if useproxy || userelay { // ref dns.Client.Dial

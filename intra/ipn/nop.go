@@ -152,8 +152,8 @@ type NoProxy struct {
 	GWNoVia
 }
 
-func (NoProxy) Handle() uintptr                                       { return core.Nobody }
-func (NoProxy) DialerHandle() uintptr                                 { return core.Nobody }
+func (NoProxy) Handle() uint64                                        { return core.Nobody }
+func (NoProxy) DialerHandle() uint64                                  { return core.Nobody }
 func (NoProxy) ID() string                                            { return "" }
 func (NoProxy) Type() string                                          { return "" }
 func (NoProxy) Router() x.Router                                      { return nil }

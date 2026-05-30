@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
@@ -56,8 +57,8 @@ func (f *fakeProxy) Probe(string, string) (protect.PacketConn, error) {
 	return nil, errProbeNotSupported
 }
 func (f *fakeProxy) Dialer() protect.RDialer                { return f }
-func (f *fakeProxy) DialerHandle() uintptr                  { return 0 }
-func (f *fakeProxy) Handle() uintptr                        { return 0 }
+func (f *fakeProxy) DialerHandle() uint64                   { return core.Nobody }
+func (f *fakeProxy) Handle() uint64                         { return core.Nobody }
 func (f *fakeProxy) ID() string                             { return f.id }
 func (f *fakeProxy) Type() string                           { return NOOP }
 func (f *fakeProxy) Router() x.Router                       { return &GWNoVia{} }

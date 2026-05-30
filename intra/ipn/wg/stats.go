@@ -35,7 +35,7 @@ var (
 
 	baTtl    = 30 * time.Second
 	baNegTtl = 2 * time.Second
-	ba       = core.NewBarrier2[*ifstats, uintptr](context.TODO(), "wg.s.bar", baTtl, baNegTtl)
+	ba       = core.NewBarrier2[*ifstats, uint64](context.TODO(), "wg.s.bar", baTtl, baNegTtl)
 )
 
 // peerstats represents the statistics for a peer.
@@ -136,7 +136,7 @@ func (s *ifstats) LatestRecentHandshake() int64 {
 	return least
 }
 
-func ReadStats(who string, id uintptr, cfn core.Work[string]) *ifstats {
+func ReadStats(who string, id uint64, cfn core.Work[string]) *ifstats {
 	v, err := ba.DoIt(id, func() (*ifstats, error) {
 		cfg, err := cfn()
 		if err != nil || len(cfg) <= 0 {

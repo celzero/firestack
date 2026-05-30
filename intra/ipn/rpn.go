@@ -174,12 +174,12 @@ func (r *rpnp) Refresh() error {
 }
 
 // DialerHandle implements Proxy.
-func (r *rpnp) DialerHandle() uintptr {
+func (r *rpnp) DialerHandle() uint64 {
 	return r.ensureProxy().DialerHandle()
 }
 
 // Handle implements Proxy.
-func (r *rpnp) Handle() uintptr {
+func (r *rpnp) Handle() uint64 {
 	return r.ensureProxy().Handle()
 }
 

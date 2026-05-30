@@ -74,12 +74,12 @@ func (h *base) swapVia(new Proxy) (old Proxy) {
 }
 
 // Handle implements Proxy.
-func (h *base) Handle() uintptr {
+func (h *base) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *base) DialerHandle() uintptr {
+func (h *base) DialerHandle() uint64 {
 	return core.Loc(h.outbound)
 }
 

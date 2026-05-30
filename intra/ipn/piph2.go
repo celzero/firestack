@@ -376,12 +376,12 @@ func (t *piph2) claim(msg string) []string {
 }
 
 // Handle implements Proxy.
-func (t *piph2) Handle() uintptr {
+func (t *piph2) Handle() uint64 {
 	return core.Loc(t)
 }
 
 // DialerHandle implements Proxy.
-func (t *piph2) DialerHandle() uintptr {
+func (t *piph2) DialerHandle() uint64 {
 	return core.Loc(t.outbound)
 }
 

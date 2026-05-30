@@ -95,12 +95,12 @@ func (h *http1) swapVia(new Proxy) Proxy {
 }
 
 // Handle implements Proxy.
-func (h *http1) Handle() uintptr {
+func (h *http1) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *http1) DialerHandle() uintptr {
+func (h *http1) DialerHandle() uint64 {
 	return core.Loc(h.outbound)
 }
 

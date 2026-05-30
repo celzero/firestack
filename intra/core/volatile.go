@@ -72,7 +72,7 @@ func (a *Volatile[T]) safeStore(old, new T) {
 	// old may be a diff concrete type than new
 	if IsNil(old) || !TypeEq(old, new) {
 		*a = *NewZeroVolatile[T]()
-	} else if LocEq(old, new) {
+	} else if loceq(old, new) {
 		return // old is same as new; no-op
 	}
 	aa := (*atomic.Value)(a)
@@ -90,7 +90,7 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 		*a = *NewZeroVolatile[T]()
 		return true
 	}
-	if !TypeEq(old, new) || LocEq(old, new) {
+	if !TypeEq(old, new) || loceq(old, new) {
 		return
 	}
 
@@ -112,7 +112,7 @@ func (a *Volatile[T]) Swap(new T) (old T) {
 		*a = *NewZeroVolatile[T]()
 		return
 	}
-	if LocEq(old, new) {
+	if loceq(old, new) {
 		return old
 	}
 

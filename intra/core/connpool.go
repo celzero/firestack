@@ -28,7 +28,7 @@ import (
 const pooluseread = false                 // never used; for documentation only
 const poolcapacity = 8                    // default capacity
 const poolmaxattempts = poolcapacity / 2  // max attempts to retrieve a conn from pool
-const Nobody = uintptr(0)                 // nobody
+const Nobody = uint64(0)                  // nobody
 const poolmaxidle = 8 * time.Minute       // close unused pooled conns after this period
 const poolfreshttl = 1 * time.Minute      // considered fresh if less than this period
 const poolscrubinterval = poolmaxidle / 3 // interval between subsequent scrubs

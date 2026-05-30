@@ -62,12 +62,12 @@ func NewExit64Proxy(ctx context.Context, c protect.Controller) *exit64 {
 }
 
 // Handle implements Proxy.
-func (h *exit64) Handle() uintptr {
+func (h *exit64) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *exit64) DialerHandle() uintptr {
+func (h *exit64) DialerHandle() uint64 {
 	return core.Loc(h.outbound)
 }
 

@@ -69,12 +69,12 @@ func newExitProxy(id, addr string, ctx context.Context, c protect.Controller) *e
 }
 
 // Handle implements Proxy.
-func (h *exit) Handle() uintptr {
+func (h *exit) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *exit) DialerHandle() uintptr {
+func (h *exit) DialerHandle() uint64 {
 	return core.Loc(h.outbound)
 }
 

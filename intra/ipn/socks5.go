@@ -189,12 +189,12 @@ func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
 }
 
 // Handle implements Proxy.
-func (h *socks5) Handle() uintptr {
+func (h *socks5) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *socks5) DialerHandle() uintptr {
+func (h *socks5) DialerHandle() uint64 {
 	return core.Loc(h.d)
 }
 

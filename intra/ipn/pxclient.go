@@ -65,7 +65,7 @@ const (
 )
 
 type ipmeta struct {
-	id uintptr
+	id uint64
 	*x.IPMetadata
 }
 

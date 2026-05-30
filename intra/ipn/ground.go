@@ -35,12 +35,12 @@ func NewGroundProxy() *ground {
 }
 
 // Handle implements Proxy.
-func (h *ground) Handle() uintptr {
+func (h *ground) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *ground) DialerHandle() uintptr {
+func (h *ground) DialerHandle() uint64 {
 	return h.Handle()
 }
 

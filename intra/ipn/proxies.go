@@ -173,9 +173,9 @@ type Proxy interface {
 	// DialerHandle uniquely identifies the concrete type backing this proxy's dialer.
 	// Useful as a phantom reference to this dialer.
 	// github.com/hashicorp/terraform/blob/325d18262/internal/configs/configschema/decoder_spec.go#L32
-	DialerHandle() uintptr
+	DialerHandle() uint64
 	// Handle uniquely identifies the concrete type backing this proxy.
-	Handle() uintptr
+	Handle() uint64
 	// Dialer returns the dialer for this proxy, which is an
 	// adapter for protect.RDialer interface, but with the caveat that
 	// not all Proxy instances implement DialTCP and DialUDP, though are

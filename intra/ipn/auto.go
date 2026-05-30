@@ -70,12 +70,12 @@ func (h *auto) swapVia(new Proxy) Proxy {
 }
 
 // Handle implements Proxy.
-func (h *auto) Handle() uintptr {
+func (h *auto) Handle() uint64 {
 	return core.Loc(h)
 }
 
 // DialerHandle implements Proxy.
-func (h *auto) DialerHandle() (mix uintptr) {
+func (h *auto) DialerHandle() (mix uint64) {
 	remoteOnly := settings.AutoAlwaysRemote()
 	if !remoteOnly {
 		if exit, _ := h.pxr.ProxyFor(Exit); exit != nil {

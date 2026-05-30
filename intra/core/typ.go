@@ -8,26 +8,41 @@ package core
 
 import (
 	"fmt"
+	"hash/maphash"
+	"math/rand/v2"
 	"reflect"
 
 	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
-func Loc(x any) uintptr {
+// locxor is a per-process random constant XOR'd into every address returned
+// by Loc / LocStr so that raw heap pointers are not exposed to callers.
+var locxor = rand.Uint64()
+
+var loc2seed = maphash.MakeSeed()
+
+func loc(x any) uint64 {
 	if x == nil {
 		return 0
 	}
 	v := reflect.ValueOf(x)
 	k := v.Kind()
+	if v.Comparable() {
+		return Loc(x)
+	}
 	switch k {
 	// [Chan], [Func], [Map], [Pointer], [Slice], [String] or [UnsafePointer]
 	case reflect.Pointer, reflect.UnsafePointer, reflect.String, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
-		return v.Pointer()
+		return uint64(v.Pointer()) ^ locxor
 	}
 	return 0
 }
 
-func LocStr(x any) string {
+func Loc[T comparable](x T) uint64 {
+	return maphash.Comparable(loc2seed, x)
+}
+
+func LocStr[T comparable](x T) string {
 	return fmt.Sprintf("%x", Loc(x))
 }
 
@@ -62,10 +77,14 @@ func TypeEq(a, b any) bool {
 	return reflect.TypeOf(a) == reflect.TypeOf(b)
 }
 
-func LocEq(a, b any) bool {
-	loca := Loc(a)
-	locb := Loc(b)
+func loceq(a, b any) bool {
+	loca := loc(a)
+	locb := loc(b)
 	return loca > 0 && locb > 0 && loca == locb
+}
+
+func LocEq[T comparable](a, b T) bool {
+	return Loc(a) == Loc(b)
 }
 
 func IsZero(x any) bool {
