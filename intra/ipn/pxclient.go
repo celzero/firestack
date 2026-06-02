@@ -249,7 +249,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 
 	log.VV("proxy: client: %s fetching windscribe via %s...", idstr(p), network)
 
-	client := httpClient(p, network)
+	client := httpClient(p, network, httpTimeout)
 	resp, err := client.Do(req)
 	if resp == nil {
 		return nil, core.OneErr(err, errors.New("proxy: client: windscribe nil response"))
@@ -560,7 +560,7 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	log.VV("proxy: client: %s fetching %s via %s...", idstr(p), rawurl, network)
 
 	// TODO: pool clients
-	client := httpClient(p, network)
+	client := httpClient(p, network, httpTimeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -584,11 +584,11 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	return data, nil
 }
 
-func HttpClient(p Proxy, network string) *http.Client {
-	return httpClient(p, network)
+func HttpClient(p Proxy, network string, timeout time.Duration) *http.Client {
+	return httpClient(p, network, timeout)
 }
 
-func httpClient(p Proxy, network string) *http.Client {
+func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout: httpTimeout,
 		Transport: &http.Transport{
@@ -628,10 +628,10 @@ func httpClient(p Proxy, network string) *http.Client {
 
 				filtered := make([]netip.Addr, 0, len(ips))
 				for _, ip := range ips {
-					if network == "tcp" || network == "tcp4" && ip.Is4() {
+					if (network == "udp" || network == "udp6" || network == "tcp" || network == "tcp4") && ip.Is4() {
 						filtered = append(filtered, ip)
 					}
-					if network == "tcp" || network == "tcp6" && ip.Is6() {
+					if (network == "udp" || network == "udp6" || network == "tcp" || network == "tcp6") && ip.Is6() {
 						filtered = append(filtered, ip)
 					}
 				}
