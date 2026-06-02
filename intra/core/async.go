@@ -133,6 +133,34 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 	return zz, false
 }
 
+// Gre runs work function f in a goroutine, blocking until it returns or ctx is done.
+func Gre[T any](who string, f Work[T], ctx context.Context) (zz T, err error, completed bool) {
+	type res struct {
+		t   T
+		err error
+	}
+	ch := make(chan *res, 1) // non-blocking
+
+	// go.dev/play/p/VtWYJrxhXz6
+	go func() {
+		debug.SetPanicOnFault(true)
+		defer Recover(Exit11, who)
+		defer close(ch)
+		untrack := trackwork(who, "grx2")
+		defer untrack()
+
+		t, err := f() // TODO: log error?
+		ch <- &res{t, err}
+	}()
+
+	select {
+	case out := <-ch:
+		return out.t, out.err, true
+	case <-ctx.Done(): // timeout or cancellation
+		return zz, ctx.Err(), false
+	}
+}
+
 // Gxe runs f in a goroutine, ignores returned error, and exits on panics.
 func Gxe(who string, f func() error) {
 	go func() {
