@@ -1664,7 +1664,9 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		return
 	}
 
-	if s == TUP && op != wg.Opn { // ignore all else but open
+	if s == TUP && (op == wg.Con || op == wg.Drp) {
+		// ignore dials (con) and packet drop (drp) updates;
+		// instead wait for opn/snd/rcv etc from wgconn
 		h.statusReason.Store("TUP: waiting to connect")
 		return
 	}
