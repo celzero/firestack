@@ -27,9 +27,6 @@ func loc(x any) uint64 {
 	}
 	v := reflect.ValueOf(x)
 	k := v.Kind()
-	if v.Comparable() {
-		return Loc(x)
-	}
 	switch k {
 	// [Chan], [Func], [Map], [Pointer], [Slice], [String] or [UnsafePointer]
 	case reflect.Pointer, reflect.UnsafePointer, reflect.String, reflect.Chan, reflect.Func, reflect.Map, reflect.Slice:
