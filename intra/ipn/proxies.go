@@ -1005,12 +1005,12 @@ func (px *proxifier) stopProxies() {
 		})
 	}
 	clear(px.p)
-	px.staller.Clear()
-	px.ipPins.Clear()
-	px.uidPins.Clear()
+	sn := px.staller.Clear()
+	in := px.ipPins.Clear()
+	un := px.uidPins.Clear()
 
 	core.Go("pxr.onStop", func() { px.obs.OnProxiesStopped() })
-	log.I("proxy: stopped and removed %d+%d", n, l)
+	log.I("proxy: removed: %d+%d; stall: %d; pins: %d+%d", n, l, sn, in, un)
 }
 
 // RefreshProxies implements x.Proxies.
