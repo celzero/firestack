@@ -1675,13 +1675,13 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 
 	defer func() {
 		h.statusReason.Store(why)
-		updated := cur != s
+		updatedlatest := cur == s // cur is same as s, so h.status is already updated to latest
 		ended = s == END
-		if !updated {
-			updated = h.status.Cas(cur, s)
+		if !updatedlatest {
+			updatedlatest = h.status.Cas(cur, s)
 		}
-		logeif(!updated)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",
-			h.tag(), op, pxstatus(cur), pxstatus(s), cur != s, !updated, why)
+		logeif(!updatedlatest)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",
+			h.tag(), op, pxstatus(cur), pxstatus(s), cur != s, !updatedlatest, why)
 	}()
 
 	if op == wg.Clo {
