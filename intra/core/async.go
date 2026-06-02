@@ -27,7 +27,7 @@ func ActiveWorkers() []WorkersState {
 }
 
 // Go runs f in a goroutine and recovers from any panics.
-func Go(who string, f func()) {
+func Go(who string, f Callback) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
@@ -64,7 +64,7 @@ func Go2[T0 any, T1 any](who string, f func(T0, T1), a0 T0, a1 T1) {
 
 // Gg runs f in a goroutine, recovers from any panics if any;
 // then calls cb in a separate goroutine, and recovers from any panics.
-func Gg(who string, f func(), cb func()) {
+func Gg(who string, f Callback, cb Finally) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer RecoverFn(who, cb)
@@ -76,7 +76,7 @@ func Gg(who string, f func(), cb func()) {
 }
 
 // Gx runs f in a goroutine and exits the process if f panics.
-func Gx(who string, f func()) {
+func Gx(who string, f Callback) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(Exit11, who)
@@ -100,7 +100,7 @@ func Gx1[T any](who string, f func(T), arg T) {
 }
 
 // Gif runs f in a goroutine if cond is true.
-func Gif(cond bool, who string, f func()) {
+func Gif(cond bool, who string, f Callback) {
 	if cond {
 		Go(who, f)
 	}
