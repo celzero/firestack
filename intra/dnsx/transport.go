@@ -1502,6 +1502,10 @@ func isAnyDefault(ids ...string) bool {
 	return isTransportID(Default, ids...)
 }
 
+// CanUseProxy returns true if transport with id can be safely proxied over another network.
+// For example, Goos, Local, System cannot be. Preset is a transport that needn't be.
+// Default and Bootstrap can be proxied if they are not mapped to System/Goos, or
+// if proxying is allowed (via setting) for Default.
 func CanUseProxy(id string) bool {
 	switch id {
 	case Goos, CT + Goos, Local, CT + Local, System, CT + System:

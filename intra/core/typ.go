@@ -38,6 +38,7 @@ func loc(x any) uint64 {
 	return 0
 }
 
+// go.dev/play/p/jjI4XJZud4i
 func Loc[T comparable](x T) uint64 {
 	return maphash.Comparable(loc2seed, x)
 }

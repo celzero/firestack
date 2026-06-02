@@ -192,15 +192,16 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 		newtraceback = usr.s()
 	}
 	didSet, overwrote, _ := core.SetRuntimeEnviron("GOTRACEBACK", newtraceback)
-	debug.SetTraceback(newtraceback)
 	curtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
 
+	gotraceenv := core.RuntimeResetTracebackEnv()
 	core.RuntimeFinishDebugVarsSetup()
+	debug.SetTraceback(newtraceback) // always call this after finishdbeugvars
 
 	gotracelevel, gotraceall, gotracecrash := core.RuntimeGotraceback()
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback: %s => %s => %s (l: %d / a? %t / c? %t) | set? %t / overwrote? %t; sm? %t; args: %v",
-		dlvl, clvl, dbg, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, didSet, overwrote, prevsm, os.Args)
+	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback (%d): %s => %s => %s (l: %d / a? %t / c? %t) | set? %t / overwrote? %t; sm? %t; args: %v",
+		dlvl, clvl, dbg, gotraceenv, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, didSet, overwrote, prevsm, os.Args)
 }
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,

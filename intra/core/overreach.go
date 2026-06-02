@@ -19,6 +19,9 @@ import (
 //go:linkname secureMode runtime.secureMode
 var secureMode bool
 
+//go:linkname traceback_env runtime.traceback_env
+var traceback_env uint32
+
 func init() {
 	// github.com/golang/go/issues/69868
 	// Unfortunately, Android apps have AT_SECURE set
@@ -106,6 +109,23 @@ func GetRuntimeEnviron(key string) (val string, found bool) {
 // github.com/golang/go/blob/e2fef50def98/src/runtime/write_err_android.go#L39
 func RuntimeWtf(s string) {
 	runtime_wtf([]byte(s))
+}
+
+// traceback_env is the floor value that setTraceback ORs into every call:
+// traceback_env = traceback_cache after finishDebugVarsSetup, so it
+// encodes whatever level+crash bits were in force at that point.
+// This makes traceback a one-way ratchet: once the level goes up (e.g.
+// to "system"), t |= traceback_env prevents it from ever coming back
+// down via a subsequent debug.SetTraceback("single") call.
+// Zeroing it before setTraceback / finishDebugVarsSetup breaks the
+// ratchet so the level can be raised or lowered freely.
+// Must be called before RuntimeFinishDebugVarsSetup / debug.SetTraceback
+// when a lower level than the previously-set one is desired.
+// github.com/golang/go/blob/fed3b0a298/src/runtime/runtime1.go#L27
+func RuntimeResetTracebackEnv() (prev uint32) {
+	prev = traceback_env
+	traceback_env = 0
+	return prev
 }
 
 //go:linkname runtime_environ runtime.environ
