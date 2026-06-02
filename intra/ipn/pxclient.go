@@ -18,7 +18,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -237,11 +236,6 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 		return nil, errors.New("testing: windscribe skipped")
 	}
 
-	parsed, err := url.Parse(wsGeoURL)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 
@@ -255,7 +249,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 
 	log.VV("proxy: client: %s fetching windscribe via %s...", idstr(p), network)
 
-	client := httpClient(p, network, parsed)
+	client := httpClient(p, network)
 	resp, err := client.Do(req)
 	if resp == nil {
 		return nil, core.OneErr(err, errors.New("proxy: client: windscribe nil response"))
@@ -555,11 +549,6 @@ func applyMullvad(meta *x.IPMetadata, resp *mullvadResp) {
 }
 
 func fetch(p Proxy, network, rawurl string) ([]byte, error) {
-	parsed, err := url.Parse(rawurl)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 
@@ -571,7 +560,7 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	log.VV("proxy: client: %s fetching %s via %s...", idstr(p), rawurl, network)
 
 	// TODO: pool clients
-	client := httpClient(p, network, parsed)
+	client := httpClient(p, network)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -595,7 +584,11 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	return data, nil
 }
 
-func httpClient(p Proxy, network string, u *url.URL) *http.Client {
+func HttpClient(p Proxy, network string) *http.Client {
+	return httpClient(p, network)
+}
+
+func httpClient(p Proxy, network string) *http.Client {
 	return &http.Client{
 		Timeout: httpTimeout,
 		Transport: &http.Transport{
@@ -606,23 +599,12 @@ func httpClient(p Proxy, network string, u *url.URL) *http.Client {
 				}
 
 				if port == "" {
-					switch {
-					case u.Port() != "":
-						port = u.Port()
-					case u.Scheme == "https":
-						port = "443"
-					default:
-						port = "80"
-					}
+					return nil, fmt.Errorf("proxy: client: cannot determine port from addr %q", addr)
 				}
 
-				on, _ := strconv.Atoi(port)
-				if on <= 0 {
-					if u.Scheme == "https" {
-						on = 443
-					} else {
-						on = 80
-					}
+				on, err := strconv.Atoi(port)
+				if err != nil || on <= 0 {
+					return nil, fmt.Errorf("proxy: client: invalid port %q in addr %q", port, addr)
 				}
 
 				// use preferred when proxy does not have dns
