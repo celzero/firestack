@@ -584,6 +584,7 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	return data, nil
 }
 
+// Exported for testing only.
 func HttpClient(p Proxy, network string, timeout time.Duration) *http.Client {
 	return httpClient(p, network, timeout)
 }
@@ -599,12 +600,12 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 				}
 
 				if port == "" {
-					return nil, fmt.Errorf("proxy: client: cannot determine port from addr %q", addr)
+					return nil, log.EE("proxy: client: no port in %q", addr)
 				}
 
 				on, err := strconv.Atoi(port)
 				if err != nil || on <= 0 {
-					return nil, fmt.Errorf("proxy: client: invalid port %q in addr %q", port, addr)
+					return nil, log.EE("proxy: client: invalid port %q in %q", port, addr)
 				}
 
 				// use preferred when proxy does not have dns
