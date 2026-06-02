@@ -22,6 +22,8 @@ import (
 
 type Finally func()
 
+type Callback = Finally
+
 type ExitCode int
 
 func (e ExitCode) int() int {

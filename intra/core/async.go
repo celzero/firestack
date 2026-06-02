@@ -27,7 +27,7 @@ func ActiveWorkers() []WorkersState {
 }
 
 // Go runs f in a goroutine and recovers from any panics.
-func Go(who string, f Callback) {
+func Go(who string, f Finally) {
 	go func() {
 		debug.SetPanicOnFault(true)
 		defer Recover(DontExit, who)
