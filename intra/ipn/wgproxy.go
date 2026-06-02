@@ -187,7 +187,7 @@ type WgProxy interface {
 
 // Handle implements Proxy.
 func (h *wgproxy) Handle() uint64 {
-	return core.Loc(h)
+	return core.Loc(h.Device)
 }
 
 // DialerHandle implements Proxy.
