@@ -1675,7 +1675,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 
 	defer func() {
 		h.statusReason.Store(why)
-		updated := cur == s
+		updated := cur != s
 		ended = s == END
 		if !updated {
 			updated = h.status.Cas(cur, s)
