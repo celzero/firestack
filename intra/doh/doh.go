@@ -292,22 +292,11 @@ func (t *transport) echVerifyFn() func(tls.ConnectionState) error {
 }
 
 func asDialContext(d protect.DialFn) func(context.Context, string, string) (net.Conn, error) {
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		type r struct {
-			c   net.Conn
-			err error
-		}
-		ch := make(chan r, 1)
-		go func() {
-			c, err := d(network, addr)
-			ch <- r{c, err}
-		}()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case r := <-ch:
-			return r.c, r.err
-		}
+	return func(ctx context.Context, network, addr string) (c net.Conn, err error) {
+		c, err, _ = core.Gre("doh.dialctx", func() (net.Conn, error) {
+			return d(network, addr)
+		}, ctx)
+		return
 	}
 }
 
