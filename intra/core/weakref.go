@@ -26,6 +26,7 @@ type WeakRef[V any] struct {
 	test  vtest[V]
 }
 
+// unsafe type conversion: github.com/golang/go/issues/71583
 func NewWeakRef[V any](creat vfactory[V], test vtest[V]) (*WeakRef[V], error) {
 	if creat == nil {
 		return nil, errNoCreat

@@ -37,6 +37,9 @@ func loc(x any) uint64 {
 
 // go.dev/play/p/jjI4XJZud4i
 func Loc[T comparable](x T) uint64 {
+	// maphash will be compatible with moving gc
+	// and is compatible with moving goroutine stacks
+	// github.com/golang/go/issues/54670#issuecomment-2025642730
 	return maphash.Comparable(loc2seed, x)
 }
 
