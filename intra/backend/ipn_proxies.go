@@ -362,6 +362,7 @@ type Client interface {
 	// TODO: Fetch(method, url, headers, body) (status, headers, body, err)
 }
 
+// TODO: use type, handler uint64
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
