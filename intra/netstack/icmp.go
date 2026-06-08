@@ -527,8 +527,8 @@ func l4l7(pkt *stack.PacketBuffer, sz uint32) ([]byte, error) {
 		return nil, err
 	}
 	l7 := pkt.Data().ToBuffer()
-	din.Merge(&l7) // l4 + l7
-	return din.Flatten(), nil
+	din.Merge(&l7)            // l4 + l7
+	return din.Flatten(), nil // flatten is expensive
 }
 
 func l3l4(pkt *stack.PacketBuffer, sz int64) (b buffer.Buffer, err error) {
