@@ -132,5 +132,5 @@ func (a *Volatile[T]) Tango(new T) (old T) {
 
 	defer a.safeStore(old, new)
 
-	return a.safeLoad()
+	return a.safeLoad() // also populates old
 }
