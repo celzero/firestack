@@ -44,7 +44,7 @@ func newSink(pctx context.Context) *pcapsink {
 	core.Go("pcap.w", func() { p.writeAsync() })
 	context.AfterFunc(ctx, func() {
 		defer close(p.inC) // signal writeAsync to exit
-		p.recycle()
+		p.recycle()        // never recycled, but reset the state
 	})
 	return p
 }
@@ -82,7 +82,7 @@ func (p *pcapsink) recycle() error {
 }
 
 func (p *pcapsink) Close() error {
-	p.done()
+	p.done() // calls recycle() which closes any open file sinks
 	return nil
 }
 
