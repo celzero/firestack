@@ -103,6 +103,7 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 	i := 0
 
 	defer func() {
+		t.done() // cancel current context, if not already done
 		log.I("tun: waiter: done; #%d, %s", i, core.FmtTimeAsPeriod(waitStart))
 	}()
 
