@@ -301,6 +301,7 @@ func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt 
 func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	if l.doPCAP() {
 		for _, pkt := range pkts.AsSlice() {
+			// TODO? pkt.DecRef()
 			if pkt != nil { // nilaway
 				l.DumpPacket(DirectionSend, pkt.NetworkProtocolNumber, pkt)
 			}

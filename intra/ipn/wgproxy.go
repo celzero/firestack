@@ -118,8 +118,7 @@ type wgtun struct {
 
 	// mutable fields
 
-	via    *core.WeakRef[Proxy]
-	viaID  *core.Volatile[string]
+	via    *core.Volatile[*core.WeakRef[Proxy]]
 	viaUp  *core.Volatile[bool] // using via?
 	direct protect.RDialer
 
@@ -833,16 +832,11 @@ func (t *wgtun) setupReverserIfNeeded(set bool) (didSet bool) {
 	return false
 }
 
-func (w *wgtun) swapVia(new Proxy) (old Proxy) {
-	return swapVia(w.who(), new, w.viaID, w.via)
-}
-
-func (w *wgtun) viafor() *Proxy {
-	return viafor(w.who(), w.viaID.Load(), w.px)
-}
-
 func (w *wgtun) getVia() (v Proxy) {
-	return w.via.Load()
+	if ref := w.via.Load(); ref != nil {
+		return ref.Load()
+	}
+	return nil
 }
 
 func (w *wgtun) getViaWithStatus() (v Proxy, up bool) {
@@ -877,11 +871,7 @@ func (w *wgtun) viaStatus() (s string) {
 			s += "/down"
 		}
 	} else {
-		if vid = w.viaID.Load(); len(vid) > 0 {
-			s += vid + "/mia"
-		} else {
-			s += "novia/zz"
-		}
+		s += "novia/zz"
 	}
 	return s
 }
@@ -932,8 +922,8 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		finalize:      make(chan struct{}), // always unbuffered
 		direct:        protect.MakeNsRDial(id, ctx, ctl),
 		px:            px,
-		viaID:         core.NewZeroVolatile[string](),
 		viaUp:         core.NewZeroVolatile[bool](),
+		via:           core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 		dns:           core.NewVolatile(ifopts.dns),
 		rev:           core.NewVolatile(lp.rev),
 		remote:        core.NewVolatile(ifopts.eps), // may be nil
@@ -950,15 +940,6 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	t.desiredmtu.Store(uint32(ifopts.mtu))
 	t.netmtu.Store(uint32(lp.mtu))
 	t.allowedIPs(ifopts.allowed)
-
-	if viaref, verr := core.NewWeakRef(t.viafor, viaok); verr != nil {
-		done()
-		ep.Close()
-		s.Destroy()
-		return nil, fmt.Errorf("wg: %s create tun (via ref): %v", t.id, verr)
-	} else {
-		t.via = viaref
-	}
 
 	// TODO: wgnic := s.NextNICID()
 	// see WriteNotify below
@@ -1208,7 +1189,7 @@ func (tun *wgtun) Close() error {
 		}
 		close(tun.ingress)
 
-		tun.viaID.Store(noviaid) // via is nil
+		tun.via.Store(nil) // via is nil
 		tun.viaUp.Store(false)
 
 		// github.com/tailscale/tailscale/blob/836f932e/wgengine/netstack/netstack.go#L223
@@ -1409,20 +1390,23 @@ func (h *wgproxy) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
-	var old Proxy
+func (h *wgproxy) Hop(via *core.WeakRef[Proxy], dryrun bool) (err error) {
+	var viaPx Proxy
+	var viaok bool
+	var old *core.WeakRef[Proxy]
 
 	defer func() {
 		if dryrun {
 			return
 		}
 
-		log.I("wg: %s hop: old(%s) => new(%s); err? %v",
-			h.id, idhandle(old), idhandle(via), err)
-
-		if Same(old, via) {
+		if Same(old.Load(), viaPx) {
+			log.I("wg: %s hop: via-ref unchanged; no refresh needed", h.id)
 			return
 		}
+
+		logei(err)("wg: %s hop: set via-ref; err? %v", h.id, err)
+
 		if err == nil {
 			core.Gxe("wg.hop.refresh."+h.id, h.Refresh) // reconnect
 		}
@@ -1430,44 +1414,49 @@ func (h *wgproxy) Hop(via Proxy, dryrun bool) (err error) {
 
 	if via == nil {
 		if !dryrun {
-			old = h.swapVia(nil)
+			old = h.via.Tango(nil)
 			// undo MTU enforced due to any prior hops
-			if old != nil {
-				err = h.resetMtu(nil)
+			if rerr := h.resetMtu(nil); rerr != nil {
+				log.W("wg: %s hop: mtu reset err: %v", h.id, rerr)
 			}
-			log.I("wg: %s hop: %s removed; mtu reset err? %v",
-				h.id, idhandle(old), err)
+			log.I("wg: %s hop: via removed; was %s", h.id, refhandle(old))
 		}
 		return nil
-	} else if Same(h, via) {
-		return errHopSelf
 	}
 
-	if via.Status() == END {
+	// resolve WeakRef for validation
+	viaPx, viaok = via.Get()
+	if !viaok || viaPx == nil {
+		return errNoHop
+	}
+
+	// unlikely; as weakref does a validity test()
+	if viaPx.Status() == END {
 		return errProxyStopped
 	}
 
-	if err := viaSupportsIPFamily(h, via); err != nil {
+	if err := viaSupportsIPFamily(h, viaPx); err != nil {
 		return err
 	}
 
 	// TODO: also on udp6?
-	if err := viaCanListen("udp4", via); err != nil {
+	if err := viaCanListen("udp4", viaPx); err != nil {
 		return err // (wgconn) needs to open an unconnected udp socket
 	}
 
 	// hop must be able to route all of orig's peers
-	if err := h.viaCanRoute(via, dryrun); err != nil {
+	if err := h.viaCanRoute(viaPx, dryrun); err != nil {
 		return err // via cannot not route peers
 	}
 
 	// mtu needed to tunnel this wg
-	if err := h.maybeResetMtu(via, dryrun); err != nil {
+	if err := h.maybeResetMtu(viaPx, dryrun); err != nil {
 		return err // could not set mtu
 	}
 
 	if !dryrun {
-		old = h.swapVia(via)
+		old = h.via.Tango(via)
+		log.I("wg: %s hop: %s => %s", h.id, refhandle(old), refhandle(via))
 	}
 	return nil
 }
@@ -1605,8 +1594,9 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 	who := h.who()
 	var v Proxy // may be nil
 	hasvia, usingvia := false, false
-	if hasvia = usevia(h.viaID); hasvia {
-		if v, usingvia = h.via.Get(); v != nil && usingvia {
+	if viaRef := h.via.Load(); viaRef != nil {
+		hasvia = true
+		if v, usingvia = viaRef.Get(); v != nil && usingvia {
 			if rerr := h.viaCanRoute(v, false /*dryrun*/); rerr != nil {
 				usingvia = false
 				err = rerr
@@ -1628,8 +1618,9 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 		if hasvia {
 			log.W("wg: %s via(%s) failing... %v", who, idhandle(v), err)
 			if removeViaOnErrors {
+				_ = h.resetMtu(nil) // undo any prior MTU due to hops
 				// todo: call h.Hop(nil) instead?
-				h.swapVia(nil) // stale; unset
+				h.via.Store(nil) // stale; unset
 			}
 		}
 	}
@@ -1800,7 +1791,7 @@ func now() int64 {
 	return time.Now().UnixMilli()
 }
 
-func (w *wgproxy) resetMtu(via Proxy) error {
+func (w *wgtun) resetMtu(via Proxy) error {
 	return w.maybeResetMtu(via, false /*dryrun*/)
 }
 
@@ -1834,7 +1825,7 @@ func (w *wgtun) viaCanRoute(via Proxy, dryrun bool) error {
 	return nil
 }
 
-func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
+func (w *wgtun) maybeResetMtu(via Proxy, dryrun bool) error {
 	// mtu needed to tunnel this wg
 	mtuNeededByUs := int(w.desiredmtu.Load())
 	mtuAvailFromNet := int(w.netmtu.Load())
@@ -1885,7 +1876,7 @@ func (w *wgproxy) maybeResetMtu(via Proxy, dryrun bool) error {
 
 	if !dryrun {
 		w.ep.SetMTU(uint32(finalMtu))
-		w.wgtun.events <- tun.EventMTUUpdate
+		w.events <- tun.EventMTUUpdate
 	}
 	note("wg: %s (4? %t / 6? %t) proxy: hopping %s; mtu(needed:%d, avail: %d => final: %d); hopping? %t, dryrun? %t",
 		w.tag(), has4, has6, viaid, mtuNeededByUs, mtuAvailable, finalMtu, hopping, dryrun)

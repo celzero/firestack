@@ -34,8 +34,7 @@ type auto struct {
 	pxr  ProxyProvider
 	addr string
 
-	via   *core.WeakRef[Proxy]   // via dialer
-	viaID *core.Volatile[string] // via ID
+	via *core.Volatile[*core.WeakRef[Proxy]] // via dialer
 
 	exp    *core.Sieve[string, int]
 	ba     *core.Barrier[bool, string]
@@ -44,29 +43,15 @@ type auto struct {
 
 // NewAutoProxy returns a new exit proxy.
 func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
-	var err error
-
 	h := &auto{
 		pxr:    pxr,
-		viaID:  core.NewZeroVolatile[string](),
 		addr:   "127.5.51.52:5321",
 		exp:    core.NewSieve[string, int](ctx, "ipn.a.exp", ttl30s),
 		ba:     core.NewBarrier[bool](ctx, "ipn.a.bar", ttl30s),
 		status: core.NewVolatile(TUP),
-	}
-	h.via, err = core.NewWeakRef(h.viafor, viaok)
-	if err != nil {
-		panic(err) // unlikely
+		via:    core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 	return h
-}
-
-func (h *auto) viafor() *Proxy {
-	return viafor(idstr(h), h.viaID.Load(), h.pxr)
-}
-
-func (h *auto) swapVia(new Proxy) Proxy {
-	return swapVia(idstr(h), new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
@@ -113,8 +98,8 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 
 	pxrerrs := core.JoinErr(exerr, winerr, ex64err)
 
-	if usevia(h.viaID) {
-		if v, vok := h.via.Get(); !vok {
+	if ref := h.via.Load(); ref != nil {
+		if v, vok := ref.Get(); !vok {
 			if removeViaOnErrors {
 				h.Hop(nil, false /*dryrun*/) // stale; unset
 			}
@@ -474,36 +459,26 @@ func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *auto) Hop(p Proxy, dryrun bool) error {
-	if p == nil {
-		if !dryrun {
-			old := h.swapVia(nil)
-			log.I("proxy: auto: hop(%s) removed", idhandle(old))
-		}
-		return nil
+func (h *auto) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
+	var winerr error
+	if !dryrun {
+		old := h.via.Tango(via)
+		log.I("proxy: auto: hop %s => %s", refhandle(old), refhandle(via))
 	}
-	if p.Status() == END {
-		return errProxyStopped
+	if win, _ := h.pxr.mainRpnProxyOf(RpnWin); win != nil {
+		winerr = win.Hop(via, dryrun)
 	}
 
-	var win Proxy
-	var waerr, winerr error
-	old := h.swapVia(p)
-	if win, winerr = h.pxr.mainRpnProxyOf(RpnWin); win != nil {
-		winerr = win.Hop(p, dryrun)
-	}
+	logei(winerr)("proxy: auto: hop set; win err? %v", winerr)
 
-	errs := core.JoinErr(waerr, winerr) // may be nil
-
-	logei(errs)("proxy: auto: hop(%s) => %s; errs? %v",
-		idhandle(old), idhandle(p), errs)
-
-	return errs
+	return winerr
 }
 
 func (h *auto) Via() (x.Proxy, error) {
-	if v := h.via.Load(); v != nil {
-		return v, nil
+	if ref := h.via.Load(); ref != nil {
+		if v, ok := ref.Get(); ok && v != nil {
+			return v, nil
+		}
 	}
 	return nil, errNoHop
 }

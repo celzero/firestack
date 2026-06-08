@@ -29,9 +29,8 @@ type base struct {
 	GW
 	id       string
 	addr     string
-	outbound *protect.RDial         // outbound dialer
-	via      *core.WeakRef[Proxy]   // via dialer
-	viaID    *core.Volatile[string] // via proxy ID
+	outbound *protect.RDial                       // outbound dialer
+	via      *core.Volatile[*core.WeakRef[Proxy]] // via dialer
 	px       ProxyProvider
 	status   *core.Volatile[int]
 	done     context.CancelFunc
@@ -49,28 +48,15 @@ func newBasicProxy(id, addr string, ctx context.Context, c protect.Controller, p
 		addr:     addr,
 		px:       px,
 		outbound: protect.MakeNsRDial(Base, ctx, c),
-		viaID:    core.NewZeroVolatile[string](),
 		status:   core.NewVolatile(TUP),
 		done:     done,
-	}
-	var err error
-	h.via, err = core.NewWeakRef(h.viafor, viaok)
-	if err != nil {
-		panic(err) // unlikely
+		via:      core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 	return h
 }
 
 func NewBasicProxy(id string, ctx context.Context, c protect.Controller, px ProxyProvider) Proxy {
 	return newBasicProxy(id, fakeBaseAddr, ctx, c, px)
-}
-
-func (h *base) viafor() *Proxy {
-	return viafor(idstr(h), h.viaID.Load(), h.px)
-}
-
-func (h *base) swapVia(new Proxy) (old Proxy) {
-	return swapVia(idstr(h), new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
@@ -99,8 +85,8 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 	}
 
 	who := idstr(h)
-	if usevia(h.viaID) {
-		if v, vok := h.via.Get(); vok { // dial via another proxy
+	if ref := h.via.Load(); ref != nil {
+		if v, vok := ref.Get(); vok { // dial via another proxy
 			who = idstr(v)
 			c, err = v.DialBind(network, local, remote)
 		} else {
@@ -178,32 +164,33 @@ func (h *base) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *base) Hop(p Proxy, dryrun bool) error {
-	if p == nil {
+func (h *base) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
+	if via == nil {
 		if !dryrun {
-			old := h.swapVia(nil)
-			log.I("proxy: base: hop(%s) removed", idhandle(old))
+			old := h.via.Tango(nil)
+			log.I("proxy: base: hop removed; was %s", refhandle(old))
 		}
 		return nil
 	}
-	if p.Status() == END {
-		return errProxyStopped
-	}
-	if idstr(p) != GlobalH1 {
-		return errHopGlobalProxy
+	if p, pok := via.Get(); pok && p != nil {
+		if idstr(p) != GlobalH1 {
+			return errHopGlobalProxy
+		}
 	}
 
 	if !dryrun {
-		old := h.swapVia(nil)
-		log.I("proxy: base: hop %s => %s", idhandle(old), idhandle(p))
+		old := h.via.Tango(via)
+		log.I("proxy: base: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil
 }
 
 // Via implements x.Router.
 func (h *base) Via() (x.Proxy, error) {
-	if v := h.via.Load(); v != nil {
-		return v, nil
+	if ref := h.via.Load(); ref != nil {
+		if v, ok := ref.Get(); ok && v != nil {
+			return v, nil
+		}
 	}
 	return nil, errNoHop
 }

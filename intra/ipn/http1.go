@@ -30,8 +30,7 @@ type http1 struct {
 
 	id       string
 	outbound proxy.Dialer
-	via      *core.WeakRef[Proxy]
-	viaID    *core.Volatile[string]
+	via      *core.Volatile[*core.WeakRef[Proxy]]
 	px       ProxyProvider
 	opts     *settings.ProxyOptions
 	lastdial time.Time
@@ -73,25 +72,16 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px Proxy
 	h := &http1{
 		outbound: hp, // does not support udp
 		px:       px,
-		viaID:    core.NewZeroVolatile[string](),
 		status:   core.NewVolatile(TUP),
 		id:       id,
 		opts:     po,
+		via:      core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
-	h.via, err = core.NewWeakRef(h.viafor, viaok)
 
 	logeif(err != nil)("proxy: http1: created %s with opts(%s); err? %v",
 		h.ID(), po, err)
 
 	return h, nil
-}
-
-func (h *http1) viafor() *Proxy {
-	return viafor(h.id, h.viaID.Load(), h.px)
-}
-
-func (h *http1) swapVia(new Proxy) Proxy {
-	return swapVia(h.id, new, h.viaID, h.via)
 }
 
 // Handle implements Proxy.
@@ -113,8 +103,8 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	h.lastdial = time.Now()
 
 	who := idstr(h)
-	if usevia(h.viaID) {
-		if v, vok := h.via.Get(); vok { // dial via another proxy
+	if ref := h.via.Load(); ref != nil {
+		if v, vok := ref.Get(); vok { // dial via another proxy
 			who = idstr(v)
 			c, err = v.Dial(network, addr)
 		} else {
@@ -164,33 +154,24 @@ func (h *http1) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *http1) Hop(p Proxy, dryrun bool) error {
+func (h *http1) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	if h.id == GlobalH1 {
 		return errNop // global proxy exits as-is
 	}
 
-	if p == nil {
-		if !dryrun {
-			old := h.swapVia(nil)
-			log.I("proxy: http1: hop(%s) removed", idhandle(old))
-		}
-		return nil
-	}
-	if p.Status() == END {
-		return errProxyStopped
-	}
-
 	if !dryrun {
-		old := h.swapVia(p)
-		log.I("http1: hop %s => %s", idhandle(old), idhandle(p))
+		old := h.via.Tango(via)
+		log.I("http1: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil
 }
 
 // Via implements x.Router.
 func (h *http1) Via() (x.Proxy, error) {
-	if v := h.via.Load(); v != nil {
-		return v, nil
+	if ref := h.via.Load(); ref != nil {
+		if v, ok := ref.Get(); ok && v != nil {
+			return v, nil
+		}
 	}
 	return nil, errNoHop
 }

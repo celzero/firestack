@@ -65,7 +65,7 @@ func (f *fakeProxy) Router() x.Router                       { return &GWNoVia{} 
 func (f *fakeProxy) Client() x.Client                       { return newProxyClient(f) }
 func (f *fakeProxy) onNotOK() (bool, bool)                  { return false, true }
 func (f *fakeProxy) OnProtoChange(LinkProps) (string, bool) { return "", false }
-func (f *fakeProxy) Hop(Proxy, bool) error                  { return nil }
+func (f *fakeProxy) Hop(*core.WeakRef[Proxy], bool) error   { return nil }
 func (f *fakeProxy) Status() int                            { return TOK }
 func (f *fakeProxy) GetAddr() string                        { return "" }
 func (f *fakeProxy) DNS() string                            { return "" }

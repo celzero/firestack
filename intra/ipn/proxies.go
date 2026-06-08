@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"weak"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -186,7 +187,7 @@ type Proxy interface {
 	// onProtoChange returns true if the proxy must be re-added with cfg on proto changes.
 	OnProtoChange(lp LinkProps) (cfg string, readd bool)
 	// Gateway sets proxy p as the gateway for this router.
-	Hop(p Proxy, dryrun bool) error
+	Hop(via *core.WeakRef[Proxy], dryrun bool) error
 }
 
 type Rpn interface {
@@ -213,6 +214,8 @@ type ProxyProvider interface {
 	ProxyFor(id string) (Proxy, error)
 	// ProxyTo returns the proxy to use for ipp from given pids.
 	ProxyTo(ipp netip.AddrPort, uid string, pids []string) (Proxy, error)
+	// ProxyRef returns currently reachable reference to Proxy, if any.
+	ProxyRef(who, id string) (*core.WeakRef[Proxy], error)
 }
 
 type Proxies interface {
@@ -439,6 +442,28 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 		return true
 	}
 	return false
+}
+
+func (px *proxifier) ProxyRef(who, id string) (*core.WeakRef[Proxy], error) {
+	w := weak.Make(px)
+	get := func() (v *proxifier) {
+		return w.Value()
+	}
+	creat := func() *Proxy {
+		factory := get()
+		if factory == nil {
+			return nil
+		}
+		p, err := factory.ProxyFor(id)
+		if err != nil {
+			return nil
+		}
+		return &p
+	}
+	test := func(p *Proxy) bool {
+		return p != nil && (*p).Status() != END
+	}
+	return core.NewWeakRef(creat, test)
 }
 
 // ProxyTo implements Proxies.
@@ -882,7 +907,12 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 	}
 
 	_ = px.unmapHop(oldViaPx, origPx, dryrun)
-	err = origPx.Hop(viaPx, dryrun)
+	// create a WeakRef for the via proxy to pass to Hop
+	viaRef, rerr := px.ProxyRef("hop."+via+"."+origin, via)
+	if rerr != nil { // unlikely
+		return core.JoinErr(rerr, errProxyNotFound, errHopProxyRoutes)
+	}
+	err = origPx.Hop(viaRef, dryrun)
 	_ = px.mapHop(viaPx, origPx, err != nil || dryrun)
 
 	return err

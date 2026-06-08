@@ -31,16 +31,15 @@ type socks5 struct {
 	SkipRefresh // no refresh
 	GW          // dual stack gateway
 
-	id       string                 // unique identifier
-	opts     *settings.ProxyOptions // connect options
-	d        protect.RDialer        // dialer to this upstream proxy
-	outbound []proxy.Dialer         // outbound dialers via this upstream proxy
-	px       ProxyProvider          // proxy provider
-	viaID    *core.Volatile[string] // hop id
-	via      *core.WeakRef[Proxy]   // hop proxy
-	lastdial time.Time              // last time this transport attempted a connection
-	status   *core.Volatile[int]    // status of this transport
-	done     context.CancelFunc     // cancel func
+	id       string                               // unique identifier
+	opts     *settings.ProxyOptions               // connect options
+	d        protect.RDialer                      // dialer to this upstream proxy
+	outbound []proxy.Dialer                       // outbound dialers via this upstream proxy
+	px       ProxyProvider                        // proxy provider
+	via      *core.Volatile[*core.WeakRef[Proxy]] // hop proxy
+	lastdial time.Time                            // last time this transport attempted a connection
+	status   *core.Volatile[int]                  // status of this transport
+	done     context.CancelFunc                   // cancel func
 }
 
 type socks5tcpconn struct {
@@ -138,21 +137,13 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 		d:        dialer,
 		px:       px,
 		outbound: clients,
-		viaID:    core.NewZeroVolatile[string](),
 		opts:     po,
 		done:     done,
+		via:      core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 
 	tx.DialTCP = h.txdial // h.outbound uses this
 	tx.DialUDP = h.txdial // h.outbound uses this
-
-	via, err := core.NewWeakRef(h.viafor, viaok)
-	if err != nil {
-		defer done()
-		log.W("proxy: socks5: %s err via: %v", h.ID(), err)
-		return nil, err
-	}
-	h.via = via
 
 	log.D("proxy: socks5: created %s with clients(%d), opts(%s)",
 		h.id, len(clients), po)
@@ -160,18 +151,10 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 	return h, nil
 }
 
-func (h *socks5) viafor() *Proxy {
-	return viafor(h.id, h.viaID.Load(), h.px)
-}
-
-func (h *socks5) swapVia(new Proxy) (old Proxy) {
-	return swapVia(h.id, new, h.viaID, h.via)
-}
-
 func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
 	who := idstr(h)
-	if usevia(h.viaID) {
-		if v, vok := h.via.Get(); vok {
+	if ref := h.via.Load(); ref != nil {
+		if v, vok := ref.Get(); vok {
 			who = idstr(v)
 			c, err = v.DialBind(n, src, dst)
 		} else {
@@ -274,29 +257,20 @@ func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *socks5) Hop(p Proxy, dryrun bool) error {
-	if p == nil {
-		if !dryrun {
-			old := h.swapVia(nil)
-			log.I("socks5: hop(%s) removed", idhandle(old))
-		}
-		return nil
-	}
-	if p.Status() == END {
-		return errProxyStopped
-	}
-
+func (h *socks5) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	if !dryrun {
-		old := h.swapVia(p)
-		log.I("socks5: hop %s => %s", idhandle(old), idhandle(p))
+		old := h.via.Tango(via)
+		log.I("socks5: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil
 }
 
 // Via implements x.Router.
 func (h *socks5) Via() (x.Proxy, error) {
-	if v := h.via.Load(); v != nil {
-		return v, nil
+	if ref := h.via.Load(); ref != nil {
+		if v, ok := ref.Get(); ok && v != nil {
+			return v, nil
+		}
 	}
 	return nil, errNoHop
 }

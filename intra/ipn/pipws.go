@@ -50,9 +50,8 @@ type pipws struct {
 	client3    *http.Client   // ws client for ech
 	outbound   *protect.RDial // ws dialer
 	px         ProxyProvider
-	via        *core.WeakRef[Proxy] // hop dialer
-	viaID      *core.Volatile[string]
-	lastdial   time.Time // last dial time
+	via        *core.Volatile[*core.WeakRef[Proxy]] // hop dialer
+	lastdial   time.Time                            // last dial time
 
 	done context.CancelFunc // cancel func
 
@@ -74,8 +73,8 @@ func (c *pipwsconn) CloseWrite() error { return c.Close() }
 // dial is aware of proto changes via dialers.SplitDial
 func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 	who := idstr(t)
-	if usevia(t.viaID) {
-		if v, vok := t.via.Get(); vok { // dial via another proxy
+	if ref := t.via.Load(); ref != nil {
+		if v, vok := ref.Get(); vok { // dial via another proxy
 			who = idstr(v)
 			c, err = v.Dial(network, addr)
 		} else {
@@ -210,15 +209,14 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider
 		port:       port,
 		outbound:   protect.MakeNsRDial(RpnWs, ctx, ctl),
 		px:         px,
-		viaID:      core.NewZeroVolatile[string](),
 		token:      po.Auth.User,
 		toksig:     po.Auth.Password,
 		rsasighash: splitpath[2],
 		status:     core.NewVolatile(TUP),
 		done:       done,
 		opts:       po,
+		via:        core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
-	t.via, err = core.NewWeakRef(t.viafor, viaok)
 	if err != nil {
 		return nil, err
 	}
@@ -259,14 +257,6 @@ func (t *pipws) h2(cfg *tls.Config) *http.Transport {
 	}
 }
 
-func (t *pipws) viafor() *Proxy {
-	return viafor(idstr(t), t.viaID.Load(), t.px)
-}
-
-func (t *pipws) swapVia(new Proxy) Proxy {
-	return swapVia(idstr(t), new, t.viaID, t.via)
-}
-
 // ID implements x.Proxy.
 func (t *pipws) ID() string {
 	return RpnWs
@@ -293,29 +283,20 @@ func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
 }
 
 // Hop implements Proxy.
-func (h *pipws) Hop(p Proxy, dryrun bool) error {
-	if p == nil {
-		if !dryrun {
-			old := h.swapVia(nil)
-			log.I("pipws: hop(%s) removed", idhandle(old))
-		}
-		return nil
-	}
-	if p.Status() == END {
-		return errProxyStopped
-	}
-
+func (h *pipws) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	if !dryrun {
-		old := h.swapVia(p)
-		log.I("pipws: hop %s => %s", idhandle(old), idhandle(p))
+		old := h.via.Tango(via)
+		log.I("pipws: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil
 }
 
 // Via implements x.Router.
 func (h *pipws) Via() (x.Proxy, error) {
-	if v := h.via.Load(); v != nil {
-		return v, nil
+	if ref := h.via.Load(); ref != nil {
+		if v, ok := ref.Get(); ok && v != nil {
+			return v, nil
+		}
 	}
 	return nil, errNoHop
 }

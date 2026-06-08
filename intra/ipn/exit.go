@@ -188,9 +188,16 @@ func localDialStatus(status *core.Volatile[int], err error) bool {
 
 func idhandle(p Proxy) string {
 	if p == nil || core.IsNil(p) {
-		return ""
+		return "<no proxy>"
 	}
 	return idstr(p) + "@" + strconv.Itoa(int(p.Handle()))
+}
+
+func refhandle(ref *core.WeakRef[Proxy]) string {
+	if ref == nil {
+		return "<noproxyref>"
+	}
+	return idhandle(ref.Load())
 }
 
 func idstr(p x.Proxy) string {

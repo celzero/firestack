@@ -798,40 +798,6 @@ func canserve(state *core.Volatile[int]) error {
 	return canserve2(state.Load())
 }
 
-func usevia(viaID *core.Volatile[string]) bool {
-	return viaID != nil && len(viaID.Load()) > 0
-}
-
-func viafor(who, viaID string, px ProxyProvider) *Proxy {
-	if len(viaID) <= 0 {
-		return nil
-	}
-	via, err := px.ProxyFor(viaID)
-	logei(err)("proxy: %s: viafor %s; err? %v", who, idhandle(via), err)
-
-	if err != nil || via == nil || core.IsNil(via) {
-		return nil
-	}
-	return &via
-}
-
-func swapVia(who string, new Proxy, on *core.Volatile[string], ref *core.WeakRef[Proxy]) (oldRef Proxy) {
-	newID := idstr(new)
-	oldRef = ref.Load()      // old may be nil
-	oldID := on.Tango(newID) // newID/oldID may be empty
-	if idstr(oldRef) != oldID {
-		log.W("proxy: wg: %s setVia(%s) old(%s != %s)",
-			who, newID, idstr(oldRef), oldID)
-		return nil
-	}
-	log.I("proxy: wg: %s setVia(%s); rmv old(%s)", who, newID, oldID)
-	return oldRef
-}
-
-func viaok(p *Proxy) bool {
-	return p != nil && core.IsNotNil(*p) && (*p).Status() != END
-}
-
 // removeElem removes the all occurrences of rmv from s.
 func removeElem[T comparable](s []T, rmv T) []T {
 	return core.WithoutElem(s, rmv)

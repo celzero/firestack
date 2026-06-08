@@ -205,12 +205,12 @@ func (r *rpnp) OnProtoChange(lp LinkProps) (string, bool) {
 }
 
 // Hop implements Proxy.
-func (r *rpnp) Hop(p Proxy, dryrun bool) error {
+func (r *rpnp) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	main, err := r.requireProxy()
 	if err != nil {
 		return err
 	}
-	return main.Hop(p, dryrun)
+	return main.Hop(via, dryrun)
 }
 
 // Dial implements Proxy.
