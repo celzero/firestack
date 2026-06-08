@@ -1125,7 +1125,7 @@ func (a *WsClient) Update(ops *x.RpnOps) (newstate []byte, err error) {
 	if _, err := a.shallowCopyConfig(b); err != nil {
 		return nil, log.EE("ws: update: shallow copy err: %v", err)
 	}
-	log.I("ws: update: refreshed? %t / redo? %t; took %v", refreshed, needsRedo, core.FmtTimeAsPeriod(start))
+	log.I("ws: update: refreshed? %t / op: %s / redo? %t; took %v", refreshed, ops, needsRedo, core.FmtTimeAsPeriod(start))
 	if !needsRedo {
 		return nil, nil
 	}

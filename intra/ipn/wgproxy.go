@@ -190,7 +190,7 @@ func (h *wgproxy) Handle() uint64 {
 // DialerHandle implements Proxy.
 func (h *wgproxy) DialerHandle() uint64 {
 	via, up := h.getViaWithStatus()
-	if up {
+	if up && via != nil {
 		return via.Handle()
 	}
 	return core.Loc(h.direct)
@@ -832,7 +832,10 @@ func (t *wgtun) setupReverserIfNeeded(set bool) (didSet bool) {
 
 func (w *wgtun) getVia() (v Proxy) {
 	if ref := w.via.Load(); ref != nil {
-		return ref.Load()
+		v = ref.Load()
+		if v != nil && core.IsNotNil(v) {
+			return v
+		}
 	}
 	return nil
 }
@@ -844,7 +847,7 @@ func (w *wgtun) getViaWithStatus() (v Proxy, up bool) {
 }
 
 func (w *wgtun) getViaIfDialed() Proxy {
-	if v, up := w.getViaWithStatus(); up {
+	if v, up := w.getViaWithStatus(); up && v != nil && core.IsNotNil(v) {
 		return v
 	}
 	return nil
