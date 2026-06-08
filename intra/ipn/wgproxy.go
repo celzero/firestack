@@ -84,8 +84,6 @@ const (
 
 	refreshInterval    = 2 * time.Minute // refresh interval between onNotOKs
 	minRefreshInterval = 5 * time.Second // hard refresh interval; roughly one re-send handshake timeout
-
-	noviaid = ""
 )
 
 type wgifopts struct {
