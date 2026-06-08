@@ -162,13 +162,13 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 	smm := tcpSummary(cid, uid, to.Addr(), from.Addr())
 
 	if settings.Debug {
-		log.VV("tcp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
+		log.V("tcp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
 	}
 
 	if isAnyBlockPid(pids) {
 		log.I("tcp: %s [%s]: reverse: block %s => %s", cid, uid, from, to)
 		clos(gconn, in)
-		h.queueSummary(smm.done(errUdpInFirewalled))
+		h.queueSummary(smm.done(errTcpInFirewalled))
 		return true
 	} // else: pid is ipn.Ingress
 
@@ -315,7 +315,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
 	if settings.Debug {
-		log.VV("tcp: %s proxying %s => %s [%v] (excluded: %v) for %s; pids: %s; localnat64? %t / happyeye? %t",
+		log.V("tcp: %s proxying %s => %s [%v] (excluded: %v) for %s; pids: %s; localnat64? %t / happyeye? %t",
 			cid, src, target, actualTargets, excluded, uid, pids, targetIsLocalNat64, happyeyeballs)
 	}
 
@@ -392,7 +392,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	start := time.Now()
 
 	if settings.Debug {
-		log.VV("tcp: %s dial %s: attempt(eim? %t / fwd? %t / canfwd? %t):  %s [%s [%s]] => %s for %s",
+		log.V("tcp: %s dial %s: attempt(eim? %t / fwd? %t / canfwd? %t):  %s [%s [%s]] => %s for %s",
 			smm.ID, pid, eim, portfwd, canportfwd, src, gconn.LocalAddr(), bindAddr, targetstr, smm.UID)
 	}
 
@@ -454,5 +454,9 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 			h.natAssoc(smm.PID, src, dst.LocalAddr())
 		}
 	})
+
+	log.I("tcp: %s dialed %s proxy(%s) %s => %s (bind? %t / bindaddr? %s) for %s; rtt? %s",
+		smm.ID, smm.PID, src, targetstr, dialbindOK, bindAddr, smm.UID, core.FmtMillis(smm.Rtt))
+
 	return cont, nil // handled; takes ownership of src
 }

@@ -51,6 +51,7 @@ var (
 	errIcmpFirewalled  = errors.New("icmp: firewalled")
 	errUdpFirewalled   = errors.New("udp: firewalled")
 	errUdpInFirewalled = errors.New("udp: ingress firewalled")
+	errTcpInFirewalled = errors.New("tcp: ingress firewalled")
 	errUdpSetupConn    = errors.New("udp: could not create conn")
 	errUdpIncomingDrop = errors.New("udp: at capacity; packet in dropped")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
@@ -94,7 +95,7 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	smm := udpSummary(cid, uid, to.Addr(), from.Addr())
 
 	if settings.Debug {
-		log.VV("udp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
+		log.V("udp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
 	}
 
 	if isAnyBlockPid(pids) {
@@ -299,7 +300,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 
 	if settings.Debug {
-		log.VV("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t",
+		log.V("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t",
 			cid, uid, src, target, actualTargets, pids, mux, canportfwd, targetIsLocalNat64)
 	}
 
