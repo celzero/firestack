@@ -96,18 +96,22 @@ func DialPingAddr(s *stack.Stack, nic tcpip.NICID, laddr, raddr netip.Addr) (*GI
 	if tcpipErr != nil || ep == nil {
 		return nil, fmt.Errorf("ping socket: endpoint: %s", tcpipErr)
 	}
+
+	deadline := time.NewTimer(time.Hour << 10)
+	deadline.Stop()
+
 	pc := &GICMPConn{
 		nic:      nic,
 		src:      PingAddr{laddr},
 		is6:      v6,
 		ep:       ep,
-		deadline: time.NewTimer(time.Hour << 10),
+		deadline: deadline,
 	}
-	pc.deadline.Stop()
 
 	if bind {
 		fa, _ := fullAddrFrom(nic, netip.AddrPortFrom(laddr, 0))
 		if tcpipErr = pc.ep.Bind(fa); tcpipErr != nil {
+			pc.deadline.Stop()
 			return nil, fmt.Errorf("ping bind: %s", tcpipErr)
 		}
 	}
@@ -116,6 +120,7 @@ func DialPingAddr(s *stack.Stack, nic tcpip.NICID, laddr, raddr netip.Addr) (*GI
 		pc.dst = PingAddr{raddr}
 		fa, _ := fullAddrFrom(nic, netip.AddrPortFrom(raddr, 0))
 		if tcpipErr = pc.ep.Connect(fa); tcpipErr != nil {
+			pc.deadline.Stop()
 			return nil, fmt.Errorf("ping connect: %s", tcpipErr)
 		}
 	} // unconnected
