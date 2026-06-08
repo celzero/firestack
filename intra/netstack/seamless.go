@@ -10,6 +10,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	glog "gvisor.dev/gvisor/pkg/log"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -103,7 +104,16 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 	v := core.NewVolatile(ep)
 	d := core.NewZeroVolatile[stack.NetworkDispatcher]()
 
-	return &magiclink{v, d /*nil*/, sink}, nil
+	return &magiclink{e: v, d: d /*nil*/, s: sink}, nil
+}
+
+func DebugLog(y bool) (ok bool) {
+	if y {
+		glog.SetLevel(glog.Debug)
+	} else {
+		glog.SetLevel(glog.Info)
+	}
+	return true
 }
 
 func Pcap2Stdout(y bool) (ok bool) {

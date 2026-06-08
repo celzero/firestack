@@ -34,6 +34,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
+	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/rnet"
 	"github.com/celzero/firestack/intra/settings"
 
@@ -177,6 +178,12 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	verbose := dlvl <= log.VERBOSE || clvl <= log.VERBOSE
 	settings.Debug = dbg
+
+	if verbose {
+		netstack.DebugLog(true)
+	} else {
+		netstack.DebugLog(false)
+	}
 
 	// turn off runtime's internal "secure mode" to enable tracebacks
 	prevsm := core.SecureMode(false /*off*/)
