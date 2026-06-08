@@ -186,7 +186,14 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 	// to avoid cases where clients end up calling ep.Wait() before dispatchLoop
 	// could begin (as it is responsible for keeping ep alive)
 	if old := l.e.Tango(ep); old != nil {
-		core.Go("magic."+strconv.Itoa(fd), old.Close)
+		// Close signals the dispatch loop to stop via stopfd.
+		// Wait ensures the goroutine has fully exited and all
+		// FDs/buffers are released. Without Wait, the goroutine
+		// can linger, leaking resources.
+		core.Go("magic.close."+strconv.Itoa(fd), func() {
+			old.Close()
+			old.Wait()
+		})
 	}
 
 	logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
@@ -285,7 +292,12 @@ func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, p
 		d.DeliverNetworkPacket(protocol, pkt)
 		return
 	}
-	log.E("netstack: magic: deliver network packet (sz: %d); no dispatcher", pkt.Size())
+	// release packet buffer when no dispatcher is available. The endpoint's dispatch
+	// increments the refcount before calling this method, expecting us to release it.
+	if pkt != nil {
+		pkt.DecRef()
+	}
+	log.E("netstack: magic: deliver network packet (sz: %d); no dispatcher, packet released", pkt.Size())
 }
 
 // unused
@@ -295,13 +307,16 @@ func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt 
 		d.DeliverLinkPacket(protocol, pkt)
 		return
 	}
-	log.E("netstack: magic: deliver link packet (sz: %d); no dispatcher", pkt.Size())
+	// release packet buffer when no dispatcher is available
+	if pkt != nil {
+		pkt.DecRef()
+	}
+	log.E("netstack: magic: deliver link packet (sz: %d); no dispatcher, packet released", pkt.Size())
 }
 
 func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	if l.doPCAP() {
 		for _, pkt := range pkts.AsSlice() {
-			// TODO? pkt.DecRef()
 			if pkt != nil { // nilaway
 				l.DumpPacket(DirectionSend, pkt.NetworkProtocolNumber, pkt)
 			}
