@@ -26,6 +26,7 @@ type WeakRef[V any] struct {
 	test  vtest[V]
 }
 
+// refs to pointers to interfaces: go.dev/play/p/QWjdHVrg_84
 // unsafe type conversion: github.com/golang/go/issues/71583
 func NewWeakRef[V any](creat vfactory[V], test vtest[V]) (*WeakRef[V], error) {
 	if creat == nil {

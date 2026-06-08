@@ -121,6 +121,7 @@ func RuntimeWtf(s string) {
 // ratchet so the level can be raised or lowered freely.
 // Must be called before RuntimeFinishDebugVarsSetup / debug.SetTraceback
 // when a lower level than the previously-set one is desired.
+// sample test: go.dev/play/p/VOPFogTh8Ny
 // github.com/golang/go/blob/fed3b0a298/src/runtime/runtime1.go#L27
 func RuntimeResetTracebackEnv() (prev uint32) {
 	prev = traceback_env
