@@ -1286,7 +1286,7 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	log.D("wg: %s dial: start %s %s", h.tag(), network, address)
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
-	c, err = h.DialContext(h.ctx, network, address)
+	c, err = h.DialContext(h.ctx, network, "" /*any local addr*/, address)
 	defer h.listener(wg.Con, err) // status updated by h.listener
 
 	log.I("wg: %s dial: end %s %s; err %v", h.tag(), network, address, err)
@@ -1303,7 +1303,7 @@ func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) 
 	log.D("wg: %s dialbind: start %s %s=>%s", h.tag(), network, local, remote)
 
 	// DialContext resolves addr if needed; then dialing into all resolved ips.
-	c, err = h.DialContext(h.ctx, network, remote)
+	c, err = h.DialContext(h.ctx, network, local, remote)
 	defer h.listener(wg.Con, err) // status updated by h.listener when creating conns
 
 	log.I("wg: %s dialbind: end %s %s=>%s; err %v", h.tag(), network, local, remote, err)

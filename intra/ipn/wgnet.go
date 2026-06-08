@@ -80,8 +80,8 @@ func (tnet *wgtun) LookupContextHost(ctx context.Context, host string) ([]netip.
 // generic dialer
 // --------------------------------------------------------------------
 
-func (tnet *wgtun) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	return tnet.dial(ctx, network, "", address)
+func (tnet *wgtun) DialContext(ctx context.Context, network, local, remote string) (net.Conn, error) {
+	return tnet.dial(ctx, network, local, remote)
 }
 
 func (tnet *wgtun) dial(ctx context.Context, network, local, remote string) (net.Conn, error) {
