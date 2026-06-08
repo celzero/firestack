@@ -93,13 +93,13 @@ func Record(start bool) (recording bool, err error) {
 }
 
 func recorderToConsole() (logged bool) {
-	logged, _ = DumpRecorder(true /* onConsole */)
+	logged, _ = DumpRecorder(true /* teeToConsole */)
 	return
 }
 
-// Logs flight recorder to console if onConsole is true.
+// Logs flight recorder to console if teeToConsole is true.
 // The returned value b contains recorded bytes when got is true.
-func DumpRecorder(onConsole bool) (got bool, b bytes.Buffer) {
+func DumpRecorder(teeToConsole bool) (got bool, b bytes.Buffer) {
 	if !recorder.Enabled() {
 		return
 	}
@@ -109,7 +109,7 @@ func DumpRecorder(onConsole bool) (got bool, b bytes.Buffer) {
 
 	n, _ := recorder.WriteTo(&b)
 
-	if got = n > 0; got && onConsole {
+	if got = n > 0; got && teeToConsole {
 		log.R( /*console*/ true, b.String())
 	}
 

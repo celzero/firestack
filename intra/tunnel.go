@@ -28,13 +28,10 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -501,59 +498,6 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	pt := settings.Mode2String("pt", settings.PtMode.Load())
 	out.RDNSIn.TunMode = fmt.Sprintf("%s;%s;%s", firewall, dns, pt)
 
-	var mm runtime.MemStats
-	runtime.ReadMemStats(&mm) // stw & expensive
-	out.GOSt.Alloc = core.FmtBytes(mm.Alloc)
-	out.GOSt.TotalAlloc = core.FmtBytes(mm.TotalAlloc)
-	out.GOSt.Sys = core.FmtBytes(mm.Sys)
-	out.GOSt.Lookups = int64(mm.Lookups)
-	out.GOSt.Mallocs = int64(mm.Mallocs)
-	out.GOSt.Frees = int64(mm.Frees)
-	out.GOSt.HeapAlloc = core.FmtBytes(mm.HeapAlloc)
-	out.GOSt.HeapSys = core.FmtBytes(mm.HeapSys)
-	out.GOSt.HeapIdle = core.FmtBytes(mm.HeapIdle)
-	out.GOSt.HeapInuse = core.FmtBytes(mm.HeapInuse)
-	out.GOSt.HeapReleased = core.FmtBytes(mm.HeapReleased)
-	out.GOSt.HeapObjects = int64(mm.HeapObjects)
-	out.GOSt.StackInuse = core.FmtBytes(mm.StackInuse)
-	out.GOSt.StackSys = core.FmtBytes(mm.StackSys)
-	out.GOSt.MSpanInuse = core.FmtBytes(mm.MSpanInuse)
-	out.GOSt.MSpanSys = core.FmtBytes(mm.MSpanSys)
-	out.GOSt.MCacheInuse = core.FmtBytes(mm.MCacheInuse)
-	out.GOSt.MCacheSys = core.FmtBytes(mm.MCacheSys)
-	out.GOSt.BuckHashSys = core.FmtBytes(mm.BuckHashSys)
-	out.GOSt.GCSys = core.FmtBytes(mm.GCSys)
-	out.GOSt.OtherSys = core.FmtBytes(mm.OtherSys)
-	out.GOSt.NextGC = core.FmtTimeNs(mm.NextGC)
-	out.GOSt.LastGC = core.FmtTimeNs(mm.LastGC)
-	out.GOSt.PauseSecs = core.Nano2Sec(mm.PauseTotalNs)
-	out.GOSt.NumGC = int32(mm.NumGC)
-	out.GOSt.NumForcedGC = int32(mm.NumForcedGC)
-	out.GOSt.GCCPUFraction = fmt.Sprintf("%0.4f", mm.GCCPUFraction)
-	out.GOSt.EnableGC = mm.EnableGC
-	out.GOSt.DebugGC = mm.DebugGC
-
-	out.GOSt.NumGoroutine = int64(runtime.NumGoroutine())
-	out.GOSt.NumCgo = int64(runtime.NumCgoCall())
-	out.GOSt.NumCPU = int64(runtime.NumCPU())
-
-	l, all, crash := core.RuntimeGotraceback()
-	out.GOSt.Trac = fmt.Sprintf("%d; all? %t; crash? %t", l, all, crash)
-
-	cachedir, _ := os.UserCacheDir()
-	homedir, _ := os.UserHomeDir()
-	cfgdir, _ := os.UserConfigDir()
-	sm1, sm2 := core.RuntimeSecureMode()
-	uid := fmt.Sprintf("uid=%d", syscall.Getuid())
-	pid := fmt.Sprintf("pid=%d", syscall.Getpid())
-	pgsz := fmt.Sprintf("pgsz=%d", os.Getpagesize())
-	sec := fmt.Sprintf("sec=%t/%t", sm1, sm2)
-	out.GOSt.Args = strings.Join(append(os.Args, uid, pid, pgsz, sec), ";")
-	out.GOSt.Env = strings.Join(core.RuntimeEnviron(), ";") +
-		" / " +
-		strings.Join([]string{cachedir, homedir, cfgdir}, ";")
-	out.GOSt.Pers, _ = os.Executable()
-
 	if r := t.resolver; r != nil {
 		out.RDNSIn.DNSPreferred = fetchDNSInfo(r, x.Preferred)
 		out.RDNSIn.DNSDefault = fetchDNSInfo(r, x.Default)
@@ -585,10 +529,6 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 		}
 		out.RDNSIn.ProxyStatus = ss.Status
 	}
-
-	out.GOMet.M = core.Metrics()
-
-	out.GOMet.C = core.Snapshot()
 
 	return out, nil
 }

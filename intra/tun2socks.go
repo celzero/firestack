@@ -25,10 +25,14 @@ package intra
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -177,12 +181,22 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	verbose := dlvl <= log.VERBOSE || clvl <= log.VERBOSE
+	vverbose := dlvl <= log.VVERBOSE || clvl <= log.VVERBOSE
 	settings.Debug = dbg
 
-	if verbose {
-		netstack.DebugLog(true)
+	var rec bool
+	var recerr error
+	if vverbose {
+		rec, recerr = core.Record(true)
 	} else {
-		netstack.DebugLog(false)
+		rec, recerr = core.Record(false)
+	}
+
+	var nslvl string
+	if verbose {
+		nslvl = netstack.DebugLog(true)
+	} else {
+		nslvl = netstack.DebugLog(false)
 	}
 
 	// turn off runtime's internal "secure mode" to enable tracebacks
@@ -207,8 +221,8 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 
 	gotracelevel, gotraceall, gotracecrash := core.RuntimeGotraceback()
 
-	log.I("tun: new levels; golog: %d, consolelog: %d; debug? %t; traceback (%d): %s => %s => %s (l: %d / a? %t / c? %t) | set? %t / overwrote? %t; sm? %t; args: %v",
-		dlvl, clvl, dbg, gotraceenv, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, didSet, overwrote, prevsm, os.Args)
+	log.I("tun: new levels; nslog: %s, golog: %d, consolelog: %d; debug? %t, rec? %t, recerr? %v; traceback (%d): %s => %s => %s (l: %d / a? %t / c? %t) | set? %t / overwrote? %t; sm? %t; args: %v",
+		nslvl, dlvl, clvl, dbg, rec, recerr, gotraceenv, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, didSet, overwrote, prevsm, os.Args)
 }
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,
@@ -289,6 +303,67 @@ func Build(full bool) (v string) {
 	}
 	log.V("tun: build version %s", v)
 	return v
+}
+
+func GoMet() *x.GoMetrics {
+	out := new(x.GoMetrics)
+	out.M = core.Metrics()
+	out.C = core.Snapshot()
+
+	var mm runtime.MemStats
+	runtime.ReadMemStats(&mm) // stw & expensive
+	out.G.Alloc = core.FmtBytes(mm.Alloc)
+	out.G.TotalAlloc = core.FmtBytes(mm.TotalAlloc)
+	out.G.Sys = core.FmtBytes(mm.Sys)
+	out.G.Lookups = int64(mm.Lookups)
+	out.G.Mallocs = int64(mm.Mallocs)
+	out.G.Frees = int64(mm.Frees)
+	out.G.HeapAlloc = core.FmtBytes(mm.HeapAlloc)
+	out.G.HeapSys = core.FmtBytes(mm.HeapSys)
+	out.G.HeapIdle = core.FmtBytes(mm.HeapIdle)
+	out.G.HeapInuse = core.FmtBytes(mm.HeapInuse)
+	out.G.HeapReleased = core.FmtBytes(mm.HeapReleased)
+	out.G.HeapObjects = int64(mm.HeapObjects)
+	out.G.StackInuse = core.FmtBytes(mm.StackInuse)
+	out.G.StackSys = core.FmtBytes(mm.StackSys)
+	out.G.MSpanInuse = core.FmtBytes(mm.MSpanInuse)
+	out.G.MSpanSys = core.FmtBytes(mm.MSpanSys)
+	out.G.MCacheInuse = core.FmtBytes(mm.MCacheInuse)
+	out.G.MCacheSys = core.FmtBytes(mm.MCacheSys)
+	out.G.BuckHashSys = core.FmtBytes(mm.BuckHashSys)
+	out.G.GCSys = core.FmtBytes(mm.GCSys)
+	out.G.OtherSys = core.FmtBytes(mm.OtherSys)
+	out.G.NextGC = core.FmtTimeNs(mm.NextGC)
+	out.G.LastGC = core.FmtTimeNs(mm.LastGC)
+	out.G.PauseSecs = core.Nano2Sec(mm.PauseTotalNs)
+	out.G.NumGC = int32(mm.NumGC)
+	out.G.NumForcedGC = int32(mm.NumForcedGC)
+	out.G.GCCPUFraction = fmt.Sprintf("%0.4f", mm.GCCPUFraction)
+	out.G.EnableGC = mm.EnableGC
+	out.G.DebugGC = mm.DebugGC
+
+	out.G.NumGoroutine = int64(runtime.NumGoroutine())
+	out.G.NumCgo = int64(runtime.NumCgoCall())
+	out.G.NumCPU = int64(runtime.NumCPU())
+
+	l, all, crash := core.RuntimeGotraceback()
+	out.G.Trac = fmt.Sprintf("%d; all? %t; crash? %t", l, all, crash)
+
+	cachedir, _ := os.UserCacheDir()
+	homedir, _ := os.UserHomeDir()
+	cfgdir, _ := os.UserConfigDir()
+	sm1, sm2 := core.RuntimeSecureMode()
+	uid := fmt.Sprintf("uid=%d", syscall.Getuid())
+	pid := fmt.Sprintf("pid=%d", syscall.Getpid())
+	pgsz := fmt.Sprintf("pgsz=%d", os.Getpagesize())
+	sec := fmt.Sprintf("sec=%t/%t", sm1, sm2)
+	out.G.Args = strings.Join(append(os.Args, uid, pid, pgsz, sec), ";")
+	out.G.Env = strings.Join(core.RuntimeEnviron(), ";") +
+		" / " +
+		strings.Join([]string{cachedir, homedir, cfgdir}, ";")
+	out.G.Pers, _ = os.Executable()
+
+	return out
 }
 
 // PrintStack logs the stack trace of all active goroutines

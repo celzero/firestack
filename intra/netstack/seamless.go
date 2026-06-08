@@ -107,13 +107,13 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 	return &magiclink{e: v, d: d /*nil*/, s: sink}, nil
 }
 
-func DebugLog(y bool) (ok bool) {
+func DebugLog(y bool) (l string) {
 	if y {
 		glog.SetLevel(glog.Debug)
 	} else {
 		glog.SetLevel(glog.Info)
 	}
-	return true
+	return glog.Log().Level.String()
 }
 
 func Pcap2Stdout(y bool) (ok bool) {
