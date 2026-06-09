@@ -187,9 +187,9 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 	var rec bool
 	var recerr error
 	if vverbose {
-		rec, recerr = core.Record(true)
+		rec, recerr = core.RecordForever(true)
 	} else {
-		rec, recerr = core.Record(false)
+		rec, recerr = core.RecordForever(false)
 	}
 
 	var nslvl string
@@ -227,8 +227,9 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 
 // FlightRecorder starts Go runtime's flight recorder if y is true,
 // and stops it if y is false. The contents of the flight recorder
-// (limited to 15s) is written to log.Console on panics. Thread-safe.
-// go.dev/blog/flight-recorder
+// (limited to 10s) is written to SetFlightRecorderOutput(filepath)
+// on panics if current log level is "Very Verbose".
+// This call is thread-safe. More: go.dev/blog/flight-recorder
 func FlightRecorder(y bool) (bool, error) {
 	return core.Record(y)
 }
@@ -394,6 +395,9 @@ func PrintStack(where int32) []byte {
 
 // PrintFlightRecord dumps the contents of the flight recorder
 // to Console if get is false, or returns the dumped bytes.
+// Will return nil if the flight recorder is not enabled,
+// or if there are no recorded bytes to dump. To enable flight
+// recording, call FlightRecorder(true).
 // For testing only. Thread-safe.
 func PrintFlightRecord(get bool) []byte {
 	if got, b := core.DumpRecorder(!get /* onConsole */); get && got {

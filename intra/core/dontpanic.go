@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime/trace"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/log"
@@ -53,6 +54,7 @@ var recorder *trace.FlightRecorder = trace.NewFlightRecorder(trace.FlightRecorde
 	MinAge: 10 * time.Second,
 })
 
+var recorderperma atomic.Bool
 var recorderfile *os.File
 
 // fn is called in a separate goroutine, if a panic is recovered.
@@ -79,9 +81,15 @@ func Recording() bool {
 	return recorder.Enabled()
 }
 
+func RecordForever(y bool) (recording bool, err error) {
+	recorderperma.Store(y)
+	return Record(y)
+}
+
 func Record(start bool) (recording bool, err error) {
 	recording = recorder.Enabled()
-	if start {
+	neverstop := recorderperma.Load()
+	if neverstop || start {
 		if !recording {
 			err = recorder.Start()
 			recording = err == nil
