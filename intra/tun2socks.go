@@ -64,8 +64,8 @@ const (
 
 func (t traceout) s() string { return string(t) }
 
-const minMemLimit = 512 * 1024 * 1024      // 512MiB
-const maxMemLimit = 4 * 1024 * 1024 * 1024 // 4GiB
+const minMemLimit = 32 * 1024 * 1024       // 32MiB
+const maxMemLimit = 1 * 1024 * 1024 * 1024 // 1GiB
 
 // onetime console setup
 var csetup atomic.Bool
