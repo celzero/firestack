@@ -402,13 +402,6 @@ func PrintFlightRecord(get bool) []byte {
 	return nil
 }
 
-// PanicAtRandom instructs portions under test to panic at random.
-// For testing only.
-func PanicAtRandom(y bool) {
-	settings.PanicAtRandom.Store(y)
-	log.I("tun: panic at random? %t", y)
-}
-
 // Crash causes a crash by panicking on an out-of-bounds slice access. For testing only.
 func Crash(afterMs int64) {
 	go func() {

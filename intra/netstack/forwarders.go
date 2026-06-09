@@ -44,9 +44,6 @@ import (
 
 const maxForwarders = 8
 
-// disable log.wtf driven exit (it did not work the last time it was tested)
-const testwtf = false
-
 type fiveTuple struct {
 	srcAddr, dstAddr []byte
 	srcPort, dstPort uint16
@@ -141,8 +138,6 @@ type processor struct {
 	sleeper     sleep.Sleeper
 	packetWaker sleep.Waker
 	closeWaker  sleep.Waker
-
-	testcrash bool
 }
 
 // start starts the processor goroutine; thread-safe.
@@ -165,11 +160,6 @@ func (p *processor) start(wg *sync.WaitGroup) {
 
 // deliverPackets delivers packets to the endpoint; thread-safe.
 func (p *processor) deliverPackets() {
-	testpanic := !p.testcrash && settings.PanicAtRandom.Load() && rand10pc()
-	if testpanic {
-		defer core.Recover(core.Exit11, "ns.forwarder.deliverPackets")
-	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for p.pkts.Len() > 0 {
@@ -182,15 +172,6 @@ func (p *processor) deliverPackets() {
 			pkt.DecRef()
 		}
 		p.mu.Lock()
-	}
-
-	if testpanic {
-		panic("ns: tun: forwarder: deliverPackets rand10pc")
-	} else if testwtf && !p.testcrash && settings.PanicAtRandom.Load() && rand1pc() {
-		p.testcrash = true
-		core.RuntimeWtf("ns: tun: forwarder: test fatal\n")
-		var mu sync.Mutex
-		mu.Unlock() // ka-boom
 	}
 }
 
