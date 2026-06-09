@@ -91,7 +91,7 @@ type Gateway interface {
 	RDNSBL(maybeAlg netip.Addr) (blocklistcsv string)
 	// translate overwrites ip answers to alg ip & fixed ip answers
 	translate(tr, fix bool)
-	// splitTunnel sets per-app split tunneling on/off
+	// splitTunnel sets per-app split tunneling on
 	splitTunnel()
 	// fixedTransport returns true if split tunneling is enforced via dnsx.Fixed
 	fixedTransport() bool

@@ -812,6 +812,12 @@ func (r *resolver) determineTransport(id string) Transport {
 		r.RUnlock()
 		return d
 	}
+	if id == Fixed || id == CT+Fixed {
+		r.RLock()
+		f := r.transports[Fixed]
+		r.RUnlock()
+		return f
+	}
 
 	var id0, id1 string
 	if id == Local || id == CT+Local { // mdns never cached
@@ -1223,6 +1229,9 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			id2 = id1
 			id1 = Fixed
 		}
+		if id1 == CT+Fixed { // Fixed has no cached transport
+			id1 = Fixed
+		}
 		if len(id2) <= 0 {
 			id2 = Preferred
 		}
@@ -1466,7 +1475,7 @@ func canUseDefaultDNS(id string) bool {
 
 // Also accounts for prefixes such as CT+ID
 func isTransportID(match string, ids ...string) bool {
-	return slices.Contains(ids, match)
+	return slices.Contains(ids, match) || slices.Contains(ids, CT+match)
 }
 
 func isAnyBlockAll(ids ...string) bool {
