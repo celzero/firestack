@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/trace"
 	"sync"
 	"time"
@@ -52,6 +53,8 @@ var recorder *trace.FlightRecorder = trace.NewFlightRecorder(trace.FlightRecorde
 	MinAge: 10 * time.Second,
 })
 
+var recorderfile *os.File
+
 // fn is called in a separate goroutine, if a panic is recovered.
 // RecoverFn must be called as a defered function, and must be the first
 // defer called at the start of a new goroutine.
@@ -67,7 +70,7 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 	msg := fmt.Sprintf("%s [%d] %v", aux, DontExit, recovered)
 	log.E2(parentCallerDepthAt+1, msg)
 
-	recorderToConsole()
+	captureRecorderOutput(DontExit)
 	applog(DontExit, msg)
 	return didpanic
 }
@@ -92,9 +95,33 @@ func Record(start bool) (recording bool, err error) {
 	return
 }
 
-func recorderToConsole() (logged bool) {
-	logged, _ = DumpRecorder(true /* teeToConsole */)
-	return
+func captureRecorderOutput(code ExitCode) bool {
+	if code == DontExit {
+		return false
+	}
+
+	logged, b := DumpRecorder(false /* teeToConsole */)
+	if !logged {
+		return false // no data to write
+	}
+
+	_pmu.Lock()
+	defer _pmu.Unlock()
+
+	// Skip if no output file configured
+	if recorderfile == nil {
+		log.W("core: flightrecorder: no output file configured; skipping capture")
+		return false
+	}
+
+	n, err := recorderfile.Write(b.Bytes())
+	if err == nil {
+		recorderfile.Sync()
+	}
+
+	logev(err)("core: flightrecorder: wrote %d bytes to file %s; err? %v", n, fname(recorderfile), err)
+
+	return n > 0
 }
 
 // Logs flight recorder to console if teeToConsole is true.
@@ -128,7 +155,7 @@ func Recover(code ExitCode, aux any) (didpanic bool) {
 	msg := fmt.Sprintf("%s [%d] %v [%s]", aux, code, recovered, stamp())
 	log.E2(parentCallerDepthAt, msg)
 
-	recorderToConsole()
+	captureRecorderOutput(code)
 	applog(code, msg)
 	return didpanic
 }
@@ -157,4 +184,34 @@ func applog(code ExitCode, msg string) {
 		Recycle(bptr)
 	}()
 	log.C(msg, b)
+}
+
+func SetFlightRecordOutput(fp string) (string, error) {
+	fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+
+	_pmu.Lock()
+	defer _pmu.Unlock()
+
+	prevfile := recorderfile
+	prevfname := fname(prevfile)
+
+	logev(err)("core: flightrecorder: newfd %d, prevfd %d; err? %v", fname(fout), prevfname, err)
+
+	if err != nil {
+		return prevfname, err
+	}
+
+	if prevfile != nil {
+		CloseFile(prevfile)
+	}
+
+	recorderfile = fout
+	return prevfname, nil
+}
+
+func fname(f *os.File) string {
+	if f == nil {
+		return "<nil file>"
+	}
+	return f.Name()
 }

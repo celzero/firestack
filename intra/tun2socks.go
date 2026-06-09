@@ -441,6 +441,13 @@ func SetCrashOutput(fp string) bool {
 	return false
 }
 
+// SetFlightRecordOutput opens a writable file (and keeps it open) for Go's flight recorder
+// to write to (on panics, for example). The flight recorder must be enabled via FlightRecorder(true)
+// for this to be functional. Returns previous file name, if any. May error if fp cannot be opened.
+func SetFlightRecordOutput(fp string) (prev string, err error) {
+	return core.SetFlightRecordOutput(fp)
+}
+
 func fname(f *os.File) string {
 	if f == nil {
 		return "<nil file>"
