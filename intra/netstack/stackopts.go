@@ -24,7 +24,7 @@ func SetNetstackOpts(s *stack.Stack) {
 	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &sack)
 
 	// from: github.com/tailscale/tailscale/commit/83808029d8c
-	// See https://github.com/tailscale/tailscale/issues/9707
+	// See github.com/tailscale/tailscale/issues/9707
 	// RACKs lead to spurious retransmissions and a reduced congestion window.
 	tcpRecoveryOpt := tcpip.TCPRecovery(0)
 	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpRecoveryOpt)
@@ -43,6 +43,19 @@ func SetNetstackOpts(s *stack.Stack) {
 	s.SetNetworkProtocolOption(ipv4.ProtocolNumber, &ttl)
 	s.SetNetworkProtocolOption(ipv6.ProtocolNumber, &ttl)
 
+	stackTXBufOpt := tcpip.SendBufferSizeOption{
+		Min:     stack.MinBufferSize,
+		Default: 1 << 20, // 1MiB
+		Max:     8 << 20, // 8MiB
+	}
+	stackRXBufOpt := tcpip.ReceiveBufferSizeOption{
+		Min:     stack.MinBufferSize,
+		Default: 1 << 20, // 1MiB
+		Max:     6 << 20, // 6MiB
+	}
+	s.SetOption(stackTXBufOpt)
+	s.SetOption(stackRXBufOpt)
+
 	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack_tcpbuf_default.go
 	tcpRXBufOpt := tcpip.TCPReceiveBufferSizeRangeOption{
 		Min:     tcp.MinBufferSize,
@@ -54,6 +67,7 @@ func SetNetstackOpts(s *stack.Stack) {
 		Default: tcp.DefaultReceiveBufferSize,
 		Max:     6 << 20, // 6MiB
 	}
+
 	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L329
 	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpRXBufOpt)
 	_ = s.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpTXBufOpt)
