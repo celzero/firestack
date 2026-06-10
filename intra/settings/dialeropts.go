@@ -9,6 +9,7 @@ package settings
 import (
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 const defaultBufferSize = 2 * 1024 * 1024 // 1 MiB
@@ -101,11 +102,15 @@ const (
 	RetryNever
 )
 
-var dialerOpts = &DialerOpts{}
+var dialerOpts atomic.Pointer[DialerOpts]
+
+func init() {
+	dialerOpts.Store(&DialerOpts{})
+}
 
 // SetDialerOpts sets the dialer options to use.
 func SetDialerOpts(strat, retry, sizeBytes, timeoutsec int32, keepalive bool) bool {
-	s := dialerOpts
+	s := new(DialerOpts)
 	ok := true
 	switch strat {
 	case SplitTCP, SplitTCPOrTLS, SplitDesync, SplitAuto, SplitNever:
@@ -129,10 +134,11 @@ func SetDialerOpts(strat, retry, sizeBytes, timeoutsec int32, keepalive bool) bo
 	s.WriteTimeoutSec = timeoutsec
 	s.ReadBufferSize = min(sizeBytes, defaultBufferSize)
 	s.WriteBufferSize = min(sizeBytes, defaultBufferSize)
+	dialerOpts.Store(s)
 	return ok
 }
 
 // GetDialerOpts returns current dialer options.
 func GetDialerOpts() DialerOpts {
-	return *dialerOpts
+	return *dialerOpts.Load()
 }
