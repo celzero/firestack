@@ -155,10 +155,18 @@ type StdNetBind struct {
 	eps  map[string]StdNetEndpoint // peer-addr => std-net-endpoint
 
 	observer rwobserver
+	obsCh    chan obsMsg // async observer delivery
+
 	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
 
-	closed atomic.Bool // wgconn has been closed
-	ended  atomic.Bool // observer / connector are done
+	closed atomic.Bool // wgconn has been closed (can be reopened)
+	ended  atomic.Bool // observer / connector are done (wgconn must remain closed)
+}
+
+// obsMsg is a (op, err) pair sent to the observer goroutine.
+type obsMsg struct {
+	op  PktDir
+	err error
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
@@ -169,11 +177,13 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *core.Volatile[
 		connect:  d,
 		pm:       pm,
 		observer: f,
+		obsCh:    make(chan obsMsg, 8), // buffered for async delivery
 		amnezia:  a,
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](ctx, "wg.floodba", minFloodInterval),
 		eps:      make(map[string]StdNetEndpoint),
 		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
+	core.Go1("wg.obs."+s.id, s.processObsMsg, ctx)
 	context.AfterFunc(ctx, s.quit)
 	return s
 }
@@ -410,6 +420,35 @@ func (s *StdNetBind) Closed() bool {
 	return s.closed.Load()
 }
 
+// processObsMsg launches a goroutine that drains observerCh and calls the
+// observer synchronously for each message.  The goroutine exits when ctx
+// is cancelled (which happens in Close via obsCancel) or the channel is closed.
+func (s *StdNetBind) processObsMsg(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-s.obsCh:
+			if !ok {
+				return
+			}
+			if s.observer(msg.op, msg.err) {
+				s.ended.Store(true)
+			}
+		}
+	}
+}
+
+// sendObsMsg delivers (op, err) to the observer goroutine via a channel.
+// It never blocks: the caller returns immediately after the send.
+func (s *StdNetBind) sendObsMsg(op PktDir, err error) {
+	select {
+	case s.obsCh <- obsMsg{op, err}:
+	default:
+		log.W("wg: bind: %s obs channel full; dropping %s", s.id, op)
+	}
+}
+
 func (s *StdNetBind) Close() error {
 	s.epmu.Lock()
 	clear(s.eps)
@@ -439,7 +478,7 @@ func (s *StdNetBind) Close() error {
 		s.blackhole4 = false
 		s.blackhole6 = false
 
-		s.ended.Store(s.observer(Clo, nil))
+		s.sendObsMsg(Clo, nil)
 
 		log.I("wg: bind: close: %s addrs %v + %v; err4? %v err6? %v", s.id, addr1, addr2, err1, err2)
 		return core.JoinErr(err1, err2)
@@ -464,9 +503,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			if !anyTransportTyp && anyProcessed {
 				op = Crc // processed packets not transport data
 			}
-			if s.observer(op, err) {
-				s.ended.Store(true)
-			}
+			s.sendObsMsg(op, err)
 		}()
 
 		amnezia := s.amnezia.Load()
@@ -506,14 +543,6 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 	}
 }
 
-func timedout(err error) bool {
-	if err == nil {
-		return false
-	}
-	x, ok := err.(net.Error)
-	return ok && x.Timeout()
-}
-
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer core.Recover(core.Exit11, "wgconn.send."+s.id)
 
@@ -524,9 +553,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		if !anyTransportTyp && anyProcessed {
 			op = Csn // processed packet not transport data
 		}
-		if s.observer(op, err) {
-			s.ended.Store(true)
-		}
+		s.sendObsMsg(op, err)
 	}()
 
 	// the peer endpoint
@@ -587,6 +614,10 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		n, serr := uc.WriteTo(data, ep.addr)
 
+		if timedout(serr) {
+			serr = nil // discard timeouts?
+		}
+
 		errs = core.JoinErr(errs, serr)
 		nn += n
 	}
@@ -627,7 +658,6 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 			_, _ = rand.Read(pkt[hdrlen:sz])
 			copy(pkt[0:], hdr)
 
-			extend(c, wgtimeout)
 			sent, err := c.WriteTo(pkt, dst.addr)
 
 			expectedsent[i] = hdrlen + int(sz)
@@ -738,6 +768,14 @@ func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
 	}
 	s.eps[ap] = ep // ep may be zero value
 	return sz + 1, ep
+}
+
+func timedout(err error) bool {
+	if err == nil {
+		return false
+	}
+	x, ok := err.(net.Error)
+	return ok && x.Timeout()
 }
 
 func loge(err error) log.LogFn {
