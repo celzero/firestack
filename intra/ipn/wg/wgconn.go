@@ -143,7 +143,7 @@ type StdNetBind struct {
 	amnezia *core.Volatile[*Amnezia] // may return nil *Amnezia
 	floodBa *core.Barrier[int, netip.AddrPort]
 
-	mu   sync.Mutex     // protects following fields
+	mu   sync.RWMutex   // protects following fields
 	ipv4 net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
 	ipv6 net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
 
@@ -535,7 +535,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	dstIpp := ep.AddrPort
 
-	s.mu.Lock()
+	s.mu.RLock()
 	blackhole := s.blackhole4
 	uc := s.ipv4
 	noconn := uc == nil
@@ -544,7 +544,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		uc = s.ipv6
 		noconn = uc == nil
 	}
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	var floodWg = settings.FloodWireGuard.Load()
 	var flooded, overwritten bool
@@ -657,10 +657,10 @@ func (s *StdNetBind) BatchSize() int {
 func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	// s.ipv4 and s.ipv6 are written by Open/Close under s.mu; read them here
 	// under the same lock to avoid a data race.
-	s.mu.Lock()
+	s.mu.RLock()
 	uc4, _ := s.ipv4.(core.ControlConn) // may be nil
 	uc6, _ := s.ipv6.(core.ControlConn) // may be nil
-	s.mu.Unlock()
+	s.mu.RUnlock()
 	var operr error
 	var raw4, raw6 syscall.RawConn
 	fwmarkIoctl := 36 /* unix.SO_MARK */
