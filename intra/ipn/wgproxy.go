@@ -66,10 +66,6 @@ const (
 	wgnic = 999
 	// missing wg interface address.
 	noaddr = ""
-	// min mtu for ipv6
-	minmtu6 = 1280
-	// min mtu for ipv4
-	minmtu4 = 576
 
 	pingThresholdMillis          = 5 * 1000 // 5s
 	arbitraryWaitForViaHandshake = 5 * time.Second
@@ -84,6 +80,13 @@ const (
 
 	refreshInterval    = 2 * time.Minute // refresh interval between onNotOKs
 	minRefreshInterval = 5 * time.Second // hard refresh interval; roughly one re-send handshake timeout
+)
+
+var (
+	// min mtu for ipv6
+	minmtu6 = core.MinMtu6
+	// min mtu for ipv4
+	minmtu4 = core.MinMtu4
 )
 
 type wgifopts struct {
@@ -933,7 +936,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		amnezia:       core.NewVolatile(ifopts.amnezia),
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
-		refreshBa:     core.NewBarrier[bool](ctx, "wg.r.bar", refreshInterval),
+		refreshBa:     core.NewBarrier[bool](ctx, "wg.r.bar."+id, refreshInterval),
 		uapicfg:       core.NewVolatile(cfg),
 		since:         now(),
 	}
@@ -1079,7 +1082,26 @@ func (tun *wgtun) Read(buf [][]byte, sizes []int, offset int) (int, error) {
 		log.VV("wg: %s tun: read(%d)", tun.tag(), n)
 	}
 	sizes[0] = n
-	return 1, nil
+
+	// Drain additional packets that are already queued.
+	// WireGuard passes BatchSize() buffers; filling more reduces per-packet overhead.
+	for i := 1; i < len(buf); i++ {
+		select {
+		case v, ok := <-tun.ingress:
+			if !ok {
+				return i, os.ErrClosed
+			}
+			sz, rerr := v.Read(buf[i][offset:])
+			v.Release()
+			if rerr != nil || sz == 0 {
+				continue
+			}
+			sizes[i] = sz
+		default:
+			return i, nil
+		}
+	}
+	return len(buf), nil
 }
 
 // Write implements tun.Device.
@@ -1146,9 +1168,8 @@ func (tun *wgtun) WriteNotify() {
 			}
 		default: // ingress is full and finalize is blocked
 			view.Release()
-			e := tun.status.Load()
 			log.W("wg: %s tun: write: closed? %s; dropped pkt; sz(%d)",
-				tun.tag(), pxstatus(e), sz)
+				tun.tag(), pxstatus(tun.status.Load()), sz)
 		}
 	}
 }
