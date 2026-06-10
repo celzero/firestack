@@ -148,7 +148,8 @@ var (
 )
 
 func ChangeBufferSizes(c MinConn, rsz, wsz int) (n int, err error) {
-	if rsz < MinMtu6 || wsz < MinMtu6 {
+	// min socket buffer size is at least 4kib
+	if rsz < MinMtu6*4 || wsz < MinMtu6*4 {
 		return -1, errBufferSmall
 	}
 	switch x := c.(type) {
@@ -165,7 +166,8 @@ func ChangeBufferSizes(c MinConn, rsz, wsz int) (n int, err error) {
 }
 
 func ChangeBufferSizesSockOpt(c MinConn, rsz, wsz int) (n int, err error) {
-	if rsz < MinMtu6 || wsz < MinMtu6 {
+	// min socket buffer size is at least 4kib
+	if rsz < MinMtu6*4 || wsz < MinMtu6*4 {
 		return -1, errBufferSmall
 	}
 	cs, ok := c.(ControlConn)
