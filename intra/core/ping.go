@@ -26,6 +26,8 @@ import (
 var (
 	errNotICMPEchoReply     = errors.New("ping: expecting echo reply")
 	errPacketConnNotNetConn = errors.New("net.PacketConn is neither net.Conn nor syscall.Conn")
+	errNotTcpNotUdp         = errors.New("neither net.TCPConn nor net.UDPConn")
+	errBufferSmall          = errors.New("buffer size too small")
 )
 
 const (
