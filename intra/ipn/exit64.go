@@ -97,8 +97,9 @@ func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
 	defer localDialStatus(h.status, err)
 
 	kaenabled := maybeKeepAlive(c)
-	logei(err)("proxy: exit64: dial(%s) %s via %s to %s, ka? %t; err? %v",
-		network, local64, remote, addr64, kaenabled, err)
+	n, berr := changeBufferSizes(c)
+	logei(err)("proxy: exit64: dial(%s) %s via %s to %s, ka? %t, sz? %d (%v); err? %v",
+		network, local64, addr64, remote, kaenabled, n, berr, err)
 
 	return c, err
 }

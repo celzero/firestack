@@ -254,8 +254,9 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 	defer localDialStatus(h.status, err)
 
 	kaenabled := maybeKeepAlive(c)
-	logei(err)("proxy: auto: w(%d) pin(%t+%t/%d), dial(%s) %s, ka? %t / parallel? %t / remote? %t; tot(healthy %d / dials %d); errs? %v+%v",
-		who, recent, !delpin, previdx, network, raddr, kaenabled, parallelDial, remoteOnly, tothealthy, totdials, err, pxrerrs)
+	n, berr := changeBufferSizes(c)
+	logei(err)("proxy: auto: w(%d) pin(%t+%t/%d), dial(%s) %s, ka? %t / parallel? %t / remote? %t; tot(healthy %d / dials %d); errs? %v+%v; sz? %d (%v)",
+		who, recent, !delpin, previdx, network, raddr, kaenabled, parallelDial, remoteOnly, tothealthy, totdials, err, pxrerrs, n, berr)
 
 	return c, err
 }
@@ -318,7 +319,8 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 	)
 	defer localDialStatus(h.status, err)
 
-	log.I("proxy: auto: w(%d) listen(%s) to %s; err? %v", who, network, local, err)
+	n, berr := changeBufferSizes(c)
+	log.I("proxy: auto: w(%d) listen(%s) to %s; err? %v; sz? %d (%v)", who, network, local, err, n, berr)
 	return c, err
 }
 
@@ -564,6 +566,13 @@ func (*auto) probeIfHealthy(p Proxy, network, local string) (net.PacketConn, err
 		time.Sleep(delayForUnhealthyProxies)
 	}
 	return p.Dialer().Probe(network, local)
+}
+
+func changeBufferSizes(c core.MinConn) (int, error) {
+	opts := settings.GetDialerOpts()
+	rsz := int(opts.ReadBufferSize)
+	wsz := int(opts.WriteBufferSize)
+	return core.ChangeBufferSizes(c, rsz, wsz)
 }
 
 func maybeKeepAlive(c net.Conn) (keepingalive bool) {

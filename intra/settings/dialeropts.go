@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+const defaultBufferSize = 2 * 1024 * 1024 // 1 MiB
+
 // DialerOpts define dialer options.
 type DialerOpts struct {
 	// Strat is the dialing strategy.
@@ -24,6 +26,10 @@ type DialerOpts struct {
 	ReadTimeoutSec int32
 	// Write timeout for outgoing tcp & udp connections.
 	WriteTimeoutSec int32
+	// Write buffer sizes for TCP and UDP
+	WriteBufferSize int32
+	// Read buffer sizes for TCP and UDP
+	ReadBufferSize int32
 }
 
 func (d DialerOpts) String() string {
@@ -98,7 +104,7 @@ const (
 var dialerOpts = &DialerOpts{}
 
 // SetDialerOpts sets the dialer options to use.
-func SetDialerOpts(strat, retry, timeoutsec int32, keepalive bool) bool {
+func SetDialerOpts(strat, retry, sizeBytes, timeoutsec int32, keepalive bool) bool {
 	s := dialerOpts
 	ok := true
 	switch strat {
@@ -121,6 +127,8 @@ func SetDialerOpts(strat, retry, timeoutsec int32, keepalive bool) bool {
 	}
 	s.ReadTimeoutSec = timeoutsec
 	s.WriteTimeoutSec = timeoutsec
+	s.ReadBufferSize = min(sizeBytes, defaultBufferSize)
+	s.WriteBufferSize = min(sizeBytes, defaultBufferSize)
 	return ok
 }
 

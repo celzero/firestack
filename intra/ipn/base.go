@@ -107,8 +107,9 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 	defer localDialStatus(h.status, err)
 
 	kaenabled := maybeKeepAlive(c)
-	log.I("proxy: base: dial(%s) to %s=>%s (via %s), ka? %t; err? %v",
-		network, local, remote, who, kaenabled, err)
+	n, berr := changeBufferSizes(c)
+	log.I("proxy: base: dial(%s) to %s=>%s (via %s), ka? %t, sz? %d (%v); err? %v",
+		network, local, remote, who, kaenabled, n, berr, err)
 	return
 }
 
@@ -119,7 +120,9 @@ func (h *base) Announce(network, local string) (protect.PacketConn, error) {
 	}
 	c, err := dialers.ListenPacket(h.outbound, network, local)
 	defer localDialStatus(h.status, err)
-	log.I("proxy: base: announce(%s) on %s; err? %v", network, local, err)
+
+	n, berr := changeBufferSizes(c)
+	log.I("proxy: base: announce(%s) on %s; sz? %d (%v); err? %v", network, local, n, berr, err)
 	return c, err
 }
 
