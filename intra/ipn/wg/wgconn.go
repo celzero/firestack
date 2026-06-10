@@ -355,10 +355,12 @@ again:
 	var fns []conn.ReceiveFunc
 	if ipv4 != nil {
 		s.ipv4 = ipv4
+		core.ChangeBufferSizesSockOpt(ipv4, wgreadsz, wgwritesz)
 		fns = append(fns, s.makeReceiveFn(ipv4))
 	}
 	if ipv6 != nil {
 		s.ipv6 = ipv6
+		core.ChangeBufferSizesSockOpt(ipv6, wgreadsz, wgwritesz)
 		fns = append(fns, s.makeReceiveFn(ipv6))
 	}
 

@@ -306,6 +306,7 @@ again:
 
 	var fns []conn.ReceiveFunc
 	if v4conn != nil {
+		core.ChangeBufferSizesSockOpt(v4conn, wgreadsz, wgwritesz)
 		s.ipv4TxOffload, s.ipv4RxOffload = supportsUDPOffload(v4conn)
 		if canBatch {
 			s.ipv4PC = ipv4.NewPacketConn(v4conn)
@@ -314,6 +315,7 @@ again:
 		fns = append(fns, s.makeReceiveIPv4())
 	}
 	if v6conn != nil {
+		core.ChangeBufferSizesSockOpt(v6conn, wgreadsz, wgwritesz)
 		s.ipv6TxOffload, s.ipv6RxOffload = supportsUDPOffload(v6conn)
 		if canBatch {
 			s.ipv6PC = ipv6.NewPacketConn(v6conn)
