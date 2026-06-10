@@ -42,11 +42,15 @@ import (
 
 const maxbindtries = 50
 
-// udp read/write deadline extension
-const wgtimeout = 60 * time.Second
-
 // max cached source endpoints; excess cleared on eviction
 const maxEpsSize = 64
+
+// wireguard udp socket buffer sizes to 7mib by tailscale
+// github.com/tailscale/tailscale/blob/632293de7d/wgengine/magicsock/magicsock.go#L89
+const (
+	wgreadsz  = 7 * 1024 * 1024 // 7MiB
+	wgwritesz = 7 * 1024 * 1024 // 7MiB
+)
 
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 var (
@@ -470,7 +474,6 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 		numMsgs := 0
 		b := bufs[0] // usually sized device.MaxMessageSize
 
-		extend(uc, wgtimeout)
 		n, addr, err := uc.ReadFrom(b)
 		if err == nil {
 			b, overwritten = amnezia.recv(b, n)
@@ -490,7 +493,7 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			epsz, eps[i] = s.asEndpoint(addr)
 		}
 
-		if err != nil && !timedout(err) {
+		if err != nil {
 			log.E("wg: bind: recv: %s recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
 				s.id, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
 		} else if settings.Debug {
@@ -580,7 +583,6 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			}
 		}
 
-		extend(uc, wgtimeout)
 		n, serr := uc.WriteTo(data, ep.addr)
 
 		errs = core.JoinErr(errs, serr)
@@ -744,12 +746,6 @@ func loge(err error) log.LogFn {
 		l = log.V
 	}
 	return l
-}
-
-func extend(c core.MinConn, t time.Duration) {
-	if c != nil && core.IsNotNil(c) {
-		_ = c.SetDeadline(time.Now().Add(t))
-	}
 }
 
 func clos(c io.Closer) {
