@@ -47,6 +47,10 @@ func LocStr[T comparable](x T) string {
 	return fmt.Sprintf("%x", Loc(x))
 }
 
+func HashStr(s string) uint64 {
+	return maphash.String(loc2seed, s)
+}
+
 // may panic or return false if x is not addressable
 func IsNotNil(x any) bool {
 	return !IsNil(x)

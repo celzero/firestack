@@ -24,7 +24,6 @@
 package netstack
 
 import (
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -336,12 +335,4 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 	}
 
 	return cont, nil
-}
-
-func rand10pc() bool {
-	return rand.Intn(999999) < 99999
-}
-
-func rand1pc() bool {
-	return rand.Intn(999999) < 9999
 }
