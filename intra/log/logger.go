@@ -681,6 +681,15 @@ func tracecaller(s string) bool {
 	return true
 }
 
+// b2msg creates a Logmsg from a byte slice without copying.
+// github.com/golang/go/issues/19367
+func b2msg(b []byte) Logmsg {
+	if len(b) <= 0 {
+		return ""
+	}
+	return Logmsg(unsafe.String(&b[0], len(b)))
+}
+
 // splitmsg parses the two-character level prefix prepended by msgstr
 // ("D ", "I ", "W ", "E ") and returns the corresponding LogLevel
 // together with the message with that prefix stripped.
@@ -689,27 +698,27 @@ func splitmsg(p []byte) (LogLevel, Logmsg) {
 	if len(p) >= 2 && p[1] == ' ' {
 		switch p[0] {
 		case 'Y':
-			return VVERBOSE, Logmsg(p[2:])
+			return VVERBOSE, b2msg(p[2:])
 		case 'V':
-			return VERBOSE, Logmsg(p[2:])
+			return VERBOSE, b2msg(p[2:])
 		case 'D':
-			return DEBUG, Logmsg(p[2:])
+			return DEBUG, b2msg(p[2:])
 		case 'I':
-			return INFO, Logmsg(p[2:])
+			return INFO, b2msg(p[2:])
 		case 'W':
-			return WARN, Logmsg(p[2:])
+			return WARN, b2msg(p[2:])
 		case 'E':
-			return ERROR, Logmsg(p[2:])
+			return ERROR, b2msg(p[2:])
 		case 'F':
-			return STACKTRACE, Logmsg(p[2:])
+			return STACKTRACE, b2msg(p[2:])
 		case 'U':
-			return USR, Logmsg(p[2:])
+			return USR, b2msg(p[2:])
 		case ' ':
 			return NONE, "" // drop
 		default: // may be "?"
 		}
 	}
-	return INFO, Logmsg(p)
+	return INFO, b2msg(p)
 }
 
 // shortfile strips the last path component from a file path.
