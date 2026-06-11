@@ -62,6 +62,12 @@ func (d DialerOpts) String() string {
 			return "Unknown"
 		}
 	}()
+	sz := func() string {
+		if d.ReadBufferSize != d.WriteBufferSize {
+			return "r: " + strconv.Itoa(int(d.ReadBufferSize)) + "b w: " + strconv.Itoa(int(d.WriteBufferSize)) + "b"
+		}
+		return "rw: " + strconv.Itoa(int(d.ReadBufferSize)) + "b"
+	}()
 	ka := func() string {
 		if d.LowerKeepAlive {
 			return "LowerKeepAlive"
@@ -74,7 +80,7 @@ func (d DialerOpts) String() string {
 			"s"
 	}()
 
-	return strings.Join([]string{s, r, ka, tmo}, ",")
+	return strings.Join([]string{s, r, sz, ka, tmo}, ",")
 }
 
 // Dial strategies
