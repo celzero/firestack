@@ -81,6 +81,7 @@ type LogFn2 func(int, string, ...any)
 func init() {
 	Glogger.SetLevel(INFO)
 	Glogger.SetConsoleLevel(STACKTRACE)
+	Glogger.SetCallerDepth(maxCallerDepth)
 }
 
 func SetLevel(level LogLevel) {
@@ -89,6 +90,10 @@ func SetLevel(level LogLevel) {
 
 func SetConsoleLevel(level LogLevel) {
 	Glogger.SetConsoleLevel(level)
+}
+
+func SetCallerDepth(d uint8) {
+	Glogger.SetCallerDepth(d)
 }
 
 func ConsoleReady(ctx context.Context) {

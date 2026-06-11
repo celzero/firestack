@@ -173,11 +173,14 @@ func ControlledRouter(c Controller, id, addrport string) x.Router {
 // Change log level to very verbose (0), verbose (1), debug (2), info (3), warn (4), error (5),
 // stacktraces (6), user notifications (7), or no logs (8). gologLevel and consolelogLevel can
 // be set independently; ex: LogLevel(2, 6) or LogLevel(8, 0) etc.
-func LogLevel(gologLevel, consolelogLevel int32) {
+// callerDepth can be any value between 0 and 9 which controls how many stack frames to
+// unwind for every log call. 9 is more expensive, 1 is more prudent.
+func LogLevel(gologLevel, consolelogLevel, callerDepth int32) {
 	dlvl := log.LevelOf(gologLevel)
 	clvl := log.LevelOf(consolelogLevel)
 	log.SetLevel(dlvl)
 	log.SetConsoleLevel(clvl)
+	log.SetCallerDepth(uint8(callerDepth))
 
 	dbg := dlvl <= log.DEBUG || clvl <= log.DEBUG
 	verbose := dlvl <= log.VERBOSE || clvl <= log.VERBOSE

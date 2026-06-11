@@ -51,6 +51,7 @@ type Logger interface {
 	SetLevel(level LogLevel)
 	SetConsoleLevel(level LogLevel)
 	SetConsole(c Console)
+	SetCallerDepth(d uint8)
 	ConsoleReady(ctx context.Context)
 	Usr(msg string)
 	Printf(msg string, args ...any)
@@ -70,6 +71,8 @@ type simpleLogger struct {
 	tag string
 
 	level LogLevel // golog (internal log) level
+
+	callerdepth uint8 // total frames to dig per log call
 
 	c      atom[Console]
 	clevel LogLevel      // may be different from level
@@ -147,6 +150,11 @@ func (a *uatom[T]) cas(old, new T) bool {
 	aa := (*atomic.Uint32)(a)
 	return aa.CompareAndSwap(uint32(old), uint32(new))
 }
+
+const (
+	maxCallerDepth = 9
+	minCallerDepth = 0
+)
 
 var _ Logger = (*simpleLogger)(nil)
 
@@ -289,6 +297,11 @@ func (l *simpleLogger) SetLevel(n LogLevel) {
 func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 	l.clearStCounts()
 	l.clevel = n
+}
+
+// SetCallerDepth sets total frames to unearth for every log fn call.
+func (l *simpleLogger) SetCallerDepth(d uint8) {
+	l.callerdepth = min(max(d, minCallerDepth), maxCallerDepth)
 }
 
 // SetConsole sets the external log console.
@@ -599,6 +612,9 @@ func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 }
 
 // go.dev/play/p/h9Woqcp0Xz0
+// go traceback is expensive:
+// blog.felixge.de/reducing-gos-execution-tracer-overhead-with-frame-pointer-unwinding/
+// go.dev/blog/execution-traces-2024
 func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, skipped int) {
 	if until <= 0 {
 		return []uintptr{0}, []string{fileunknown}, 0
@@ -711,38 +727,39 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
 
-	pc, file1 := caller(at + nextframe)
-	trace := ""
+	if ll || cc {
+		pc, file1 := caller(at + nextframe)
+		trace := ""
 
-	isspam := l.spammy(lvl, pc)
-	if isspam {
-		l.skips[lvl].Add(1)
-	}
+		isspam := l.spammy(lvl, pc)
+		if isspam {
+			l.skips[lvl].Add(1)
+		}
 
-	if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
-		swapped := l.skips[lvl].CompareAndSwap(n, 0)
-		if swapped && (cc || ll) {
-			spammsg := l.msgstr(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
-			if ll {
-				l.out(spammsg)
-			}
-			// print spammsg only if spamming is not allowed
-			if cc && !spamConsole {
-				l.consoleQueue(&conMsg{Logmsg(spammsg), lvl})
+		if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
+			swapped := l.skips[lvl].CompareAndSwap(n, 0)
+			if swapped && (cc || ll) {
+				spammsg := l.msgstr(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
+				if ll {
+					l.out(spammsg)
+				}
+				// print spammsg only if spamming is not allowed
+				if cc && !spamConsole {
+					l.consoleQueue(&conMsg{Logmsg(spammsg), lvl})
+				}
 			}
 		}
-	}
 
-	// ex: go_backendmain.go:6895@_cgoexp_d123334b966f_proxybackend_Rpn_RegisterWin
-	// > go_backendmain.go:7120@main.proxybackend_Rpn_RegisterWin
-	// > proxies.go:1271@ipn.(*proxifier).RegisterWin
-	// > proxies.go:1296@ipn.(*proxifier).registerWin
-	// > yegor.go:1868@rpn.(*BaseClient).MakeWsWgFrom
-	// > yegor.go:1790@rpn.(*BaseClient).MakeWsWg
-	// > yegor.go:1809@rpn.makeWsWg
-	// > yegor.go:1602@rpn.genWgConfs
-	if ll || cc {
-		_, x, _ := callers(at+nextframe, 9, ":", "@")
+		// ex: go_backendmain.go:6895@_cgoexp_d123334b966f_proxybackend_Rpn_RegisterWin
+		// > go_backendmain.go:7120@main.proxybackend_Rpn_RegisterWin
+		// > proxies.go:1271@ipn.(*proxifier).RegisterWin
+		// > proxies.go:1296@ipn.(*proxifier).registerWin
+		// > yegor.go:1868@rpn.(*BaseClient).MakeWsWgFrom
+		// > yegor.go:1790@rpn.(*BaseClient).MakeWsWg
+		// > yegor.go:1809@rpn.makeWsWg
+		// > yegor.go:1602@rpn.genWgConfs
+		_, x, _ := callers(at+nextframe, int(l.callerdepth), ":", "@")
+
 		switch lvl {
 		case USR, STACKTRACE, NONE: // no-op
 		case VVERBOSE:
