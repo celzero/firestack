@@ -8,7 +8,6 @@
 package core
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -111,11 +110,6 @@ func captureRecorderOutput(code ExitCode) bool {
 		return false
 	}
 
-	logged, b := DumpRecorder(false /* teeToConsole */)
-	if !logged {
-		return false // no data to write
-	}
-
 	_pmu.Lock()
 	defer _pmu.Unlock()
 
@@ -125,7 +119,7 @@ func captureRecorderOutput(code ExitCode) bool {
 		return false
 	}
 
-	n, err := recorderfile.Write(b.Bytes())
+	n, err := WriteRecordingTo(recorderfile)
 	if err == nil {
 		recorderfile.Sync()
 	}
@@ -135,23 +129,18 @@ func captureRecorderOutput(code ExitCode) bool {
 	return n > 0
 }
 
-// Logs flight recorder to console if teeToConsole is true.
-// The returned value b contains recorded bytes when got is true.
-func DumpRecorder(teeToConsole bool) (got bool, b bytes.Buffer) {
+// WriteRecordingTo writes flight recorder data directly to w, avoiding
+// intermediate copies. Returns the number of bytes written and any error.
+// Thread-safe; holds the recorder lock for the duration of the write.
+func WriteRecordingTo(w io.Writer) (n int64, err error) {
 	if !recorder.Enabled() {
-		return
+		return 0, nil
 	}
 
 	_rmu.Lock()
 	defer _rmu.Unlock()
 
-	n, _ := recorder.WriteTo(&b)
-
-	if got = n > 0; got && teeToConsole {
-		log.R( /*console*/ true, b.String())
-	}
-
-	return got, b
+	return recorder.WriteTo(w)
 }
 
 // Recover must be called as a defered function, and must be the first
