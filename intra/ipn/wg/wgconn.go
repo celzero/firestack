@@ -444,14 +444,38 @@ func (s *StdNetBind) processObsMsg() {
 	}
 }
 
+func (s *StdNetBind) drainObsCh() (n int) {
+	maxdrain := 12
+	for {
+		if n >= maxdrain {
+			return
+		}
+		select {
+		case <-s.obsCh:
+			n++
+		default:
+			return
+		}
+	}
+}
+
 // sendObsMsg delivers (op, err) to the observer goroutine via a channel.
 // It never blocks: the caller returns immediately after the send.
 func (s *StdNetBind) sendObsMsg(op PktDir, err error) {
+	drained := 0
+	retry := true
+again:
 	select {
+	case <-s.ctx.Done():
 	case s.obsCh <- obsMsg{op, err}:
 	default:
+		if retry {
+			drained = s.drainObsCh() // sync drain old msgs
+			retry = false
+			goto again
+		}
 		if settings.Debug { // warn if in debug mode ;)
-			log.W("wg: bind: %s obs channel full; dropping %s", s.id, op)
+			log.W("wg: bind: %s obs channel full (drained %d); dropping %s", s.id, drained, op)
 		}
 	}
 }
