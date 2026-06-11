@@ -225,15 +225,6 @@ func LogLevel(gologLevel, consolelogLevel int32) {
 		nslvl, dlvl, clvl, dbg, rec, recerr, gotraceenv, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, didSet, overwrote, prevsm, os.Args)
 }
 
-// FlightRecorder starts Go runtime's flight recorder if y is true,
-// and stops it if y is false. The contents of the flight recorder
-// (limited to 10s) is written to SetFlightRecorderOutput(filepath)
-// on panics if current log level is "Very Verbose".
-// This call is thread-safe. More: go.dev/blog/flight-recorder
-func FlightRecorder(y bool) (bool, error) {
-	return core.Record(y)
-}
-
 // LowMem triggers garbage collection cycle & allows for
 // setting maximum memory limit, if limit > 0.
 // github.com/golang/proposal/blob/master/design/48409-soft-memory-limit.md
@@ -391,19 +382,6 @@ func PrintStack(where int32) []byte {
 	}
 	recycle = false
 	return log.S(b)
-}
-
-// PrintFlightRecord dumps the contents of the flight recorder
-// to Console if get is false, or returns the dumped bytes.
-// Will return nil if the flight recorder is not enabled,
-// or if there are no recorded bytes to dump. To enable flight
-// recording, call FlightRecorder(true).
-// For testing only. Thread-safe.
-func PrintFlightRecord(get bool) []byte {
-	if got, b := core.DumpRecorder(!get /* onConsole */); get && got {
-		return b.Bytes()
-	}
-	return nil
 }
 
 // Crash causes a crash by panicking on an out-of-bounds slice access. For testing only.
