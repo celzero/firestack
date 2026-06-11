@@ -27,10 +27,12 @@ package log
 import "C"
 
 import (
+	"bytes"
 	"io"
-	"strings"
 	"unsafe"
 )
+
+var newlineSep = []byte("\n")
 
 // ctag is the logcat tag used for all log output.
 var ctag = C.CString("Firestack")
@@ -57,18 +59,15 @@ func NewAndroidConsole() Console {
 
 // Log implements Console.
 func (a *xlog) Log(level LogLevel, msg Logmsg) {
-	if len(msg) <= 0 {
-		return
-	}
-	cstr := C.CString(string(msg))
+	cstr := C.CString((string)(msg))
 	C.__android_log_write(androidPriority(level), ctag, cstr)
 	C.free(unsafe.Pointer(cstr))
 }
 
 func (a *xlog) Write(p []byte) (n int, err error) {
-	s := strings.TrimRight(string(p), "\n\r")
-	for line := range strings.SplitSeq(s, "\n") {
-		lvl, msg := splitmsg([]byte(line))
+	p = bytes.TrimRight(p, "\n\r")
+	for line := range bytes.SplitSeq(p, newlineSep) {
+		lvl, msg := splitmsg(line)
 		if len(msg) > 0 {
 			a.Log(lvl, msg)
 		}
