@@ -23,6 +23,7 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -40,7 +41,7 @@ import (
 
 // from: github.com/WireGuard/wireguard-go/blob/ebbd4a433/conn/bind_std.go
 
-const maxbindtries = 50
+const maxbindtries = 30
 
 // max cached source endpoints; excess cleared on eviction
 const maxEpsSize = 64
@@ -183,7 +184,7 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *core.Volatile[
 		eps:      make(map[string]StdNetEndpoint),
 		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
-	core.Go1("wg.obs."+s.id, s.processObsMsg, ctx)
+	core.Go("wg.obs."+s.id, s.processObsMsg)
 	context.AfterFunc(ctx, s.quit)
 	return s
 }
@@ -309,9 +310,9 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 		clos(conn)
 		return nil, 0, errNoLocalAddr
 	}
-	if settings.Debug {
-		log.VV("wg: bind: listen: %s %s: on(%v)", s.id, network, laddr)
-	}
+
+	log.I("wg: bind: listen: %s %s: on(%v)", s.id, network, laddr)
+
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
 	return conn, uaddr.Port, nil
 }
@@ -342,7 +343,9 @@ again:
 
 	ipv4, port, err = s.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: open: %s #%d listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
+	if err != nil || settings.Debug {
+		loge(err)("wg: bind: open: 1 %s #%d listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
+	}
 	if err != nil && !no4 {
 		return nil, 0, err
 	}
@@ -351,7 +354,9 @@ again:
 	ipv6, port, err = s.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	log.D("wg: bind: open: %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
+	if err != nil || settings.Debug {
+		loge(err)("wg: bind: open: 2 %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
+	}
 	if uport == 0 && busy && tries < maxbindtries {
 		clos(ipv4)
 		tries++
@@ -421,12 +426,12 @@ func (s *StdNetBind) Closed() bool {
 }
 
 // processObsMsg launches a goroutine that drains observerCh and calls the
-// observer synchronously for each message.  The goroutine exits when ctx
+// observer synchronously for each message.  The goroutine exits when s.ctx
 // is cancelled (which happens in Close via obsCancel) or the channel is closed.
-func (s *StdNetBind) processObsMsg(ctx context.Context) {
+func (s *StdNetBind) processObsMsg() {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-s.ctx.Done():
 			return
 		case msg, ok := <-s.obsCh:
 			if !ok {
@@ -534,11 +539,8 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			epsz, eps[i] = s.asEndpoint(addr)
 		}
 
-		if err != nil {
-			log.E("wg: bind: recv: %s recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
-				s.id, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
-		} else if settings.Debug {
-			log.V("wg: bind: recv: %s recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
+		if settings.Debug { // log errors if in debug mode
+			loge(err)("wg: bind: recv: %s recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
 				s.id, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
 		}
 		return numMsgs, err
@@ -548,12 +550,17 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	defer core.Recover(core.Exit11, "wgconn.send."+s.id)
 
+	anyTimedout := false
 	anyProcessed := false
 	anyTransportTyp := false
 	defer func() {
 		op := Snd
 		if !anyTransportTyp && anyProcessed {
 			op = Csn // processed packet not transport data
+		}
+		if anyTimedout {
+			// implements Timeout interface that the observer expects
+			err = os.ErrDeadlineExceeded
 		}
 		s.sendObsMsg(op, err)
 	}()
@@ -588,7 +595,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	for _, data := range buf {
 		bufok := len(data) > 0
 
-		if settings.Debug {
+		if false && settings.Debug {
 			log.VV("wg: bind: send: %s addr(%v) floodwg? %t, blackhole? %t; noconn? %t; hasbuf? %t",
 				s.id, dstIpp, floodWg, blackhole, noconn, bufok)
 		}
@@ -619,7 +626,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		n, serr := uc.WriteTo(data, ep.addr)
 
-		if serr != nil && !timedout(serr) { // discarding timeouts...
+		anyTimedout = anyTimedout || timedout(serr)
+		if serr != nil { // TODO: &&  discard timeouts?
 			errs = core.JoinErr(errs, serr)
 		}
 
@@ -628,7 +636,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(dstIpp)
 
-	if errs != nil || settings.Debug {
+	if settings.Debug {
 		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",
 			s.id, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, errs)
 	}
@@ -669,7 +677,7 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 			expectedsent[i] = hdrlen + int(sz)
 			n += sent
 
-			if err != nil {
+			if settings.Debug && err != nil { // log error iff in debug mode
 				log.E("wg: bind: flood: %s %s %s: expected sent?(%v) / tot(%d); %v",
 					s.id, why, dst, expectedsent[:i], n, err)
 				return n, err
@@ -729,7 +737,7 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 		} // else: return err
 	}
 	log.I("wg: bind: mark: %s err? %v", s.id, err)
-	return nil
+	return err
 }
 
 // asEndpoint returns an Endpoint containing ap.
@@ -768,7 +776,7 @@ func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
 		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
 	}
 	if len(s.eps) >= maxEpsSize { // evict all; entries repopulate as packets arrive
-		log.E("wg: bind: %s eps full; clearing %d", s.id, sz)
+		log.W("wg: bind: %s eps full; clearing %d", s.id, sz)
 		clear(s.eps)
 		sz = 0
 	}
@@ -780,7 +788,9 @@ func timedout(err error) bool {
 	if err == nil {
 		return false
 	}
-	x, ok := err.(net.Error)
+	x, ok := err.(interface {
+		Timeout() bool
+	})
 	return ok && x.Timeout()
 }
 
@@ -808,11 +818,13 @@ func messageType(unobs []byte, t uint32) (y bool) {
 	var typ uint32
 	n := len(unobs)
 
-	defer func() {
-		if settings.Debug && !y {
-			log.V("wg: bind: messageType: len(%d) msgt(%d) == t(%d)? %t", n, typ, t, y)
-		}
-	}()
+	/*
+		defer func() {
+			if settings.Debug && !y {
+				log.VV("wg: bind: messageType: len(%d) msgt(%d) == t(%d)? %t", n, typ, t, y)
+			}
+		}()
+	*/
 
 	if n < device.MinMessageSize {
 		return

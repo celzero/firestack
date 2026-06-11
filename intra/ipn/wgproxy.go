@@ -1698,8 +1698,10 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		if !updatedlatest {
 			updatedlatest = h.status.Cas(cur, s)
 		}
-		logeif(!updatedlatest)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",
-			h.tag(), op, pxstatus(cur), pxstatus(s), cur != s, !updatedlatest, why)
+		if settings.Debug || !updatedlatest {
+			logeif(!updatedlatest)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",
+				h.tag(), op, pxstatus(cur), pxstatus(s), cur != s, !updatedlatest, why)
+		}
 	}()
 
 	if op == wg.Clo {
@@ -1790,7 +1792,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 			why = "TZZ: idling after start/refresh"
 			s = TZZ // possibly idling
 		} else if readThres || writeThres || readWriteDeviation {
-			why = fmt.Sprintf("TZZ: r !ok? %t, w !ok? %t, rw apart? %t; overriding: %s",
+			why = fmt.Sprintf("TNT: r !ok? %t, w !ok? %t, rw apart? %t; overriding: %s",
 				readThres, writeThres, readWriteDeviation, why)
 			s = TNT
 		}
