@@ -29,10 +29,19 @@ import "C"
 import (
 	"bytes"
 	"io"
+	"sync"
 	"unsafe"
 )
 
 var newlineSep = []byte("\n")
+
+var cstrPool = sync.Pool{
+	New: func() any {
+		// 1024: github.com/golang/mobile/blob/2553ed8ce2/internal/mobileinit/mobileinit_android.go#L52
+		b := make([]byte, 0, 1024)
+		return &b
+	},
+}
 
 // ctag is the logcat tag used for all log output.
 var ctag = C.CString("Firestack")
@@ -59,18 +68,31 @@ func NewAndroidConsole() Console {
 
 // Log implements Console.
 func (a *xlog) Log(level LogLevel, msg Logmsg) {
-	cstr := C.CString((string)(msg))
-	C.__android_log_write(androidPriority(level), ctag, cstr)
-	C.free(unsafe.Pointer(cstr))
+	if len(msg) <= 0 {
+		return
+	}
+
+	ptr, _ := cstrPool.Get().(*[]byte)
+	buf := *ptr
+	buf = buf[:cap(buf)]
+
+	// trunc buf to n or n+1: go.dev/play/p/LlNycbtMsF0
+	n := copy(buf, msg)
+	term := min(n, len(buf)-1)
+	buf[term] = 0 // null terminator
+	buf = buf[:term+1]
+
+	C.__android_log_write(androidPriority(level), ctag, (*C.char)(unsafe.Pointer(&buf[0])))
+
+	*ptr = buf[:0]
+	cstrPool.Put(ptr)
 }
 
 func (a *xlog) Write(p []byte) (n int, err error) {
 	p = bytes.TrimRight(p, "\n\r")
 	for line := range bytes.SplitSeq(p, newlineSep) {
 		lvl, msg := splitmsg(line)
-		if len(msg) > 0 {
-			a.Log(lvl, msg)
-		}
+		a.Log(lvl, msg)
 	}
 	return len(p), nil
 }
