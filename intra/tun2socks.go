@@ -189,10 +189,12 @@ func LogLevel(gologLevel, consolelogLevel, callerDepth int32) {
 
 	var rec bool
 	var recerr error
-	if vverbose {
-		rec, recerr = core.RecordForever(true)
-	} else {
-		rec, recerr = core.RecordForever(false)
+	if core.SupportsRecording() {
+		if vverbose {
+			rec, recerr = core.RecordForever(true)
+		} else {
+			rec, recerr = core.RecordForever(false)
+		}
 	}
 
 	var nslvl string
