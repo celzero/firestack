@@ -254,6 +254,9 @@ const callerunknown = "?c?"
 
 const defaultFlags = 0 // no flags
 
+var Debug = false
+var Verbose = false
+
 func defaultLogger() *simpleLogger {
 	l := &simpleLogger{
 		level:   defaultLevel,
@@ -291,12 +294,17 @@ func NewLogger(tag string) *simpleLogger {
 // SetLevel sets the log level.
 func (l *simpleLogger) SetLevel(n LogLevel) {
 	l.level = n
+
+	Debug = (l.level <= DEBUG || l.clevel <= DEBUG)
+	Verbose = Debug && (l.level <= VERBOSE || l.clevel <= VERBOSE)
 }
 
 // SetLevel sets the log level.
 func (l *simpleLogger) SetConsoleLevel(n LogLevel) {
 	l.clearStCounts()
 	l.clevel = n
+	Debug = (l.level <= DEBUG || l.clevel <= DEBUG)
+	Verbose = Debug && (l.level <= VERBOSE || l.clevel <= VERBOSE)
 }
 
 // SetCallerDepth sets total frames to unearth for every log fn call.

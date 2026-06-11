@@ -52,7 +52,9 @@ func SetTimeoutSockOpt(c MinConn, timeoutms int) bool {
 			sock := int(fd)
 			// code.googlesource.com/google-api-go-client/+/master/transport/grpc/dial_socketopt.go#30
 			if err := unix.SetsockoptInt(sock, unix.SOL_TCP, unix.TCP_USER_TIMEOUT, timeoutms); err != nil {
-				log.D("core: sockopt: set TCP_USER_TIMEOUT %s (%d) failed: %dms, %v", id, sock, timeoutms, err)
+				if log.Debug {
+					log.D("core: sockopt: set TCP_USER_TIMEOUT %s (%d) failed: %dms, %v", id, sock, timeoutms, err)
+				}
 				ok = false
 			}
 		})
@@ -113,24 +115,34 @@ func SetKeepAliveConfigSockOpt(c MinConn, args ...int) (ok bool) {
 		err = rawConn.Control(func(fd uintptr) {
 			sock := int(fd)
 			if err := syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, boolint(true)); err != nil {
-				log.V("core: sockopt: set SO_KEEPALIVE %s (%d) failed: %v", id, sock, err)
+				if log.Debug {
+					log.V("core: sockopt: set SO_KEEPALIVE %s (%d) failed: %v", id, sock, err)
+				}
 				ok = false
 			}
 			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, idle); err != nil {
-				log.V("core: sockopt: set TCP_KEEPIDLE %s (%d) failed: %ds, %v", id, sock, idle, err)
+				if log.Debug {
+					log.V("core: sockopt: set TCP_KEEPIDLE %s (%d) failed: %ds, %v", id, sock, idle, err)
+				}
 				ok = false
 			}
 			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, interval); err != nil {
-				log.V("core: sockopt: set TCP_KEEPINTVL %s (%d) failed: %ds, %v", id, sock, interval, err)
+				if log.Debug {
+					log.V("core: sockopt: set TCP_KEEPINTVL %s (%d) failed: %ds, %v", id, sock, interval, err)
+				}
 				ok = false
 			}
 			if err := syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, count); err != nil {
-				log.V("core: sockopt: set TCP_KEEPCNT %s (%d) failed: #%d, %v", id, sock, count, err)
+				if log.Debug {
+					log.V("core: sockopt: set TCP_KEEPCNT %s (%d) failed: #%d, %v", id, sock, count, err)
+				}
 				ok = false
 			}
 			// code.googlesource.com/google-api-go-client/+/master/transport/grpc/dial_socketopt.go#30
 			if err := unix.SetsockoptInt(sock, unix.SOL_TCP, unix.TCP_USER_TIMEOUT, usertimeoutms); err != nil {
-				log.V("core: sockopt: set TCP_USER_TIMEOUT %s (%d) failed: %dms, %v", id, sock, usertimeoutms, err)
+				if log.Debug {
+					log.V("core: sockopt: set TCP_USER_TIMEOUT %s (%d) failed: %dms, %v", id, sock, usertimeoutms, err)
+				}
 				ok = false
 			}
 		})
@@ -182,10 +194,14 @@ func ChangeBufferSizesSockOpt(c MinConn, rsz, wsz int) (n int, err error) {
 	err = s.Control(func(fd uintptr) {
 		sock := int(fd)
 		if oerr1 = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_RCVBUF, rsz); oerr1 != nil {
-			log.V("core: sockopt: set SO_RCVBUF %d failed: %v", sock, oerr1)
+			if log.Debug {
+				log.V("core: sockopt: set SO_RCVBUF %d failed: %v", sock, oerr1)
+			}
 		}
 		if oerr2 = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_SNDBUF, wsz); oerr2 != nil {
-			log.V("core: sockopt: set SO_SNDBUF %d failed: %v", sock, oerr2)
+			if log.Debug {
+				log.V("core: sockopt: set SO_SNDBUF %d failed: %v", sock, oerr2)
+			}
 		}
 	})
 	return rsz, JoinErr(err, oerr1, oerr2)
