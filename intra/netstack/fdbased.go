@@ -38,7 +38,6 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 	"golang.org/x/sys/unix"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/rawfile"
@@ -73,7 +72,7 @@ type endpoint struct {
 	// fds is the set of file descriptors each identifying one inbound/outbound
 	// channel. The endpoint will dispatch from all inbound channels as well as
 	// hash outbound packets to specific channels based on the packet hash.
-	fds *core.Volatile[*fds]
+	fds atomic.Pointer[fds]
 
 	// mtu (maximum transmission unit) is the maximum size of a packet.
 	mtu atomic.Uint32
@@ -185,7 +184,7 @@ func newFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 
 	e := &endpoint{
 		mtu:     atomic.Uint32{},
-		fds:     core.NewVolatile(invalidFds),
+		fds:     atomic.Pointer[fds]{},
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
@@ -291,7 +290,9 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 
 	e.fds.Store(f) // commence WritePackets() on fd
 
-	log.D("ns: tun(%s): swap: fd %s => %d; err? %v", prevfd, prevfd, fd, err)
+	if log.Debug {
+		log.D("ns: tun(%s): swap: fd %s => %d; err? %v", prevfd, prevfd, fd, err)
+	}
 
 	if e.inboundDispatcher == nil { // prevfd must be 0 value if inbound is nil
 		prevfd.stop() // prevfd may be invalid
@@ -317,7 +318,9 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 // Attach launches the goroutine that reads packets from the file descriptor and
 // dispatches them via the provided dispatcher.
 func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
-	log.D("ns: attaching nic... %t", dispatcher != nil)
+	if log.Debug {
+		log.D("ns: attaching nic... %t", dispatcher != nil)
+	}
 
 	e.Lock()
 	defer e.Unlock()
@@ -511,7 +514,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 		written += packets
 	}
 
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("ns: tun(%d): WritePackets (to tun): written(%d)/total(%d)", fd, written, total)
 	}
 	return written, nil
@@ -586,7 +589,9 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 	d, fds := e.getDispatchers()
 	fd := fds.tun()
 
-	log.VV("ns: tun(%d): inject-inbound (from tun) %s; %d", fd, fds, protocol)
+	if log.Verbose {
+		log.VV("ns: tun(%d): inject-inbound (from tun) %s; %d", fd, fds, protocol)
+	}
 	if d != nil && pkt != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
@@ -614,7 +619,7 @@ func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip
 	defer f.written.Add(sz) // update written bytes
 	defer f.lastWrite.Store(time.Now().UnixMilli())
 
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("ns: tun(%d): inject-outbound (to tun) to dst(%v) sz(%d)", fd, dest, sz)
 	}
 
