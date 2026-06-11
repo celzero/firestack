@@ -27,6 +27,9 @@ const (
 	maxCPUProfileSecs = 120
 )
 
+// arbitary wait time for GC to complete
+var memProfWaitForGC = 100 * time.Millisecond
+
 // CPUProfile starts a program-wide CPU profiler for durationSecs seconds
 // (clamped to [10, 120]). The CPU profile is written to outproffile, and the
 // flight recorder trace is written to outflightrecorder. The CPU sampling rate
@@ -43,19 +46,17 @@ func CPUProfile(outproffile, outflightrecorder string, durationSecs int32) (ranS
 	}
 	defer profmu.Unlock()
 
-	if durationSecs < minCPUProfileSecs {
-		durationSecs = minCPUProfileSecs
-	} else if durationSecs > maxCPUProfileSecs {
-		durationSecs = maxCPUProfileSecs
-	}
+	durationSecs = min(max(durationSecs, minCPUProfileSecs), maxCPUProfileSecs)
 
-	// manage flight recorder: start on-demand if not already running
-	wasRecording := Recording()
-	if !wasRecording {
-		if _, err = Record(true); err != nil {
-			return 0, err
+	if !neverrecord {
+		// manage flight recorder: start on-demand if not already running
+		wasRecording := Recording()
+		if !wasRecording {
+			if _, err = Record(true); err == nil {
+				log.W("core: profiler: started flight recorder %s", outflightrecorder)
+			}
+			defer Record(false) // stop only if we started it
 		}
-		defer Record(false) // stop only if we started it
 	}
 
 	// open cpu profile output file
@@ -65,12 +66,12 @@ func CPUProfile(outproffile, outflightrecorder string, durationSecs int32) (ranS
 	}
 	defer CloseFile(f)
 
+	start := time.Now()
 	// startcpu profile; rate is hardcoded to 100 Hz by pprof.StartCPUProfile
 	if err = pprof.StartCPUProfile(f); err != nil {
 		return 0, err
 	}
 
-	start := time.Now()
 	time.Sleep(time.Duration(durationSecs) * time.Second)
 
 	pprof.StopCPUProfile()
@@ -99,14 +100,11 @@ func MemProfile(rate int32, outprofile string) error {
 	}
 	defer profmu.Unlock()
 
-	// manage flight recorder: start on-demand if not already running
-	wasRecording := Recording()
-	if !wasRecording {
-		if _, err := Record(true); err != nil {
-			return err
-		}
-		defer Record(false) // stop only if we started it
+	f, err := os.Create(filepath.Clean(outprofile))
+	if err != nil {
+		return fmt.Errorf("core: profiler: mem create %s: %w", outprofile, err)
 	}
+	defer CloseFile(f)
 
 	// set memory profiling rate; revert to previous value after
 	prevRate := runtime.MemProfileRate
@@ -114,25 +112,18 @@ func MemProfile(rate int32, outprofile string) error {
 		rate = 0
 	}
 	runtime.MemProfileRate = int(rate)
-	defer func() {
-		runtime.MemProfileRate = prevRate
-		log.D("core: profiler: mem rate restored to %d (from %d)", prevRate, rate)
-	}()
+	defer func() { runtime.MemProfileRate = prevRate }()
 
 	// trigger GC for up-to-date statistics
 	runtime.GC()
 
-	f, err := os.Create(filepath.Clean(outprofile))
-	if err != nil {
-		return fmt.Errorf("core: profiler: mem create %s: %w", outprofile, err)
-	}
-	defer CloseFile(f)
-
-	time.Sleep(100 * time.Millisecond) // ensure GC completes before profiling
+	time.Sleep(memProfWaitForGC) // ensure GC completes before profiling
 
 	if err = pprof.WriteHeapProfile(f); err != nil {
-		return fmt.Errorf("core: profiler: mem write %s: %w", outprofile, err)
+		return log.EE("core: profiler: mem write %s: %w", outprofile, err)
 	}
+
+	runtime.KeepAlive(f)
 
 	log.I("core: profiler: mem done; rate %d; prof? %s", rate, outprofile)
 	return nil
@@ -140,17 +131,20 @@ func MemProfile(rate int32, outprofile string) error {
 
 // maybeWriteTrace writes flight recorder data directly to a file at fp.
 func maybeWriteTrace(fp string) (n int64, err error) {
+	if !neverrecord {
+		return 0, errors.ErrUnsupported
+	}
 	if len(fp) <= 0 {
 		return 0, os.ErrInvalid
 	}
-	frfile, err := os.Create(filepath.Clean(fp))
+	f, err := os.Create(filepath.Clean(fp))
 	if err != nil {
 		return 0, err
 	}
-	defer CloseFile(frfile)
+	defer CloseFile(f)
 
-	n, err = WriteRecordingTo(frfile)
+	n, err = WriteRecordingTo(f)
 
-	runtime.KeepAlive(frfile)
+	runtime.KeepAlive(f)
 	return
 }

@@ -8,6 +8,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -50,14 +51,21 @@ var _rmu sync.Mutex
 
 var parentCallerDepthAt = 1
 
-// TODO: MaxBytes must stay within GOMEMLIMIT if set
-var recorder *trace.FlightRecorder = trace.NewFlightRecorder(trace.FlightRecorderConfig{
-	MinAge:   maxCPUProfileSecs * time.Second,
-	MaxBytes: 50 * 1024 * 1024, // 50 MiB
-})
-
 var recorderperma atomic.Bool
 var recorderfile *os.File
+var recorder *trace.FlightRecorder
+
+const neverrecord = true
+
+func init() {
+	if !neverrecord { // recording seems expensive; enable explicitly
+		// TODO: MaxBytes must stay within GOMEMLIMIT if set
+		recorder = trace.NewFlightRecorder(trace.FlightRecorderConfig{
+			MinAge:   maxCPUProfileSecs * time.Second,
+			MaxBytes: 50 * 1024 * 1024, // 50 MiB
+		})
+	}
+}
 
 // fn is called in a separate goroutine, if a panic is recovered.
 // RecoverFn must be called as a defered function, and must be the first
@@ -79,8 +87,12 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 	return didpanic
 }
 
+func SupportsRecording() bool {
+	return !neverrecord
+}
+
 func Recording() bool {
-	return recorder.Enabled()
+	return recorder != nil && recorder.Enabled()
 }
 
 func RecordForever(y bool) (recording bool, err error) {
@@ -89,6 +101,9 @@ func RecordForever(y bool) (recording bool, err error) {
 }
 
 func Record(start bool) (recording bool, err error) {
+	if recorder == nil {
+		return false, errors.ErrUnsupported
+	}
 	recording = recorder.Enabled()
 	neverstop := recorderperma.Load()
 	if neverstop || start {
@@ -107,6 +122,9 @@ func Record(start bool) (recording bool, err error) {
 
 func captureRecorderOutput(code ExitCode) bool {
 	if code == DontExit {
+		return false
+	}
+	if recorder == nil {
 		return false
 	}
 
@@ -133,8 +151,8 @@ func captureRecorderOutput(code ExitCode) bool {
 // intermediate copies. Returns the number of bytes written and any error.
 // Thread-safe; holds the recorder lock for the duration of the write.
 func WriteRecordingTo(w io.Writer) (n int64, err error) {
-	if !recorder.Enabled() {
-		return 0, nil
+	if recorder == nil || !recorder.Enabled() {
+		return 0, errors.ErrUnsupported
 	}
 
 	_rmu.Lock()
