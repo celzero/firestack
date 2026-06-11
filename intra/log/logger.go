@@ -858,7 +858,7 @@ top:
 			goto top
 		} // else: so many calls that atomic updates won't go through
 		// assume spammy as that's most likely to be the case
-		return false
+		return true
 	}
 
 	tt := uint16(t) // tolerable ticks
