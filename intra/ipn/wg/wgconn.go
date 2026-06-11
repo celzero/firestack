@@ -445,7 +445,9 @@ func (s *StdNetBind) sendObsMsg(op PktDir, err error) {
 	select {
 	case s.obsCh <- obsMsg{op, err}:
 	default:
-		log.W("wg: bind: %s obs channel full; dropping %s", s.id, op)
+		if settings.Debug { // warn if in debug mode ;)
+			log.W("wg: bind: %s obs channel full; dropping %s", s.id, op)
+		}
 	}
 }
 
@@ -579,6 +581,10 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	var flooded, overwritten bool
 	var nn int
 	var errs error
+
+	amnezia := s.amnezia.Load()
+	hasAmnezia := amnezia.Set()
+
 	for _, data := range buf {
 		bufok := len(data) > 0
 
@@ -594,7 +600,6 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			return syscall.EAFNOSUPPORT
 		}
 
-		amnezia := s.amnezia.Load()
 		anyProcessed = true
 		anyTransportTyp = anyTransportTyp || transportType(data)
 
@@ -602,7 +607,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		overwritten = amnezia.send(&data)
 
-		if !flooded && (floodWg || amnezia.Set()) {
+		if !flooded && (floodWg || hasAmnezia) {
 			if datalen == device.MessageInitiationSize {
 				s.flood(uc, ep, fkHandshake) // was probably a handshake
 				flooded = true
@@ -614,18 +619,19 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		n, serr := uc.WriteTo(data, ep.addr)
 
-		if timedout(serr) {
-			serr = nil // discard timeouts?
+		if serr != nil && !timedout(serr) { // discarding timeouts...
+			errs = core.JoinErr(errs, serr)
 		}
 
-		errs = core.JoinErr(errs, serr)
 		nn += n
 	}
 
 	s.sendAddr.Store(dstIpp)
 
-	loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",
-		s.id, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, errs)
+	if errs != nil || settings.Debug {
+		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",
+			s.id, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, errs)
+	}
 
 	return errs
 }

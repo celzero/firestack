@@ -75,6 +75,8 @@ const (
 	resetDeviceOnTNT  = false
 	// reset device if it is in TUP state (resuming...)
 	resetDeviceOnTUP = false
+	// referesh dns/remote (peer) endpoints multihost.MH values on TNT
+	refreshMultihostOnTNT = false
 
 	FAST = x.WGFAST
 
@@ -103,7 +105,8 @@ type wgtun struct {
 	ctx  context.Context
 	done context.CancelFunc
 
-	id string // id
+	id  string // id
+	hdl string // id+handle
 
 	addrs         []netip.Prefix    // interface addresses
 	stack         *stack.Stack      // stack fakes tun device for wg
@@ -858,7 +861,7 @@ func (w *wgtun) getViaIfDialed() Proxy {
 
 // who concats id of this proxy & status of its via.
 func (w *wgtun) who() string {
-	return w.id + ":" + core.LocStr(w)
+	return w.hdl
 }
 
 func (w *wgtun) tag() string {
@@ -910,6 +913,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		return nil, errNoMtu
 	}
 
+	id2 := stripPrefixIfNeeded(id)
 	s := stack.New(opts)
 	ep := channel.New(epsize, uint32(tunMtu), "")
 	netstack.SetNetstackOpts(s)
@@ -917,7 +921,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	t := &wgtun{
 		ctx:           ctx,
 		done:          done,
-		id:            stripPrefixIfNeeded(id),
+		id:            id2,
 		addrs:         ifopts.ifaddrs,
 		ep:            ep,
 		stack:         s,
@@ -940,6 +944,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		uapicfg:       core.NewVolatile(cfg),
 		since:         now(),
 	}
+	t.hdl = id2 + ":" + core.LocStr(t)
 	t.latestRefresh.Store(t.since)
 	t.desiredmtu.Store(uint32(ifopts.mtu))
 	t.netmtu.Store(uint32(lp.mtu))
@@ -1791,7 +1796,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		}
 	}
 
-	if s == TNT {
+	if s == TNT && refreshMultihostOnTNT {
 		// listener is called from wgconn and must retrun without performing blocking ops
 		core.Go("wg.listener.refresh."+h.id, func() {
 			m := h.dns.Load().SoftRefresh()
