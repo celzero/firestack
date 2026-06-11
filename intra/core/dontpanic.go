@@ -10,6 +10,7 @@ package core
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/trace"
@@ -50,8 +51,10 @@ var _rmu sync.Mutex
 
 var parentCallerDepthAt = 1
 
+// TODO: MaxBytes must stay within GOMEMLIMIT if set
 var recorder *trace.FlightRecorder = trace.NewFlightRecorder(trace.FlightRecorderConfig{
-	MinAge: 10 * time.Second,
+	MinAge:   maxCPUProfileSecs * time.Second,
+	MaxBytes: 50 * 1024 * 1024, // 50 MiB
 })
 
 var recorderperma atomic.Bool
