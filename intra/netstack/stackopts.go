@@ -51,7 +51,7 @@ func SetNetstackOpts(s *stack.Stack) {
 	stackRXBufOpt := tcpip.ReceiveBufferSizeOption{
 		Min:     stack.MinBufferSize,
 		Default: 1 << 20, // 1MiB
-		Max:     6 << 20, // 6MiB
+		Max:     8 << 20, // 6MiB
 	}
 	s.SetOption(stackTXBufOpt)
 	s.SetOption(stackRXBufOpt)
@@ -65,7 +65,7 @@ func SetNetstackOpts(s *stack.Stack) {
 	tcpTXBufOpt := tcpip.TCPSendBufferSizeRangeOption{
 		Min:     tcp.MinBufferSize,
 		Default: tcp.DefaultReceiveBufferSize,
-		Max:     6 << 20, // 6MiB
+		Max:     8 << 20, // 8MiB
 	}
 
 	// github.com/tailscale/tailscale/blob/c4d0237e5c/wgengine/netstack/netstack.go#L329
