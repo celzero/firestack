@@ -422,8 +422,24 @@ func SetCrashOutput(fp string) bool {
 // SetFlightRecordOutput opens a writable file (and keeps it open) for Go's flight recorder
 // to write to (on panics, for example). The flight recorder must be enabled via FlightRecorder(true)
 // for this to be functional. Returns previous file name, if any. May error if fp cannot be opened.
+// More: go.dev/blog/flight-recorder
 func SetFlightRecordOutput(fp string) (prev string, err error) {
 	return core.SetFlightRecordOutput(fp)
+}
+
+// CPUProfile starts a program-wide CPU profiler for durationSecs seconds (clamped to [10, 120]).
+// The CPU profile is written to outproffile, and the flight recorder trace to outflightrecorder.
+// If the flight recorder is not already running, it is started on-demand and stopped after.
+// Returns the actual number of seconds profiled. Only one profile (cpu or mem) can run at a time.
+func CPUProfile(outproffile, outflightrecorder string, durationSecs int32) (ranSecs int32, err error) {
+	return core.CPUProfile(outproffile, outflightrecorder, durationSecs)
+}
+
+// MemProfile triggers GC and writes a heap profile to outprofile.
+// rate controls memory profiling granularity: 1 most detailed, 0 disables.
+// Only one profile (cpu or mem) can run at a time.
+func MemProfile(rate int32, outprofile string) error {
+	return core.MemProfile(rate, outprofile)
 }
 
 func fname(f *os.File) string {
