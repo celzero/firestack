@@ -39,6 +39,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -345,7 +346,7 @@ func (l *simpleLogger) incrStCount(id string) (c uint32) {
 	if len(id) > 500 {
 		id = id[:500]
 	}
-	loc := fhash([]byte(id))
+	loc := fhash(unsafe.Slice(unsafe.StringData(id), len(id)))
 	c = l.stcount[loc]
 	l.stcount[loc]++
 	return c
@@ -510,7 +511,7 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 	}
 
 	count := l.incrStCount(msg)
-	msg = msg + fmt.Sprintf(" (#%d)", count)
+	msg = msg + " (#" + strconv.FormatUint(uint64(count), 10) + ")"
 	if count > similarTraceThreshold {
 		l.emitStack(at, msg, "stacktrace suppressed")
 		return
@@ -555,16 +556,28 @@ func (l *simpleLogger) queued(all bool) (appendix string) {
 
 func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) {
 	level := lvl.s()
+	tag := l.tag
 
 	if len(f) <= 0 {
-		return level + l.tag + "<empty>"
+		return level + tag + "<empty>"
 	}
 	if len(args) <= 0 {
-		return level + l.tag + f
+		// fast path: no format args, single builder pass
+		var b strings.Builder
+		b.Grow(len(level) + len(tag) + len(f))
+		b.WriteString(level)
+		b.WriteString(tag)
+		b.WriteString(f)
+		return b.String()
 	}
 	msg = fmt.Sprintf(f, args...)
 	if len(msg) <= charsPerLine { // excl tag+level
-		return level + l.tag + msg
+		var b strings.Builder
+		b.Grow(len(level) + len(tag) + len(msg))
+		b.WriteString(level)
+		b.WriteString(tag)
+		b.WriteString(msg)
+		return b.String()
 	}
 
 	var s strings.Builder
@@ -573,8 +586,8 @@ func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) 
 			s.WriteByte('\n')
 		}
 		s.WriteString(level)
-		if len(l.tag) > 0 {
-			s.WriteString(l.tag)
+		if len(tag) > 0 {
+			s.WriteString(tag)
 		}
 		end := min(i+charsPerLine, len(msg))
 		s.WriteString(msg[i:end])
@@ -586,7 +599,7 @@ func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) 
 // ref: github.com/golang/mobile/blob/c713f31d/internal/mobileinit/mobileinit_android.go#L51
 func (l *simpleLogger) out(msg string) {
 	if runtime.GOOS == "android" {
-		l.x.Write([]byte(msg))
+		l.x.Write(unsafe.Slice(unsafe.StringData(msg), len(msg)))
 	} else {
 		_ = l.o.Output(0 /*not used*/, msg) // may error
 	}
@@ -595,10 +608,12 @@ func (l *simpleLogger) out(msg string) {
 
 // err logs to stderr and pushes msg into ring buffer.
 func (l *simpleLogger) err(at int, msg string) {
-	_, file := caller(at + nextframe)
-	msg = file + msg
+	if l.callerdepth > 0 {
+		_, file := caller(at + nextframe)
+		msg = file + msg
+	}
 	if runtime.GOOS == "android" {
-		l.x.Write([]byte(msg))
+		l.x.Write(unsafe.Slice(unsafe.StringData(msg), len(msg)))
 	} else {
 		_ = l.e.Output(0 /*unused*/, msg) // may error
 	}
@@ -614,7 +629,7 @@ func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	if len(file) <= 0 {
 		file = fileunknown
 	} else {
-		file = shortfile(file) + sep1 + fmt.Sprint(line) + sep2
+		file = shortfile(file) + sep1 + strconv.Itoa(line) + sep2
 	}
 	return pc, file
 }
@@ -649,7 +664,7 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 		if len(file) <= 0 { // more is false when file is empty
 			file = fileunknown
 		} else {
-			file = shortfile(file) + sep1 + fmt.Sprint(line)
+			file = shortfile(file) + sep1 + strconv.Itoa(line)
 		}
 		if len(fn) <= 0 {
 			fn = callerunknown
@@ -746,7 +761,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 	if ll || cc {
 		pc, file1 := caller(at + nextframe)
-		trace := ""
+		var trace strings.Builder
 
 		isspam := l.spammy(lvl, pc)
 		if isspam {
@@ -777,58 +792,74 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		// > yegor.go:1602@rpn.genWgConfs
 		_, x, _ := callers(at+nextframe, int(l.callerdepth), ":", "@")
 
+		hasAtleastOneTracedCaller := tracecaller(x[0])
+		if !prependTrace {
+			trace.WriteString(msg)
+			if hasAtleastOneTracedCaller {
+				trace.WriteByte('\t') // end-of-msg marker
+			}
+		}
+
 		switch lvl {
 		case USR, STACKTRACE, NONE: // no-op
 		case VVERBOSE:
 			if len(x) >= 10 && tracecaller(x[9]) {
-				trace += x[9] + ">"
+				trace.WriteString(x[9])
+				trace.WriteByte('>')
 			}
 			fallthrough
 		case VERBOSE:
 			if len(x) >= 9 && tracecaller(x[8]) {
-				trace += x[8] + ">"
+				trace.WriteString(x[8])
+				trace.WriteByte('>')
 			}
 			fallthrough
 		case DEBUG, ERROR, WARN, INFO:
 			if len(x) >= 8 && tracecaller(x[7]) {
-				trace += x[7] + ">"
+				trace.WriteString(x[7])
+				trace.WriteByte('>')
 			}
 			if len(x) >= 7 && tracecaller(x[6]) {
-				trace += x[6] + ">"
+				trace.WriteString(x[6])
+				trace.WriteByte('>')
 			}
 			if len(x) >= 6 && tracecaller(x[5]) {
-				trace += x[5] + ">"
+				trace.WriteString(x[5])
+				trace.WriteByte('>')
 			}
 			if len(x) >= 5 && tracecaller(x[4]) {
-				trace += x[4] + ">"
+				trace.WriteString(x[4])
+				trace.WriteByte('>')
 			}
 			// err
 			if len(x) >= 4 && tracecaller(x[3]) {
-				trace += x[3] + ">"
+				trace.WriteString(x[3])
+				trace.WriteByte('>')
 			}
 			// warn
 			if len(x) >= 3 && tracecaller(x[2]) {
-				trace += x[2] + ">"
+				trace.WriteString(x[2])
+				trace.WriteByte('>')
 			}
 			// info
 			if len(x) >= 2 && tracecaller(x[1]) {
-				trace += x[1] + ">"
+				trace.WriteString(x[1])
+				trace.WriteByte('>')
 			}
 			fallthrough
 		default:
-			if tracecaller(x[0]) { // x[0] == file1 without fn info
-				trace += x[0]
+			if hasAtleastOneTracedCaller { // x[0] == file1 without fn info
+				trace.WriteString(x[0])
 			}
 		}
 		if prependTrace {
-			if len(trace) > 0 {
-				trace += "\t" // end-of-trace marker
+			if hasAtleastOneTracedCaller {
+				trace.WriteByte('\t') // end-of-trace marker
 			}
-			msg = l.msgstr(lvl, trace+msg, args...)
-		} else {
-			msg += "\t" // end-of-msg marker
-			msg = l.msgstr(lvl, msg+trace, args...)
+			trace.WriteString(msg)
 		}
+
+		msg = l.msgstr(lvl, trace.String(), args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
