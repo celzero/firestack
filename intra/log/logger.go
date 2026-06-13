@@ -118,7 +118,11 @@ func (a *atom[T]) set(t T) (ok bool) {
 	if !typeEq(old, t) {
 		r := &atom[T]{}
 		*a = *r
+		aa := (*atomic.Value)(a)
+		aa.Store(t)
+		return true
 	}
+
 	aa := (*atomic.Value)(a)
 	return aa.CompareAndSwap(old, t)
 }
