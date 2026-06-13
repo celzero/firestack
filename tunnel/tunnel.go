@@ -92,7 +92,7 @@ func (t *gtunnel) Mtu() int32 {
 	return -1
 }
 
-func (t *gtunnel) waitForEndpoint(ctx context.Context) {
+func (t *gtunnel) waitForEndpoint() {
 	defer core.Recover(core.Exit11, "g.wait")
 
 	const maxchecks = 5
@@ -114,7 +114,7 @@ func (t *gtunnel) waitForEndpoint(ctx context.Context) {
 		runid := "g." + strconv.Itoa(i)
 
 		select {
-		case <-ctx.Done():
+		case <-t.ctx.Done():
 			t.Disconnect() // may already be disconnected
 			log.D("tun: waiter: ctx done; #%d", i)
 			return
@@ -215,7 +215,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		once:   sync.Once{},
 	}
 
-	core.Go1("tun.awaiter", t.waitForEndpoint, ctx)
+	core.Go("tun.awaiter", t.waitForEndpoint)
 
 	return
 }
