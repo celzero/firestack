@@ -160,11 +160,17 @@ func (p *processor) start(wg *sync.WaitGroup) {
 
 // deliverPackets delivers packets to the endpoint; thread-safe.
 func (p *processor) deliverPackets() {
+	locked := true
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	defer func() {
+		if locked {
+			p.mu.Unlock()
+		}
+	}()
 	for p.pkts.Len() > 0 {
 		pkt := p.pkts.PopFront()
 		p.mu.Unlock()
+		locked = false
 		if pkt != nil {
 			if !p.icmp.respond(pkt) {
 				p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
@@ -172,6 +178,7 @@ func (p *processor) deliverPackets() {
 			pkt.DecRef()
 		}
 		p.mu.Lock()
+		locked = true
 	}
 }
 

@@ -595,11 +595,9 @@ func (e *endpoint) InjectInbound(protocol tcpip.NetworkProtocolNumber, pkt *stac
 	if d != nil && pkt != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
 	} else {
-		// pkt ownership is transferred to us; release it if we can't deliver
-		if pkt != nil {
-			pkt.DecRef()
-		}
 		log.W("ns: tun(%d): inject-inbound (from tun) %d pkt?(%t) dropped: endpoint not attached", fd, protocol, pkt != nil)
+		// TODO? has the pkt ownership is transferred to us; release it if we can't deliver
+		// if pkt != nil { pkt.DecRef() }
 	}
 }
 

@@ -302,14 +302,10 @@ func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, p
 		d.DeliverNetworkPacket(protocol, pkt)
 		return
 	}
-	// release packet buffer when no dispatcher is available. The endpoint's dispatch
-	// increments the refcount before calling this method, expecting us to release it.
-	sz := 0
-	if pkt != nil {
-		sz = pkt.Size()
-		pkt.DecRef()
-	}
-	log.E("netstack: magic: deliver network packet (sz: %d); no dispatcher, packet released", sz)
+	log.E("netstack: magic: deliver network packet (sz: %d); no dispatcher, packet? %t", pkt != nil)
+	// TODO? release packet buffer when no dispatcher is available. The endpoint's dispatch
+	// TODO? increments the refcount before calling this method, expecting us to release it.
+	// if pkt != nil { pkt.DecRef() }
 }
 
 // unused
@@ -319,13 +315,9 @@ func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt 
 		d.DeliverLinkPacket(protocol, pkt)
 		return
 	}
-	sz := 0
-	// release packet buffer when no dispatcher is available
-	if pkt != nil {
-		sz = pkt.Size()
-		pkt.DecRef()
-	}
-	log.E("netstack: magic: deliver link packet (sz: %d); no dispatcher, packet released", sz)
+	log.E("netstack: magic: deliver link packet (sz: %d); no dispatcher, packet? %t", pkt != nil)
+	// TODO? release packet buffer when no dispatcher is available
+	// if pkt != nil {	pkt.DecRef() }
 }
 
 func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {

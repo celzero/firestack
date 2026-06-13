@@ -663,6 +663,7 @@ func (l *simpleLogger) out(msg string) {
 // ring buffer individually. Since charsPerLine=800, each line fits in a
 // LB1024 slab, so the pool never allocates oversized slabs.
 func (l *simpleLogger) push(msg string) {
+	// TODO: push from where split already happens rather than doing again
 	for line := range strings.SplitSeq(msg, "\n") {
 		if len(line) <= 0 {
 			continue
