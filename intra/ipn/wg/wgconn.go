@@ -135,13 +135,12 @@ func (op PktDir) Write() bool {
 }
 
 type StdNetBind struct {
-	// TODO: use ctx for cleanup
 	ctx     context.Context
 	id      string
 	connect connector
-	pm      *core.Volatile[*multihost.MHMap] // peer ip:port or host => preferred-addrs
+	pm      *atomic.Pointer[multihost.MHMap] // peer ip:port or host => preferred-addrs
 
-	amnezia *core.Volatile[*Amnezia] // may return nil *Amnezia
+	amnezia *atomic.Pointer[Amnezia] // may return nil *Amnezia
 	floodBa *core.Barrier[int, netip.AddrPort]
 
 	mu   sync.RWMutex   // protects following fields
@@ -158,7 +157,7 @@ type StdNetBind struct {
 	observer rwobserver
 	obsCh    chan obsMsg // async observer delivery
 
-	sendAddr *core.Volatile[netip.AddrPort] // may be invalid
+	sendAddr atomic.Pointer[netip.AddrPort] // may be invalid
 
 	closed atomic.Bool // wgconn has been closed (can be reopened)
 	ended  atomic.Bool // observer / connector are done (wgconn must remain closed)
@@ -171,7 +170,7 @@ type obsMsg struct {
 }
 
 // TODO: get d, ep, f, rb through an Opts bag?
-func NewEndpoint(ctx context.Context, id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind {
+func NewEndpoint(ctx context.Context, id string, d connector, pm *atomic.Pointer[multihost.MHMap], f rwobserver, a *atomic.Pointer[Amnezia]) *StdNetBind {
 	s := &StdNetBind{
 		ctx:      ctx,
 		id:       id,
@@ -182,7 +181,6 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *core.Volatile[
 		amnezia:  a,
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](ctx, "wg.floodba", minFloodInterval),
 		eps:      make(map[string]StdNetEndpoint),
-		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 	}
 	core.Go("wg.obs."+s.id, s.processObsMsg)
 	context.AfterFunc(ctx, s.quit)
@@ -268,7 +266,10 @@ func udpaddr(ipp netip.AddrPort) *net.UDPAddr {
 }
 
 func (s *StdNetBind) RemoteAddr() netip.AddrPort {
-	return s.sendAddr.Load()
+	if addr := s.sendAddr.Load(); addr != nil {
+		return *addr
+	}
+	return netip.AddrPort{}
 }
 
 func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, error) {
@@ -658,7 +659,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		nn += n
 	}
 
-	s.sendAddr.Store(dstIpp)
+	s.sendAddr.Store(&dstIpp)
 
 	if settings.Debug {
 		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",

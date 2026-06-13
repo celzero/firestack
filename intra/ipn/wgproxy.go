@@ -123,7 +123,7 @@ type wgtun struct {
 	// mutable fields
 
 	via    *core.Volatile[*core.WeakRef[Proxy]]
-	viaUp  *core.Volatile[bool] // using via?
+	viaUp  atomic.Bool // using via?
 	direct protect.RDialer
 
 	hasV4, hasV6 atomic.Bool // interface has ipv4/ipv6 routes?
@@ -135,10 +135,10 @@ type wgtun struct {
 
 	rev *core.Volatile[netstack.GConnHandler] // reverser for local packets
 
-	dns     *core.Volatile[*multihost.MH]    // dns resolver for this interface
-	remote  *core.Volatile[*multihost.MHMap] // peer (remote endpoint) addrs
-	amnezia *core.Volatile[*wg.Amnezia]      // amnezia/warp config, if any
-	allowed *core.Volatile[[]netip.Prefix]   // allowed ips by all peers
+	dns     atomic.Pointer[multihost.MH]    // dns resolver for this interface
+	remote  atomic.Pointer[multihost.MHMap] // peer (remote endpoint) addrs
+	amnezia atomic.Pointer[wg.Amnezia]      // amnezia/warp config, if any
+	allowed *core.Volatile[[]netip.Prefix]  // allowed ips by all peers
 
 	rt x.IpTree // route table for this interface
 
@@ -778,9 +778,9 @@ func NewWgProxy(pctx context.Context, id string, ctl protect.Controller, px Prox
 
 	var wgep wgconn
 	if wgtun.preferOffload {
-		wgep = wg.NewEndpoint2(wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
+		wgep = wg.NewEndpoint2(pctx, wgtun.who(), wgtun.serve, &wgtun.remote, wgtun.listener, &wgtun.amnezia)
 	} else {
-		wgep = wg.NewEndpoint(pctx, wgtun.who(), wgtun.serve, wgtun.remote, wgtun.listener, wgtun.amnezia)
+		wgep = wg.NewEndpoint(pctx, wgtun.who(), wgtun.serve, &wgtun.remote, wgtun.listener, &wgtun.amnezia)
 	}
 
 	wgdev := newdevice(wgtun, wgep)
@@ -930,20 +930,19 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		finalize:      make(chan struct{}), // always unbuffered
 		direct:        protect.MakeNsRDial(id, ctx, ctl),
 		px:            px,
-		viaUp:         core.NewZeroVolatile[bool](),
 		via:           core.NewZeroVolatile[*core.WeakRef[Proxy]](),
-		dns:           core.NewVolatile(ifopts.dns),
 		rev:           core.NewVolatile(lp.rev),
-		remote:        core.NewVolatile(ifopts.eps), // may be nil
 		allowed:       core.NewVolatile(ifopts.allowed),
 		rt:            x.NewIpTree(), // must be set to allowedaddrs
-		amnezia:       core.NewVolatile(ifopts.amnezia),
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
 		refreshBa:     core.NewBarrier[bool](ctx, "wg.r.bar."+id, refreshInterval),
 		uapicfg:       core.NewVolatile(cfg),
 		since:         now(),
 	}
+	t.dns.Store(ifopts.dns)
+	t.remote.Store(ifopts.eps) // may be nil
+	t.amnezia.Store(ifopts.amnezia)
 	t.hdl = id2 + ":" + core.LocStr(t)
 	t.latestRefresh.Store(t.since)
 	t.desiredmtu.Store(uint32(ifopts.mtu))

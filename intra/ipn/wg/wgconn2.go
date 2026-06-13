@@ -14,11 +14,14 @@
 package wg
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/celzero/firestack/intra/core"
@@ -37,13 +40,15 @@ import (
 // methods for sending and receiving multiple datagrams per-syscall. See the
 // proposal in https://github.com/golang/go/issues/45886#issuecomment-1218301564.
 type StdNetBind2 struct {
-	mu       sync.Mutex // protects following fields
+	ctx context.Context
+
+	mu       sync.RWMutex // protects following fields
 	id       string
 	connect  connector
 	observer rwobserver
-	sendAddr *core.Volatile[netip.AddrPort]   // may be invalid
-	pm       *core.Volatile[*multihost.MHMap] // peer ip:port or host => preferred-addrs
-	amnezia  *core.Volatile[*Amnezia]         // unused; amnezia/warp config, if any
+	sendAddr atomic.Pointer[netip.AddrPort]   // may be invalid
+	pm       *atomic.Pointer[multihost.MHMap] // peer ip:port or host => preferred-addrs
+	amnezia  *atomic.Pointer[Amnezia]         // unused; amnezia/warp config, if any
 
 	ipv4 *net.UDPConn
 	ipv6 *net.UDPConn
@@ -61,6 +66,11 @@ type StdNetBind2 struct {
 
 	blackhole4 bool
 	blackhole6 bool
+
+	obsCh chan obsMsg // async observer delivery
+
+	closed atomic.Bool // wgconn has been closed (can be reopened)
+	ended  atomic.Bool // observer / connector are done (wgconn must remain closed)
 }
 
 type StdNetEndpoint2 struct {
@@ -122,13 +132,15 @@ func (e ErrUDPGSODisabled) Unwrap() error {
 	return e.RetryErr
 }
 
-func NewEndpoint2(id string, d connector, pm *core.Volatile[*multihost.MHMap], f rwobserver, a *core.Volatile[*Amnezia]) *StdNetBind2 {
-	return &StdNetBind2{
+func NewEndpoint2(ctx context.Context, id string, d connector, pm *atomic.Pointer[multihost.MHMap], f rwobserver, a *atomic.Pointer[Amnezia]) *StdNetBind2 {
+	s := &StdNetBind2{
+		ctx:      ctx,
 		id:       id,
 		connect:  d,
 		observer: f,
 		pm:       pm,
 		amnezia:  a,
+		obsCh:    make(chan obsMsg, 8), // buffered for async delivery
 
 		udpAddrPool: sync.Pool{
 			New: func() any {
@@ -137,8 +149,6 @@ func NewEndpoint2(id string, d connector, pm *core.Volatile[*multihost.MHMap], f
 				}
 			},
 		},
-
-		sendAddr: core.NewZeroVolatile[netip.AddrPort](),
 
 		msgsPool: sync.Pool{
 			New: func() any {
@@ -153,6 +163,9 @@ func NewEndpoint2(id string, d connector, pm *core.Volatile[*multihost.MHMap], f
 			},
 		},
 	}
+	core.Go("wg.obs2."+s.id, s.processObsMsg)
+	context.AfterFunc(ctx, s.quit)
+	return s
 }
 
 func (e *StdNetBind2) ParseEndpoint(s string) (conn.Endpoint, error) {
@@ -210,10 +223,17 @@ func (e *StdNetEndpoint2) DstToString() string {
 }
 
 func (s *StdNetBind2) RemoteAddr() netip.AddrPort {
-	return s.sendAddr.Load()
+	if ptr := s.sendAddr.Load(); ptr != nil {
+		return *ptr
+	}
+	return netip.AddrPort{}
 }
 
 func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, error) {
+	if s.ended.Load() {
+		return nil, 0, errEnded
+	}
+
 	var anyaddr netip.Addr
 	if network == "udp4" {
 		anyaddr = netip.IPv4Unspecified()
@@ -235,6 +255,7 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 	laddr := conn.LocalAddr()
 	if laddr == nil {
 		log.E("wg: bind2: %s %s: listen(%v); local-addr nil", s.id, network, saddr)
+		clos(conn)
 		return nil, 0, errNoLocalAddr
 	}
 	uaddr, err := net.ResolveUDPAddr(
@@ -243,10 +264,12 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 	)
 	if err != nil {
 		log.E("wg: bind2: %s %s: listen(%v); resolve-addr err: %v", s.id, network, saddr, err)
+		clos(conn)
 		return nil, 0, err
 	}
 	if uaddr == nil {
 		log.E("wg: bind2: %s %s: listen(%v); resolve-addr nil", s.id, network, saddr)
+		clos(conn)
 		return nil, 0, errNoLocalAddr
 	}
 	if settings.Debug {
@@ -264,6 +287,12 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 func (s *StdNetBind2) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.ended.Load() {
+		return nil, 0, errEnded
+	}
+
+	s.closed.Store(false)
 
 	var err error
 	var tries int
@@ -332,7 +361,66 @@ again:
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
 
-	return fns, uint16(port), nil
+	var eerr error = nil
+	if s.ended.Load() {
+		eerr = errEnded
+	}
+	return fns, uint16(port), eerr
+}
+
+// processObsMsg launches a goroutine that drains obsCh and calls the
+// observer synchronously for each message. The goroutine exits when s.ctx
+// is cancelled or the channel is closed.
+func (s *StdNetBind2) processObsMsg() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case msg, ok := <-s.obsCh:
+			if !ok {
+				return
+			}
+			if s.observer(msg.op, msg.err) {
+				s.ended.Store(true)
+			}
+		}
+	}
+}
+
+func (s *StdNetBind2) drainObsCh() (n int) {
+	maxdrain := 12
+	for {
+		if n >= maxdrain {
+			return
+		}
+		select {
+		case <-s.obsCh:
+			n++
+		default:
+			return
+		}
+	}
+}
+
+// sendObsMsg delivers (op, err) to the observer goroutine via a channel.
+// It never blocks: the caller returns immediately after the send.
+func (s *StdNetBind2) sendObsMsg(op PktDir, err error) {
+	drained := 0
+	retry := true
+again:
+	select {
+	case <-s.ctx.Done():
+	case s.obsCh <- obsMsg{op, err}:
+	default:
+		if retry {
+			drained = s.drainObsCh() // sync drain old msgs
+			retry = false
+			goto again
+		}
+		if settings.Debug { // warn if in debug mode
+			log.W("wg: bind2: %s obs channel full (drained %d); dropping %s", s.id, drained, op)
+		}
+	}
 }
 
 func (s *StdNetBind2) receiveIP(
@@ -343,8 +431,16 @@ func (s *StdNetBind2) receiveIP(
 	sizes []int,
 	eps []conn.Endpoint,
 ) (n int, err error) {
+	defer core.Recover(core.Exit11, "wgconn2.recv."+s.id)
+
+	anyProcessed := false
+	anyTransportTyp := false
 	defer func() {
-		s.observer(Rcv, err)
+		op := Rcv
+		if !anyTransportTyp && anyProcessed {
+			op = Crc
+		}
+		s.sendObsMsg(op, err)
 	}()
 
 	if conn == nil && br == nil {
@@ -408,10 +504,13 @@ func (s *StdNetBind2) receiveIP(
 	for i := 0; i < numMsgs; i++ {
 		msg := &(*msgs)[i]
 		sizes[i] = msg.N
-		if sizes[i] == 0 && settings.Debug {
-			log.V("wg: bind2: %s zero-sized message from %v", s.id, msg.Addr)
+		if sizes[i] == 0 {
+			if settings.Debug {
+				log.V("wg: bind2: %s zero-sized message from %v", s.id, msg.Addr)
+			}
 			continue
 		}
+		anyTransportTyp = anyTransportTyp || transportType(bufs[i])
 		uaddr, ok := msg.Addr.(*net.UDPAddr)
 		if !ok { // unlikely
 			log.E("wg: bind2: %s invalid addr type %T %v", s.id, msg.Addr, msg.Addr)
@@ -420,6 +519,7 @@ func (s *StdNetBind2) receiveIP(
 		ep := &StdNetEndpoint2{AddrPort: uaddr.AddrPort()} // TODO: remove allocation
 		getSrcFromControl(msg.OOB[:msg.NN], ep)            // no-op on Android
 		eps[i] = ep
+		anyProcessed = true
 	}
 	if settings.Debug {
 		log.VV("wg: bind2: %s received (batch? %t, offload? %t) %d messages", s.id, batch, rxOffload, numMsgs)
@@ -513,46 +613,72 @@ func (s *StdNetBind2) Resume() bool {
 }
 
 func (s *StdNetBind2) Closed() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.ipv4 == nil && s.ipv6 == nil
+	return s.closed.Load()
 }
 
 func (s *StdNetBind2) Close() error {
+	// Do NOT do a pre-lock s.closed.Load() check here.
+	// Open() writes s.closed under s.mu; a read outside the lock races with it.
+	// The CAS below (also under s.mu) is the only correct guard.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var err4, err6 error
-	c4, c6 := s.ipv4, s.ipv6
-	if c4 != nil {
-		err4 = c4.Close()
-		s.ipv4 = nil
-		s.ipv4PC = nil
-	}
-	if c6 != nil {
-		err6 = c6.Close()
-		s.ipv6 = nil
-		s.ipv6PC = nil
-	}
-	s.blackhole4 = false
-	s.blackhole6 = false
-	s.ipv4TxOffload = false
-	s.ipv4RxOffload = false
-	s.ipv6TxOffload = false
-	s.ipv6RxOffload = false
+	if s.closed.CompareAndSwap(false, true) {
+		var err4, err6 error
+		var addr4, addr6 net.Addr
+		c4, c6 := s.ipv4, s.ipv6
+		if c4 != nil {
+			addr4 = c4.LocalAddr()
+			err4 = c4.Close()
+			s.ipv4 = nil
+			s.ipv4PC = nil
+		}
+		if c6 != nil {
+			addr6 = c6.LocalAddr()
+			err6 = c6.Close()
+			s.ipv6 = nil
+			s.ipv6PC = nil
+		}
+		// resume if paused, so wireguard routines calling into send/recv error out
+		s.blackhole4 = false
+		s.blackhole6 = false
+		s.ipv4TxOffload = false
+		s.ipv4RxOffload = false
+		s.ipv6TxOffload = false
+		s.ipv6RxOffload = false
 
-	log.I("wg: bind2: %s close; err4? %v err6? %v", s.id, err4, err6)
+		s.sendObsMsg(Clo, nil)
 
-	return core.JoinErr(err4, err6)
+		log.I("wg: bind2: %s close; addrs %v + %v; err4? %v err6? %v", s.id, addr4, addr6, err4, err6)
+		return core.JoinErr(err4, err6)
+	}
+	log.W("wg: bind2: %s racing... ignored", s.id)
+	return nil
+}
+
+func (s *StdNetBind2) quit() {
+	_ = s.Close()
 }
 
 func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
+	defer core.Recover(core.Exit11, "wgconn2.send."+s.id)
+
+	anyTimedout := false
+	anyProcessed := false
+	anyTransportTyp := false
 	defer func() {
+		op := Snd
+		if !anyTransportTyp && anyProcessed {
+			op = Csn
+		}
+		if anyTimedout {
+			err = os.ErrDeadlineExceeded
+		}
 		target := &ErrUDPGSODisabled{}
 		if errors.As(err, target) {
-			s.observer(Snd, target.Unwrap())
+			s.sendObsMsg(op, target.Unwrap())
 		} else {
-			s.observer(Snd, err)
+			s.sendObsMsg(op, err)
 		}
 	}()
 
@@ -562,7 +688,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 		return conn.ErrWrongEndpointType
 	}
 
-	s.mu.Lock()
+	s.mu.RLock()
 	blackhole := s.blackhole4
 	offload := s.ipv4TxOffload
 	c := s.ipv4
@@ -575,7 +701,17 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 		br = s.ipv6PC
 		is6 = true
 	}
-	s.mu.Unlock()
+	s.mu.RUnlock()
+
+	for _, data := range bufs {
+		if len(data) > 0 {
+			anyProcessed = true
+			anyTransportTyp = anyTransportTyp || transportType(data)
+		}
+		if anyProcessed && anyTransportTyp {
+			break
+		}
+	}
 
 	if blackhole {
 		return nil
@@ -601,7 +737,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	ua := s.getUDPAddr() // from udpAddrPool
 	defer s.putUDPAddr(ua)
 	*ua = *net.UDPAddrFromAddrPort(dst)
-	s.sendAddr.Store(dst)
+	s.sendAddr.Store(&dst)
 
 	var retried bool
 retry:
@@ -611,6 +747,7 @@ retry:
 		if err = s.send(c, br, (*msgs)[:n], "gso"); err != nil {
 			log.E("wg: bind2: %s gso: send(%d/%d) to %s; err(%v)", s.id, n, len(bufs), ua, err)
 		}
+		anyTimedout = anyTimedout || timedout(err)
 
 		if shouldDisableUDPGSOOnError(err) { // err may be nil
 			offload = false
@@ -637,6 +774,7 @@ retry:
 		if err = s.send(c, br, (*msgs)[:len(bufs)], "batch"); err != nil {
 			log.E("wg: bind2: %s gso: send(%d) to %s (retry? %t); err(%v)", s.id, len(bufs), ua, retried, err)
 		}
+		anyTimedout = anyTimedout || timedout(err)
 	}
 	if retried {
 		x := zeroaddr
@@ -816,5 +954,5 @@ func addrport(ep conn.Endpoint, as4 bool) netip.AddrPort {
 }
 
 func addrok(a netip.Addr) bool {
-	return a.IsValid() || !a.IsUnspecified()
+	return a.IsValid() && !a.IsUnspecified()
 }
