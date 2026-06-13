@@ -29,19 +29,10 @@ import "C"
 import (
 	"bytes"
 	"io"
-	"sync"
 	"unsafe"
 )
 
 var newlineSep = []byte("\n")
-
-var cstrPool = sync.Pool{
-	New: func() any {
-		// 1024: github.com/golang/mobile/blob/2553ed8ce2/internal/mobileinit/mobileinit_android.go#L52
-		b := make([]byte, 0, 1024)
-		return &b
-	},
-}
 
 // ctag is the logcat tag used for all log output.
 var ctag = C.CString("Firestack")
@@ -72,7 +63,8 @@ func (a *xlog) Log(level LogLevel, msg Logmsg) {
 		return
 	}
 
-	ptr, _ := cstrPool.Get().(*[]byte)
+	// 1024: github.com/golang/mobile/blob/2553ed8ce2/internal/mobileinit/mobileinit_android.go#L52
+	ptr := obtain(LB1024)
 	buf := *ptr
 	buf = buf[:cap(buf)]
 
@@ -84,8 +76,8 @@ func (a *xlog) Log(level LogLevel, msg Logmsg) {
 
 	C.__android_log_write(androidPriority(level), ctag, (*C.char)(unsafe.Pointer(&buf[0])))
 
-	*ptr = buf[:0]
-	cstrPool.Put(ptr)
+	*ptr = buf
+	recycle(ptr)
 }
 
 func (a *xlog) Write(p []byte) (n int, err error) {

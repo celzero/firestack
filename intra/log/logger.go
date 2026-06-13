@@ -85,8 +85,8 @@ type simpleLogger struct {
 
 	o *golog.Logger
 	e *golog.Logger
-	x *xlog         // may be used instead of golog o/e
-	q *ring[string] // todo: use []byte instead of string for gc?
+	x *xlog          // may be used instead of golog o/e
+	q *ring[*[]byte] // ring buffer of pooled []byte slabs
 
 	clock
 	skips
@@ -269,7 +269,7 @@ func defaultLogger() *simpleLogger {
 		e: golog.New(os.Stderr, "", defaultFlags),
 		o: golog.New(os.Stdout, "", defaultFlags),
 		x: &xlog{}, // pipes output to logcat on Android, to fmt.Print otherwise
-		q: newRing[string](context.TODO(), qSize),
+		q: newRing(context.TODO(), qSize, recycle),
 	}
 	if runtime.GOOS == "android" {
 		golog.SetOutput(l.x)
@@ -378,7 +378,7 @@ func (l *simpleLogger) consoleDispatcher(ctx context.Context) {
 			case WARN, ERROR:
 				if load < 5 {
 					if d := l.cskips.Swap(0); d > 0 {
-						c.Log(WARN, Logmsg(l.msgstr(WARN, "backpressure... dropped %d msgs", d)))
+						c.Log(WARN, l.fmtmsg(WARN, "backpressure... dropped %d msgs", d))
 					}
 				}
 				if load < 80 {
@@ -410,7 +410,7 @@ func (l *simpleLogger) Usr(msg string) {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
 		}
-		l.consoleQueue(&conMsg{Logmsg(msg), USR})
+		l.consoleQueue(&conMsg{(Logmsg)(msg), USR})
 	}
 }
 
@@ -451,7 +451,7 @@ func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
 
 func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	// todo: log to console?
-	l.err(at+nextframe, l.msgstr(STACKTRACE, msg, args...))
+	l.err(at+nextframe, l.fmtmsg(STACKTRACE, msg, args...))
 	os.Exit(1)
 }
 
@@ -473,7 +473,7 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
 			// immediately once simpleLogger.Stack() returns
-			c.Log(STACKTRACE, Logmsg(msg))
+			c.Log(STACKTRACE, (Logmsg)(msg))
 		} else {
 			// msg, which is unsafely type-coerced from []byte,
 			// is pooled; but the caller owns []byte and so it
@@ -529,7 +529,7 @@ func (l *simpleLogger) Stack(at int, msg string, scratch []byte) {
 
 	// byt2str accepted proposal: github.com/golang/go/issues/19367
 	// previous discussion: github.com/golang/go/issues/25484
-	trace := unsafe.String(&scratch[0], n)
+	trace := unsafe.String(unsafe.SliceData(scratch), n)
 	l.emitStack(at, msg, trace, prev)
 }
 
@@ -542,44 +542,67 @@ func (l *simpleLogger) queued(all bool) (appendix string) {
 	// todo: interned strings github.com/golang/go/issues/62483
 	lines := make([]string, maxlines)
 	for recent := range l.q.Iter() {
-		lines[i] = recent
-		i++
+		if recent != nil && len(*recent) > 0 {
+			lines[i] = unsafe.String(unsafe.SliceData((*recent)), len(*recent))
+			i++
+		}
 		if i >= len(lines) {
 			break
 		}
 	}
 	if i > 0 {
+		// strings.Join creates a new str
 		appendix = strings.Join(lines[:i], "\n")
 	}
 	return
 }
 
-func (l *simpleLogger) msgstr(lvl LogLevel, f string, args ...any) (msg string) {
+func (l *simpleLogger) fmtmsg(lvl LogLevel, f string, args ...any) Logmsg {
+	return l.fmtmsg2(lvl, "", f, args...)
+}
+
+func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) Logmsg {
 	level := lvl.s()
 	tag := l.tag
 
 	if len(f) <= 0 {
 		return level + tag + "<empty>"
 	}
-	if len(args) <= 0 {
-		// fast path: no format args, single builder pass
+	if len(args) > 0 {
+		f = fmt.Sprintf(f, args...) // excl tag+level
+	} // else: fast path: no format args, single builder pass
+	if len(f) < charsPerLine-len(level)-len(tag)-len(t) {
 		var b strings.Builder
 		b.Grow(len(level) + len(tag) + len(f))
 		b.WriteString(level)
 		b.WriteString(tag)
-		b.WriteString(f)
+		if len(t) > 0 {
+			if prependTrace {
+				b.WriteString(t)
+				b.WriteByte('\t')
+				b.WriteString(f)
+			} else {
+				b.WriteString(f)
+				b.WriteByte('\t')
+				b.WriteString(t)
+			}
+		} else {
+			b.WriteString(f)
+		}
 		return b.String()
 	}
-	msg = fmt.Sprintf(f, args...)
-	if len(msg) <= charsPerLine { // excl tag+level
-		var b strings.Builder
-		b.Grow(len(level) + len(tag) + len(msg))
-		b.WriteString(level)
-		b.WriteString(tag)
-		b.WriteString(msg)
-		return b.String()
-	}
+	return l.splitlines(lvl, t, f)
+}
 
+func (l *simpleLogger) splitlines(lvl LogLevel, t, f string) Logmsg {
+	level := lvl.s()
+	tag := l.tag
+	var msg string
+	if prependTrace {
+		msg = strings.Join([]string{t, f}, "\t")
+	} else {
+		msg = strings.Join([]string{f, t}, "\t")
+	}
 	var s strings.Builder
 	for i := 0; i < len(msg); i += charsPerLine {
 		if i > 0 {
@@ -603,7 +626,19 @@ func (l *simpleLogger) out(msg string) {
 	} else {
 		_ = l.o.Output(0 /*not used*/, msg) // may error
 	}
-	l.q.Push(msg)
+	l.push(msg)
+}
+
+// push copies msg into a pooled []byte slab and pushes it into the ring buffer.
+func (l *simpleLogger) push(msg string) {
+	if len(msg) <= 0 {
+		return
+	}
+	ptr := obtain(len(msg))
+	buf := (*ptr)[:len(msg)]
+	copy(buf, msg)
+	*ptr = buf
+	l.q.Push(ptr)
 }
 
 // err logs to stderr and pushes msg into ring buffer.
@@ -617,7 +652,7 @@ func (l *simpleLogger) err(at int, msg string) {
 	} else {
 		_ = l.e.Output(0 /*unused*/, msg) // may error
 	}
-	l.q.Push(msg)
+	l.push(msg)
 }
 
 func caller(at int) (pc uintptr, who string) {
@@ -702,7 +737,7 @@ func b2msg(b []byte) Logmsg {
 	if len(b) <= 0 {
 		return ""
 	}
-	return Logmsg(unsafe.String(&b[0], len(b)))
+	return (Logmsg)(unsafe.String(unsafe.SliceData(b), len(b)))
 }
 
 // splitmsg parses the two-character level prefix prepended by msgstr
@@ -771,13 +806,13 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
 			swapped := l.skips[lvl].CompareAndSwap(n, 0)
 			if swapped && (cc || ll) {
-				spammsg := l.msgstr(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
+				spammsg := l.fmtmsg(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
 				if ll {
 					l.out(spammsg)
 				}
 				// print spammsg only if spamming is not allowed
 				if cc && !spamConsole {
-					l.consoleQueue(&conMsg{Logmsg(spammsg), lvl})
+					l.consoleQueue(&conMsg{spammsg, lvl})
 				}
 			}
 		}
@@ -793,12 +828,6 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		_, x, _ := callers(at+nextframe, int(l.callerdepth), ":", "@")
 
 		hasAtleastOneTracedCaller := tracecaller(x[0])
-		if !prependTrace {
-			trace.WriteString(msg)
-			if hasAtleastOneTracedCaller {
-				trace.WriteByte('\t') // end-of-msg marker
-			}
-		}
 
 		switch lvl {
 		case USR, STACKTRACE, NONE: // no-op
@@ -852,20 +881,14 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 				trace.WriteString(x[0])
 			}
 		}
-		if prependTrace {
-			if hasAtleastOneTracedCaller {
-				trace.WriteByte('\t') // end-of-trace marker
-			}
-			trace.WriteString(msg)
-		}
 
-		msg = l.msgstr(lvl, trace.String(), args...)
+		msg = l.fmtmsg2(lvl, trace.String(), msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
 			l.out(msg)
 		}
 		if cc && (!isspam || spamConsole) {
-			l.consoleQueue(&conMsg{Logmsg(msg), lvl})
+			l.consoleQueue(&conMsg{(Logmsg)(msg), lvl})
 		}
 	}
 }

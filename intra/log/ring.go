@@ -19,14 +19,24 @@ type ring[T any] struct {
 	inC  chan T // input channel
 	head int
 	tail int
+	// onEvict is called when an element is overwritten; may be nil.
+	onEvict func(T)
 }
 
-// NewRing creates a new ring buffer with the given capacity
-func newRing[T any](ctx context.Context, capacity int) *ring[T] {
+// NewRing creates a new ring buffer with the given capacity (256 if <= 0).
+// evict must be light as it is called for each element displaced by a push, under contention.
+func newRing[T any](ctx context.Context, capacity int, evict func(T)) *ring[T] {
+	if evict == nil {
+		evict = func(T) {}
+	}
+	if capacity <= 0 {
+		capacity = 256 // default cap
+	}
 	r := &ring[T]{
-		ctx: ctx,
-		b:   make([]T, capacity),
-		inC: make(chan T, capacity/2),
+		ctx:     ctx,
+		b:       make([]T, capacity),
+		inC:     make(chan T, capacity/2),
+		onEvict: evict,
 	}
 	go r.process()
 	context.AfterFunc(ctx, func() { close(r.inC) })
@@ -56,6 +66,7 @@ func (r *ring[T]) process() {
 		r.b[r.head] = v
 		r.head = (r.head + 1) % len(r.b)
 		if r.head == r.tail {
+			r.onEvict(r.b[r.tail])
 			r.tail = (r.tail + 1) % len(r.b)
 		}
 		r.Unlock()
