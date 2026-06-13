@@ -122,6 +122,8 @@ var (
 	_ conn.Endpoint = &StdNetEndpoint2{}
 )
 
+var invalidStdNetEndpoint2 conn.Endpoint = &StdNetEndpoint2{}
+
 var errSplitOverflow = errors.New("wg: splitting coalesced packet resulted in overflow")
 
 func (e ErrUDPGSODisabled) Error() string {
@@ -521,6 +523,13 @@ func (s *StdNetBind2) receiveIP(
 		eps[i] = ep
 		anyProcessed = true
 	}
+	// WireGuard processes eps[0..n-1] for non-zero sizes; any unset eps[i]
+	// where sizes[i] > 0 would panic. Back-fill with a safe fallback.
+	for i := 0; i < numMsgs; i++ {
+		if sizes[i] > 0 && (eps[i] == nil) {
+			eps[i] = invalidStdNetEndpoint2
+		}
+	}
 	if settings.Debug {
 		log.VV("wg: bind2: %s received (batch? %t, offload? %t) %d messages", s.id, batch, rxOffload, numMsgs)
 	}
@@ -703,16 +712,6 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	}
 	s.mu.RUnlock()
 
-	for _, data := range bufs {
-		if len(data) > 0 {
-			anyProcessed = true
-			anyTransportTyp = anyTransportTyp || transportType(data)
-		}
-		if anyProcessed && anyTransportTyp {
-			break
-		}
-	}
-
 	if blackhole {
 		return nil
 	}
@@ -738,6 +737,18 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	defer s.putUDPAddr(ua)
 	*ua = *net.UDPAddrFromAddrPort(dst)
 	s.sendAddr.Store(&dst)
+
+	// track anyProcessed and anyTransportTyp for observer:
+	// matches wgconn.go where these are set only after successful path setup.
+	for _, data := range bufs {
+		if len(data) > 0 {
+			anyProcessed = true
+			anyTransportTyp = anyTransportTyp || transportType(data)
+		}
+		if anyTransportTyp {
+			break
+		}
+	}
 
 	var retried bool
 retry:
@@ -792,12 +803,14 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 
 	batch := pc != nil && core.IsNotNil(pc)
 	if batch {
-		for {
+		remaining := len(msgs)
+		for remaining > 0 {
 			n, err = pc.WriteBatch(msgs[start:], 0)
-			if err != nil || n == len(msgs[start:]) {
+			if n <= 0 || err != nil {
 				break
 			}
 			start += n
+			remaining -= n
 		}
 	} else {
 		for _, msg := range msgs {
