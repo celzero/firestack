@@ -659,17 +659,21 @@ func (l *simpleLogger) out(msg string) {
 	l.push(msg)
 }
 
-// push copies msg into a pooled []byte slab and pushes it into the ring buffer.
+// push splits msg on newlines and pushes each non-empty line into the
+// ring buffer individually. Since charsPerLine=800, each line fits in a
+// LB1024 slab, so the pool never allocates oversized slabs.
 func (l *simpleLogger) push(msg string) {
-	if len(msg) <= 0 {
-		return
-	}
-	ptr := obtain(len(msg))
-	buf := (*ptr)[:len(msg)]
-	copy(buf, msg)
-	*ptr = buf
-	if !l.q.Push(ptr) {
-		recycle(ptr) // ring dropped it; return slab to pool
+	for line := range strings.SplitSeq(msg, "\n") {
+		if len(line) <= 0 {
+			continue
+		}
+		ptr := obtain(len(line))
+		buf := (*ptr)[:len(line)]
+		copy(buf, line)
+		*ptr = buf
+		if !l.q.Push(ptr) {
+			recycle(ptr) // ring dropped it; return slab to pool
+		}
 	}
 }
 
