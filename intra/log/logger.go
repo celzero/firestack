@@ -629,7 +629,7 @@ func (l *simpleLogger) splitlines(lvl LogLevel, t, f string) Logmsg {
 	est := (len(msg)+chunk-1)/chunk*(prefix+1) + len(msg) + 1
 	var s strings.Builder
 	s.Grow(est)
-
+	// will iterate once on msg if "\n" is not present: go.dev/play/p/_fNaqiDll2A
 	for line := range strings.SplitSeq(msg, "\n") {
 		if len(line) == 0 { // skip empty segments (trailing/consecutive \n)
 			continue
@@ -656,14 +656,15 @@ func (l *simpleLogger) out(msg string) {
 	} else {
 		_ = l.o.Output(0 /*not used*/, msg) // may error
 	}
-	l.push(msg)
 }
 
 // push splits msg on newlines and pushes each non-empty line into the
 // ring buffer individually. Since charsPerLine=800, each line fits in a
 // LB1024 slab, so the pool never allocates oversized slabs.
 func (l *simpleLogger) push(msg string) {
-	// TODO: push from where split already happens rather than doing again
+	// TODO? push from where split already happens rather than doing again
+	// TODO: slog
+	// will iterate at least once
 	for line := range strings.SplitSeq(msg, "\n") {
 		if len(line) <= 0 {
 			continue
