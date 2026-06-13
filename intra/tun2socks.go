@@ -85,7 +85,7 @@ func SetupConsole(console Console) error {
 
 	ctx := context.Background()
 	logch := make(chan bool, 1)
-	go func() {
+	core.Gx("console.setup", func() {
 		logfd, memfd := false, false
 		var cons x.LogConsumer
 		// memfd double-buffer (shared memory, zero kernel copy).
@@ -121,7 +121,7 @@ func SetupConsole(console Console) error {
 		log.D("tun: <<< console >>>; log out ok; memfd? %t / logfd? %t", memfd, logfd)
 		logch <- memfd || logfd
 		log.ConsoleReady(ctx)
-	}()
+	})
 
 	fd := <-logch
 
@@ -390,9 +390,13 @@ func PrintStack(where int32) []byte {
 }
 
 // Crash causes a crash by panicking on an out-of-bounds slice access. For testing only.
-func Crash(afterMs int64) {
+// Setting typ to 0 must send the crash output to stderr and abort, and 1 to console and not quit.
+func Crash(typ, afterMs int64) {
 	go func() {
-		log.I("tun: crashing in %s", core.FmtMillis(afterMs))
+		if typ == 1 {
+			defer core.Recover(core.DontExit, "tun: debugging... not a crash")
+		}
+		log.I("tun: debug: crashing in %s", core.FmtMillis(afterMs))
 		time.Sleep(time.Duration(afterMs) * time.Millisecond)
 		var i []int
 		i[10] = 1 // panic: runtime error: index out of range [10] with length 10
