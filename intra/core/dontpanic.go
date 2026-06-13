@@ -205,6 +205,10 @@ func applog(code ExitCode, msg string) {
 }
 
 func SetFlightRecordOutput(fp string) (string, error) {
+	if !neverrecord || recorder == nil {
+		return "", errors.ErrUnsupported
+	}
+
 	fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 
 	_pmu.Lock()
