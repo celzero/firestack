@@ -62,9 +62,6 @@ func (f *fconsole) write(lvl LogLevel, m Logmsg) error {
 	if w == nil {
 		return io.ErrClosedPipe
 	}
-	if len(m) <= 0 {
-		return nil
-	}
 	l := []byte(lvl.s())
 	p := unsafe.StringData(m)
 	b := unsafe.Slice(p, len(m))

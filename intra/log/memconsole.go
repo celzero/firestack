@@ -291,8 +291,8 @@ func (mc *Memconsole) ticker() {
 	t := time.NewTimer(memFlushInterval)
 	defer t.Stop()
 	<-t.C
-	mc.ticking.Store(false) // TODO: may be racy; mutex it?
 	mc.periodicFlush()
+	mc.ticking.Store(false) // after flush to avoid concurrent ticker start
 }
 
 // periodicFlush drains the active buffer if it has content and no drain has

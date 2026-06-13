@@ -23,14 +23,14 @@ type ring[T any] struct {
 	onEvict func(T)
 }
 
-// NewRing creates a new ring buffer with the given capacity (256 if <= 0).
+// NewRing creates a new ring buffer with the given capacity (256 if <= 1).
 // evict must be light as it is called for each element displaced by a push, under contention.
 func newRing[T any](ctx context.Context, capacity int, evict func(T)) *ring[T] {
 	if evict == nil {
 		evict = func(T) {}
 	}
-	if capacity <= 0 {
-		capacity = 256 // default cap
+	if capacity <= 1 {
+		capacity = 256 // default cap; 1 would degenerate: every push immediately evicts
 	}
 	r := &ring[T]{
 		ctx:     ctx,
@@ -91,6 +91,10 @@ func (r *ring[T]) Len() int {
 	r.RLock()
 	defer r.RUnlock()
 
+	return r.lenLocked()
+}
+
+func (r *ring[T]) lenLocked() int {
 	if r.head >= r.tail {
 		return r.head - r.tail
 	}
@@ -116,27 +120,26 @@ func (r *ring[T]) Peek() (v T) {
 	return r.b[r.tail]
 }
 
-// Reset resets the ring buffer
+// Reset resets the ring buffer, evicting all remaining elements.
 func (r *ring[T]) Reset() {
 	r.Lock()
 	defer r.Unlock()
 
+	for r.head != r.tail {
+		r.onEvict(r.b[r.tail])
+		r.tail = (r.tail + 1) % len(r.b)
+	}
 	r.head = 0
 	r.tail = 0
 }
 
-// Iter returns a channel that yields all elements in the ring buffer
-func (r *ring[T]) Iter() <-chan T {
-	ch := make(chan T, r.Cap())
-
-	go func() {
-		defer close(ch)
-		r.RLock()
-		defer r.RUnlock()
-
-		for i := r.tail; i != r.head; i = (i + 1) % len(r.b) {
-			ch <- r.b[i]
-		}
-	}()
-	return ch
+// All returns a slice that contains all elements in the ring buffer
+func (r *ring[T]) All() []T {
+	r.RLock()
+	defer r.RUnlock()
+	out := make([]T, 0, r.lenLocked())
+	for i := r.tail; i != r.head; i = (i + 1) % len(r.b) {
+		out = append(out, r.b[i])
+	}
+	return out
 }

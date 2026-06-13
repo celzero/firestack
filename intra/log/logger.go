@@ -365,7 +365,7 @@ func (l *simpleLogger) consoleDispatcher(ctx context.Context) {
 		if m == nil || len(m.m) <= 0 { // no msg
 			continue
 		}
-		load := (len(l.cmsgC) / cap(l.cmsgC) * 100) // load percentage
+		load := (len(l.cmsgC) * 100) / cap(l.cmsgC) // load percentage
 		if c := l.c.get(); c != nil && !isNil(c) {  // look for l.c on every msg
 			switch m.t {
 			case NONE:
@@ -541,9 +541,10 @@ func (l *simpleLogger) queued(all bool) (appendix string) {
 	i := 0
 	// todo: interned strings github.com/golang/go/issues/62483
 	lines := make([]string, maxlines)
-	for recent := range l.q.Iter() {
-		if recent != nil && len(*recent) > 0 {
-			lines[i] = unsafe.String(unsafe.SliceData((*recent)), len(*recent))
+	for _, a := range l.q.All() {
+		if a != nil && len(*a) > 0 {
+			// yolo: possible 'a' points to a recycled byte
+			lines[i] = unsafe.String(unsafe.SliceData(*a), len(*a))
 			i++
 		}
 		if i >= len(lines) {
@@ -571,19 +572,23 @@ func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) Logmsg {
 	if len(args) > 0 {
 		f = fmt.Sprintf(f, args...) // excl tag+level
 	} // else: fast path: no format args, single builder pass
-	if len(f) < charsPerLine-len(level)-len(tag)-len(t) {
+	tlen := 0
+	if len(t) > 0 {
+		tlen = len(t) + 1 // +1 for the '\t' separator
+	}
+	if len(f)+tlen < charsPerLine-len(level)-len(tag) {
 		var b strings.Builder
-		b.Grow(len(level) + len(tag) + len(f))
+		b.Grow(len(level) + len(tag) + len(f) + tlen)
 		b.WriteString(level)
 		b.WriteString(tag)
 		if len(t) > 0 {
 			if prependTrace {
 				b.WriteString(t)
-				b.WriteByte('\t')
+				b.WriteByte('\t') // end of trace marker
 				b.WriteString(f)
 			} else {
 				b.WriteString(f)
-				b.WriteByte('\t')
+				b.WriteByte('\t') // end of msg marker
 				b.WriteString(t)
 			}
 		} else {
@@ -597,23 +602,44 @@ func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) Logmsg {
 func (l *simpleLogger) splitlines(lvl LogLevel, t, f string) Logmsg {
 	level := lvl.s()
 	tag := l.tag
+	prefix := len(level) + len(tag)
+	chunk := max(charsPerLine-prefix, 1)
+
+	// join trace and message body
 	var msg string
 	if prependTrace {
-		msg = strings.Join([]string{t, f}, "\t")
+		if len(t) > 0 {
+			msg = t + "\t" + f
+		} else {
+			msg = f
+		}
 	} else {
-		msg = strings.Join([]string{f, t}, "\t")
+		if len(t) > 0 {
+			msg = f + "\t" + t
+		} else {
+			msg = f
+		}
 	}
+
+	// estimate output size; overestimation is fine for Grow
+	est := (len(msg)+chunk-1)/chunk*(prefix+1) + len(msg) + 1
 	var s strings.Builder
-	for i := 0; i < len(msg); i += charsPerLine {
-		if i > 0 {
-			s.WriteByte('\n')
+	s.Grow(est)
+
+	for line := range strings.SplitSeq(msg, "\n") {
+		if len(line) == 0 { // skip empty segments (trailing/consecutive \n)
+			continue
 		}
-		s.WriteString(level)
-		if len(tag) > 0 {
-			s.WriteString(tag)
+		for i := 0; i < len(line); i += chunk {
+			if s.Len() > 0 {
+				s.WriteByte('\n')
+			}
+			s.WriteString(level)
+			if len(tag) > 0 {
+				s.WriteString(tag)
+			}
+			s.WriteString(line[i:min(i+chunk, len(line))])
 		}
-		end := min(i+charsPerLine, len(msg))
-		s.WriteString(msg[i:end])
 	}
 	return s.String()
 }
@@ -638,7 +664,9 @@ func (l *simpleLogger) push(msg string) {
 	buf := (*ptr)[:len(msg)]
 	copy(buf, msg)
 	*ptr = buf
-	l.q.Push(ptr)
+	if !l.q.Push(ptr) {
+		recycle(ptr) // ring dropped it; return slab to pool
+	}
 }
 
 // err logs to stderr and pushes msg into ring buffer.
@@ -689,7 +717,7 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 
 	pcs = make([]uintptr, 0, until)
 	files = make([]string, 0, until)
-	frames := runtime.CallersFrames(rpc)
+	frames := runtime.CallersFrames(rpc[:n])
 	for i := range until {
 		frame, more := frames.Next()
 		pc := frame.PC // may be 0
@@ -713,9 +741,9 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 		pcs = append(pcs, pc)
 		files = append(files, file)
 		if !more {
+			skipped = until - (i + 1)
 			break
 		}
-		skipped = until - i
 	}
 	return
 }
@@ -907,12 +935,6 @@ top:
 	// go.dev/play/p/QgqEdE7KIAZ
 	bkt := pc % pcbuckets
 
-	defer func() {
-		if !y { // age bkt when not spammy
-			(l.clock.l2[lvl][bkt]).inc()
-		}
-	}()
-
 	v := (l.clock.l2[lvl][bkt]).v()
 
 	// reset if pc clock (l2) out ticks level clock (l1);
@@ -922,6 +944,8 @@ top:
 	if v > t {
 		resyncd := (l.clock.l2[lvl][bkt]).cas(t, 0) // set to t/2?
 		if resyncd {
+			// age bkt when not spammy
+			(l.clock.l2[lvl][bkt]).inc()
 			return false // not spammy
 		} // else: someone else won the race
 		resyncAttempts++
@@ -944,7 +968,11 @@ top:
 	} else { // for upto 256 ticks
 		tt = tt * 30 / 100 // allow upto 30% of ticks
 	}
-	return uint16(v) > tt
+	y = uint16(v) > tt
+	if !y { // age bkt when not spammy
+		(l.clock.l2[lvl][bkt]).inc()
+	}
+	return
 }
 
 // Cannot import pkg core here.
