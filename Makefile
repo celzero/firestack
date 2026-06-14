@@ -35,7 +35,12 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 # NDK llvm-objcopy for extracting / stripping debug symbols from .so files
 # ANDROID_NDK_HOME is exported by make-aar (or set in the environment)
 NDK_ROOT ?= $(ANDROID_NDK_HOME)
-LLVM_OBJCOPY ?= $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy
+# First tries the NDK-canonical path
+# falls back to command -v llvm-objcopy from PATH
+# Last resort: just llvm-objcopy (so it fails with a clearer error)
+LLVM_OBJCOPY ?= $(shell \
+  ndkcp="$(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy"; \
+  if [ -x "$$ndkcp" ]; then echo "$$ndkcp"; else command -v llvm-objcopy 2>/dev/null || echo "llvm-objcopy"; fi)
 ARCHS = armeabi-v7a arm64-v8a x86 x86_64
 DEBUG_SYMBOLS_DIR = $(BUILDDIR)/intra/debug-symbols
 DEBUG_SYMBOLS_ZIP = $(BUILDDIR)/intra/tun2socks-debug-symbols.zip
