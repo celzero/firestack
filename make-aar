@@ -46,6 +46,7 @@ head $ANDROID_HOME/ndk-bundle/source.properties || true
 if [ "$NDKVER" != "0" ]; then
   ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${NDKVER}"
   ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+  export ANDROID_NDK_HOME ANDROID_NDK_ROOT
   # ls will fail if NDKVER is missing, which is what we want!
   ls -ltr $ANDROID_NDK_HOME
   head $ANDROID_NDK_HOME/source.properties || true
@@ -53,6 +54,7 @@ elif [ "$LATESTNDKHOME" != "0" ]; then
   # use the latest NDK version, set by github actions
   ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME}"
   ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+  export ANDROID_NDK_HOME ANDROID_NDK_ROOT
   # ls will fail if ANDROID_NDK_LATEST_HOME is missing, which is what we want!
   ls -ltr $ANDROID_NDK_HOME
   head $ANDROID_NDK_HOME/source.properties || true
