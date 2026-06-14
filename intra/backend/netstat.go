@@ -241,6 +241,7 @@ type GoMetrics struct {
 	G GoStat
 	M string
 	C string
+	L string
 }
 
 // GO returns the Go runtime statistics.

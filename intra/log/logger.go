@@ -66,6 +66,7 @@ type Logger interface {
 	Fatalf(at int, msg string, args ...any)
 	Trace(c bool, t string)
 	Stack(at int, msg string, scratch []byte)
+	Metrics() *LogStat
 }
 
 type simpleLogger struct {
@@ -90,6 +91,10 @@ type simpleLogger struct {
 
 	clock
 	skips
+
+	// per-level counters (updated atomically in writelog)
+	ncount [NONE + 1]atomic.Uint64 // total messages logged
+	nbytes [NONE + 1]atomic.Uint64 // total bytes formatted
 }
 
 type atom[T any] atomic.Value
@@ -972,6 +977,13 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		}
 
 		msgs, slabs := l.fmtmsg2(lvl, trace.String(), msg, args...)
+
+		// update per-level counters
+		l.ncount[lvl].Add(uint64(len(msgs)))
+		for _, line := range msgs {
+			l.nbytes[lvl].Add(uint64(len(line)))
+		}
+
 		if ll {
 			// go's internal logger grabs mutex before every write
 			for _, line := range msgs {
@@ -1064,4 +1076,33 @@ func typeEq(a, b any) bool {
 		return false
 	}
 	return reflect.TypeOf(a) == reflect.TypeOf(b)
+}
+
+// Metrics returns current logger and pool statistics as a formatted string.
+func (l *simpleLogger) Metrics() *LogStat {
+	s := l.logstat()
+	return &s
+}
+
+// logstat snapshots the current logger state into a LogStat struct.
+func (l *simpleLogger) logstat() LogStat {
+	s := LogStat{
+		Tag:          l.tag,
+		Level:        l.level,
+		ConsoleLvl:   l.clevel,
+		CallerDepth:  l.callerdepth,
+		ConsoleDrops: l.cskips.Load(),
+		RingSize:     l.q.Len(),
+	}
+
+	for i := LogLevel(0); i <= NONE; i++ {
+		s.Count[i] = l.ncount[i].Load()
+		s.Bytes[i] = l.nbytes[i].Load()
+		s.Skipped[i] = l.skips[i].Load()
+		s.ClockL1[i] = (l.clock.l1[i]).v()
+	}
+
+	s.PoolGets, s.PoolNews, s.PoolPuts, s.PoolDrops = logpoolStats()
+
+	return s
 }

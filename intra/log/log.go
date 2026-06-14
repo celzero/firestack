@@ -267,6 +267,13 @@ func E2(at int, msg string, args ...any) {
 	Glogger.Errorf(at+nextframe, msg, args...)
 }
 
+func Metrics() string {
+	if m := Glogger.Metrics(); m != nil {
+		return m.String()
+	}
+	return "<no logmet>"
+}
+
 func LevelOf(level int32) LogLevel {
 	dlvl := NONE
 	switch l := LogLevel(level); l {

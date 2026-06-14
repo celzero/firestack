@@ -321,6 +321,7 @@ func GoMet() *x.GoMetrics {
 	out := new(x.GoMetrics)
 	out.M = core.Metrics()
 	out.C = core.Snapshot()
+	out.L = log.Metrics()
 
 	var mm runtime.MemStats
 	runtime.ReadMemStats(&mm) // stw & expensive
