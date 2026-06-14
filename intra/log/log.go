@@ -71,8 +71,9 @@ type FilebasedConsole interface {
 }
 
 type conMsg struct {
-	m Logmsg
-	t LogLevel
+	m  []Logmsg  // one or more formatted log lines
+	ml []*[]byte // pooled slabs backing m; recycled after dispatch
+	t  LogLevel
 }
 
 type LogFn func(string, ...any)

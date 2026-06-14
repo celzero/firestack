@@ -376,27 +376,44 @@ func (l *simpleLogger) consoleDispatcher(ctx context.Context) {
 				// drop
 			case VVERBOSE, VERBOSE, DEBUG, INFO:
 				if load < 95 {
-					c.Log(m.t, m.m)
+					for _, line := range m.m {
+						c.Log(m.t, line)
+					}
+					recycleAll(m.ml)
 					continue
 				} // drop
 			case WARN, ERROR:
 				if load < 5 {
 					if d := l.cskips.Swap(0); d > 0 {
-						c.Log(WARN, l.fmtmsg(WARN, "backpressure... dropped %d msgs", d))
+						bp, bpsl := l.fmtmsg(WARN, "backpressure... dropped %d msgs", d)
+						for _, line := range bp {
+							c.Log(WARN, line)
+						}
+						recycleAll(bpsl)
 					}
 				}
 				if load < 99 {
-					c.Log(m.t, m.m)
+					for _, line := range m.m {
+						c.Log(m.t, line)
+					}
+					recycleAll(m.ml)
 					continue
 				} // drop
 			case STACKTRACE:
-				c.Log(m.t, m.m)
+				for _, line := range m.m {
+					c.Log(m.t, line)
+				}
+				recycleAll(m.ml)
 				continue
 			case USR:
-				c.Log(m.t, m.m)
+				for _, line := range m.m {
+					c.Log(m.t, line)
+				}
+				recycleAll(m.ml)
 				continue
 			}
 		} // dropped
+		recycleAll(m.ml)
 		l.cskips.Add(1)
 	}
 }
@@ -405,7 +422,8 @@ func (l *simpleLogger) consoleDispatcher(ctx context.Context) {
 func (l *simpleLogger) consoleQueue(m *conMsg) {
 	select {
 	case l.cmsgC <- m:
-	default: // drop
+	default:
+		recycleAll(m.ml) // channel full; recycle slabs
 	}
 }
 
@@ -414,7 +432,7 @@ func (l *simpleLogger) Usr(msg string) {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
 		}
-		l.consoleQueue(&conMsg{(Logmsg)(msg), USR})
+		l.consoleQueue(&conMsg{m: []Logmsg{(Logmsg)(msg)}, t: USR})
 	}
 }
 
@@ -455,7 +473,11 @@ func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
 
 func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 	// todo: log to console?
-	l.err(at+nextframe, l.fmtmsg(STACKTRACE, msg, args...))
+	msgs, slabs := l.fmtmsg(STACKTRACE, msg, args...)
+	for _, line := range msgs {
+		l.err(at+nextframe, line)
+	}
+	recycleAll(slabs)
 	os.Exit(1)
 }
 
@@ -562,48 +584,58 @@ func (l *simpleLogger) queued(all bool) (appendix string) {
 	return
 }
 
-func (l *simpleLogger) fmtmsg(lvl LogLevel, f string, args ...any) Logmsg {
+func (l *simpleLogger) fmtmsg(lvl LogLevel, f string, args ...any) ([]Logmsg, []*[]byte) {
 	return l.fmtmsg2(lvl, "", f, args...)
 }
 
-func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) Logmsg {
+func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) ([]Logmsg, []*[]byte) {
 	level := lvl.s()
 	tag := l.tag
 
 	if len(f) <= 0 {
-		return level + tag + "<empty>"
+		s := level + tag + "<empty>"
+		return []Logmsg{s}, nil
 	}
 	if len(args) > 0 {
 		f = fmt.Sprintf(f, args...) // excl tag+level
-	} // else: fast path: no format args, single builder pass
+	} // else: fast path: no format args, single slab pass
 	tlen := 0
 	if len(t) > 0 {
 		tlen = len(t) + 1 // +1 for the '\t' separator
 	}
 	if len(f)+tlen < charsPerLine-len(level)-len(tag) {
-		var b strings.Builder
-		b.Grow(len(level) + len(tag) + len(f) + tlen)
-		b.WriteString(level)
-		b.WriteString(tag)
+		n := len(level) + len(tag) + len(f) + tlen
+		ptr := obtain(n)
+		buf := (*ptr)[:n]
+		off := 0
+		copy(buf[off:], level)
+		off += len(level)
+		copy(buf[off:], tag)
+		off += len(tag)
 		if len(t) > 0 {
 			if prependTrace {
-				b.WriteString(t)
-				b.WriteByte('\t') // end of trace marker
-				b.WriteString(f)
+				copy(buf[off:], t)
+				off += len(t)
+				buf[off] = '\t'
+				off++
+				copy(buf[off:], f)
 			} else {
-				b.WriteString(f)
-				b.WriteByte('\t') // end of msg marker
-				b.WriteString(t)
+				copy(buf[off:], f)
+				off += len(f)
+				buf[off] = '\t'
+				off++
+				copy(buf[off:], t)
 			}
 		} else {
-			b.WriteString(f)
+			copy(buf[off:], f)
 		}
-		return b.String()
+		*ptr = buf
+		return []Logmsg{b2msg(buf)}, []*[]byte{ptr}
 	}
 	return l.splitlines(lvl, t, f)
 }
 
-func (l *simpleLogger) splitlines(lvl LogLevel, t, f string) Logmsg {
+func (l *simpleLogger) splitlines(lvl LogLevel, t, f string) ([]Logmsg, []*[]byte) {
 	level := lvl.s()
 	tag := l.tag
 	prefix := len(level) + len(tag)
@@ -625,27 +657,30 @@ func (l *simpleLogger) splitlines(lvl LogLevel, t, f string) Logmsg {
 		}
 	}
 
-	// estimate output size; overestimation is fine for Grow
-	est := (len(msg)+chunk-1)/chunk*(prefix+1) + len(msg) + 1
-	var s strings.Builder
-	s.Grow(est)
+	// estimate number of output lines
+	est := (len(msg)+chunk-1)/chunk + strings.Count(msg, "\n")
+	msgs := make([]Logmsg, 0, est)
+	slabs := make([]*[]byte, 0, est)
+
 	// will iterate once on msg if "\n" is not present: go.dev/play/p/_fNaqiDll2A
 	for line := range strings.SplitSeq(msg, "\n") {
 		if len(line) == 0 { // skip empty segments (trailing/consecutive \n)
 			continue
 		}
 		for i := 0; i < len(line); i += chunk {
-			if s.Len() > 0 {
-				s.WriteByte('\n')
-			}
-			s.WriteString(level)
-			if len(tag) > 0 {
-				s.WriteString(tag)
-			}
-			s.WriteString(line[i:min(i+chunk, len(line))])
+			seg := line[i:min(i+chunk, len(line))]
+			n := prefix + len(seg)
+			ptr := obtain(n)
+			buf := (*ptr)[:n]
+			copy(buf, level)
+			copy(buf[len(level):], tag)
+			copy(buf[prefix:], seg)
+			*ptr = buf
+			msgs = append(msgs, b2msg(buf))
+			slabs = append(slabs, ptr)
 		}
 	}
-	return s.String()
+	return msgs, slabs
 }
 
 // out logs to stdout and pushes msg into ring buffer.
@@ -759,7 +794,10 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 }
 
 func tracecaller(s string) bool {
-	if len(s) <= 0 || (strings.HasSuffix(s, callerunknown) && strings.HasPrefix(s, fileunknown)) {
+	if len(s) <= 0 || s == fileunknown || s == callerunknown {
+		return false
+	}
+	if strings.HasSuffix(s, callerunknown) && strings.HasPrefix(s, fileunknown) {
 		return false
 	}
 	// ex: asm_arm64.s:1223>async.go:49>async.go:121>proxy.go:789
@@ -833,7 +871,16 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 	cc := l.clevel <= lvl
 
 	if ll || cc {
-		pc, file1 := caller(at + nextframe)
+		var pc uintptr
+		var file1 string
+		if l.callerdepth == maxCallerDepth {
+			pc, file1 = caller(at + nextframe)
+		} else {
+			// skip expensive runtime.Caller; fast-hash up to first 12 chars of msg
+			n := min(len(msg), 12)
+			file1 = msg[:n]
+			pc = uintptr(fhash(unsafe.Slice(unsafe.StringData(msg), n)))
+		}
 		var trace strings.Builder
 
 		isspam := l.spammy(lvl, pc)
@@ -844,13 +891,17 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
 			swapped := l.skips[lvl].CompareAndSwap(n, 0)
 			if swapped && (cc || ll) {
-				spammsg := l.fmtmsg(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
+				spammsgs, spamslabs := l.fmtmsg(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
 				if ll {
-					l.out(spammsg)
+					for _, line := range spammsgs {
+						l.out(line)
+					}
 				}
 				// print spammsg only if spamming is not allowed
 				if cc && !spamConsole {
-					l.consoleQueue(&conMsg{spammsg, lvl})
+					l.consoleQueue(&conMsg{m: spammsgs, ml: spamslabs, t: lvl})
+				} else {
+					recycleAll(spamslabs)
 				}
 			}
 		}
@@ -920,13 +971,17 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 			}
 		}
 
-		msg = l.fmtmsg2(lvl, trace.String(), msg, args...)
+		msgs, slabs := l.fmtmsg2(lvl, trace.String(), msg, args...)
 		if ll {
 			// go's internal logger grabs mutex before every write
-			l.out(msg)
+			for _, line := range msgs {
+				l.out(line)
+			}
 		}
 		if cc && (!isspam || spamConsole) {
-			l.consoleQueue(&conMsg{(Logmsg)(msg), lvl})
+			l.consoleQueue(&conMsg{m: msgs, ml: slabs, t: lvl})
+		} else {
+			recycleAll(slabs)
 		}
 	}
 }
@@ -962,8 +1017,8 @@ top:
 		if resyncAttempts <= 3 {
 			goto top
 		} // else: so many calls that atomic updates won't go through
-		// assume spammy as that's most likely to be the case
-		return true
+		// TODO? assume spammy as that's most likely to be the case
+		return false
 	}
 
 	tt := uint16(t) // tolerable ticks
