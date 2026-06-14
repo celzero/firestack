@@ -35,6 +35,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"io"
 	golog "log"
 	"os"
 	"reflect"
@@ -66,6 +67,7 @@ type Logger interface {
 	Fatalf(at int, msg string, args ...any)
 	Trace(c bool, t string)
 	Stack(at int, msg string, scratch []byte)
+	Hist(w io.Writer) int
 	Metrics() *LogStat
 }
 
@@ -1087,6 +1089,20 @@ func typeEq(a, b any) bool {
 func (l *simpleLogger) Metrics() *LogStat {
 	s := l.logstat()
 	return &s
+}
+
+// Hist writes items from recents q to w, one per line.
+func (l *simpleLogger) Hist(w io.Writer) (n int) {
+	for _, ptr := range l.q.All() {
+		if ptr != nil {
+			if sz := len(*ptr); sz > 0 {
+				w.Write(*ptr)
+				w.Write([]byte{'\n'})
+				n += sz
+			}
+		}
+	}
+	return
 }
 
 // logstat snapshots the current logger state into a LogStat struct.

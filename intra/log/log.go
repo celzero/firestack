@@ -274,6 +274,11 @@ func Metrics() string {
 	return "<no logmet>"
 }
 
+// Hist writes the recents to w, one line per entry.
+func Hist(w io.Writer) int {
+	return Glogger.Hist(w)
+}
+
 func LevelOf(level int32) LogLevel {
 	dlvl := NONE
 	switch l := LogLevel(level); l {

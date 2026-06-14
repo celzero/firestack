@@ -31,6 +31,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -427,18 +428,50 @@ func setCrashFd(f *os.File) (ok bool) {
 	return err == nil
 }
 
-// SetCrashOutput set crash output to file at fp; returns true if so.
-// Disables crash output if fp cannot be opened; and returns false.
+// SetCrashOutput sets the crash output file at fp and starts a goroutine
+// that captures crash output and the logger ring buffer into that file.
+// Returns true if successful, false on error (the file cannot be opened).
 func SetCrashOutput(fp string) bool {
+	return sync.OnceValue(func() bool {
+		ok := setCrashOutput(fp)
+		log.I("tun: crashout: set %s, ok? %t", fp, ok)
+		return ok
+	})()
+}
+
+func setCrashOutput(fp string) bool {
 	fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-	defer core.CloseFile(fout)
-
-	logei(err)("tun: crashout: f: %s; err? %v", fp, err)
-
-	if err == nil {
-		return setCrashFd(fout)
+	if err != nil {
+		logei(err)("tun: crashout: open %s; err? %v", fp, err)
+		return false
 	}
-	return false
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		core.CloseFile(fout)
+		logei(err)("tun: crashout: pipe %s; err? %v", fp, err)
+		return false
+	}
+
+	if !setCrashFd(w) { // pw is dup'd
+		core.Close(fout, r, w)
+		return false
+	}
+	core.Close(w) // runtime holds its own dup; safe to close our end
+
+	// goroutine: block on pr, then drain crash output + ring buffer into fout
+	core.Go("crashout."+fname(fout), func() {
+		defer core.Close(fout, r)
+
+		n, err := core.Stream(fout, r) // blocks until crash output arrives
+		if n > 0 && err != nil {       // append the recent history
+			log.Hist(fout)
+		}
+		runtime.KeepAlive(fout)
+		runtime.KeepAlive(r)
+	})
+
+	return true
 }
 
 // SetFlightRecordOutput opens a writable file (and keeps it open) for Go's flight recorder
