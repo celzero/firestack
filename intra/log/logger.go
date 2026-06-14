@@ -593,7 +593,7 @@ func (l *simpleLogger) fmtmsg(lvl LogLevel, f string, args ...any) ([]Logmsg, []
 	return l.fmtmsg2(lvl, "", f, args...)
 }
 
-func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) ([]Logmsg, []*[]byte) {
+func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) (msgs []Logmsg, slabs []*[]byte) {
 	level := lvl.s()
 	tag := l.tag
 
@@ -601,6 +601,14 @@ func (l *simpleLogger) fmtmsg2(lvl LogLevel, t, f string, args ...any) ([]Logmsg
 		s := level + tag + "<empty>"
 		return []Logmsg{s}, nil
 	}
+	defer func() {
+		// update per-level counters
+		l.ncount[lvl].Add(uint64(len(msgs)))
+		for _, line := range msgs {
+			l.nbytes[lvl].Add(uint64(len(line)))
+		}
+	}()
+
 	if len(args) > 0 {
 		f = fmt.Sprintf(f, args...) // excl tag+level
 	} // else: fast path: no format args, single slab pass
@@ -747,13 +755,16 @@ func caller2(at int, sep1, sep2 string) (pc uintptr, who string) {
 	return pc, file
 }
 
+var nopcs = []uintptr{0}
+var nofiles = []string{fileunknown}
+
 // go.dev/play/p/h9Woqcp0Xz0
 // go traceback is expensive:
 // blog.felixge.de/reducing-gos-execution-tracer-overhead-with-frame-pointer-unwinding/
 // go.dev/blog/execution-traces-2024
 func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, skipped int) {
 	if until <= 0 {
-		return []uintptr{0}, []string{fileunknown}, 0
+		return nopcs, nofiles, 0
 	} else if until == 1 {
 		pc, who := caller2(at+nextframe, sep1, "")
 		return []uintptr{pc}, []string{who}, 0
@@ -762,7 +773,7 @@ func callers(at, until int, sep1, sep2 string) (pcs []uintptr, files []string, s
 	rpc := make([]uintptr, until)
 	n := runtime.Callers(at+nextframe, rpc)
 	if n < 1 {
-		return []uintptr{0}, []string{fileunknown}, until
+		return nopcs, nofiles, until
 	}
 
 	pcs = make([]uintptr, 0, until)
@@ -977,12 +988,6 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		}
 
 		msgs, slabs := l.fmtmsg2(lvl, trace.String(), msg, args...)
-
-		// update per-level counters
-		l.ncount[lvl].Add(uint64(len(msgs)))
-		for _, line := range msgs {
-			l.nbytes[lvl].Add(uint64(len(line)))
-		}
 
 		if ll {
 			// go's internal logger grabs mutex before every write
