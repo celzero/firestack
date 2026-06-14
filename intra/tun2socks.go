@@ -63,6 +63,9 @@ const (
 	abrt traceout = "crash"  // GOOS-specific crash after tracing
 )
 
+// auto-capture recent logs in crash output?
+const crashoutWithHist = false
+
 func (t traceout) s() string { return string(t) }
 
 const minMemLimit = 32 * 1024 * 1024       // 32MiB
