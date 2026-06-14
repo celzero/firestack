@@ -223,7 +223,7 @@ const qSize = 512
 const minQSize = 16
 
 // consoleChSize is the size of the console channel.
-const consoleChSize = 1024
+const consoleChSize = 2048
 
 // minBytesForFullStacktrace is the size needed for a full stacktrace.
 const minBytesForFullStacktrace = 16 << 10 // 16KB
@@ -375,7 +375,7 @@ func (l *simpleLogger) consoleDispatcher(ctx context.Context) {
 			case NONE:
 				// drop
 			case VVERBOSE, VERBOSE, DEBUG, INFO:
-				if load < 50 {
+				if load < 95 {
 					c.Log(m.t, m.m)
 					continue
 				} // drop
@@ -385,7 +385,7 @@ func (l *simpleLogger) consoleDispatcher(ctx context.Context) {
 						c.Log(WARN, l.fmtmsg(WARN, "backpressure... dropped %d msgs", d))
 					}
 				}
-				if load < 80 {
+				if load < 99 {
 					c.Log(m.t, m.m)
 					continue
 				} // drop

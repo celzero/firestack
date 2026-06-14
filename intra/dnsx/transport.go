@@ -950,13 +950,18 @@ func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error
 			free()
 			break
 		} else {
+			// capture loop-scoped variables locally so the goroutine closure
+			// does not race with the next iteration reassigning q/free/cnt
+			qs := q[:n]
+			frees := free
+			cnts := cnt
+			wg.Add(1)
 			core.Gx("r.reply.do", func() {
-				wg.Add(1)
 				defer wg.Done()
-				defer free()
-				m, err := r.dnsudp(q[:n], c, uid)
+				defer frees()
+				m, err := r.dnsudp(qs, c, uid)
 				logeif(err != nil)("dns: udp: for %s err! tot: %d, t: %s, %v",
-					uid, cnt, core.FmtTimeAsPeriod(start), err)
+					uid, cnts, core.FmtTimeAsPeriod(start), err)
 				rxv.Add(int64(m))
 				txv.Add(int64(n))
 				errs = append(errs, err)
@@ -964,7 +969,7 @@ func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error
 		}
 		cnt++
 	}
-	wg.Wait()
+	wg.Wait() // wait to acc rx, tx, errs
 	rx = rxv.Load()
 	tx = txv.Load()
 	log.VV("dns: udp: for %s done; tot: %d (rx: %d, tx: %d), t: %s", uid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
@@ -1019,13 +1024,18 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 				uid, n, qlen, cnt, core.FmtTimeAsPeriod(start))
 			break // close on incomplete reads
 		}
+		// capture loop-scoped variables locally so the goroutine closure
+		// does not race with the next iteration reassigning q/free/cnt
+		qs := q[:n]
+		frees := free
+		cnts := cnt
+		wg.Add(1)
 		core.Gx("r.accept.do", func() {
-			wg.Add(1)
 			defer wg.Done()
-			defer free()
-			m, err := r.dnstcp(q[:n], c, uid)
+			defer frees()
+			m, err := r.dnstcp(qs, c, uid)
 			logeif(err != nil)("dns: tcp: for %s err! tot: %d, t: %s, %v",
-				uid, cnt, core.FmtTimeAsPeriod(start), err)
+				uid, cnts, core.FmtTimeAsPeriod(start), err)
 			errs = append(errs, err)
 			txv.Add(int64(n))
 			rxv.Add(int64(m))
