@@ -49,7 +49,7 @@ func logpoolStats() (gets, news, puts, drops uint64) {
 
 // obtain returns a pointer to a pooled []byte with cap >= size.
 func obtain(size int) *[]byte {
-	if slab := lslabof(size); slab != nil {
+	if slab := lslabnearest(size); slab != nil {
 		if ptr, _ := slab.Get().(*[]byte); ptr != nil {
 			pstats.gets.Add(1)
 			return ptr
@@ -80,6 +80,16 @@ func recycle(b *[]byte) {
 func recycleAll(slabs []*[]byte) {
 	for _, ptr := range slabs {
 		recycle(ptr)
+	}
+}
+
+func lslabnearest(sz int) *sync.Pool {
+	if sz > LBMAX {
+		return nil
+	} else if sz > LB512 {
+		return lslabs[lidx(LB1024)]
+	} else {
+		return lslabs[lidx(LB512)]
 	}
 }
 
