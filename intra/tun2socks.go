@@ -75,6 +75,21 @@ func init() {
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(maxMemLimit)
 	debug.SetPanicOnFault(true)
+
+	/*
+		TODO: disable cgocheck at runtime: github.com/golang/go/issues/60426
+		removes runtime pointer-validity checks on cgo calls;
+		godebug := os.Getenv("GODEBUG")
+		if !strings.Contains(godebug, "cgocheck") {
+			if godebug == "" {
+				godebug = "cgocheck=0"
+			} else {
+				godebug = godebug + ",cgocheck=0"
+			}
+			os.Setenv("GODEBUG", godebug)
+			core.RuntimeFinishDebugVarsSetup()
+		}
+	*/
 }
 
 // SetupConsole wires up firestack's logger to bdg.

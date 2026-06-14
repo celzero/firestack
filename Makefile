@@ -46,10 +46,10 @@ DEBUG_UNSTRIPPED_DIR = $(BUILDDIR)/intra/unstripped
 # GOTOOLCHAIN=local: force use of the locally installed toolchain so that runtime
 # sources live under GOROOT (overlayable), not GOMODCACHE (not overlayable).
 # ref: https://github.com/golang/go/issues/44129
-ANDROID_BUILD_CMD=env GOTOOLCHAIN=local PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
+ANDROID_BUILD_CMD=env GOTOOLCHAIN=local GODEBUG=cgocheck=0 PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
 				-overlay=$(BUILD_OVERLAY) -ldflags $(LDFLAGS) -gcflags='-trimpath'
 # built without stripping dwarf/symbols
-ANDROID_DEBUG_BUILD_CMD=env GOTOOLCHAIN=local PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23_DEBUG) \
+ANDROID_DEBUG_BUILD_CMD=env GOTOOLCHAIN=local GODEBUG=cgocheck=0 PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23_DEBUG) \
 				-overlay=$(BUILD_OVERLAY) -ldflags $(LDFLAGS_DEBUG)
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/settings
