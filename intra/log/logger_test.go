@@ -19,8 +19,8 @@ var sinkPC uintptr
 var sinkFile string
 
 func BenchmarkSpamID(b *testing.B) {
-	msg := "abcdefghijk1234567890" // >12 chars; only first 12 used
-	raw := unsafe.StringData(msg)
+	msg32 := "calleratabcdefghijk1234567890024callerat" // >12 chars; only first 12 used
+	raw := unsafe.StringData(msg32)
 
 	b.Run("fhash12", func(b *testing.B) {
 		var h uint64
@@ -32,9 +32,18 @@ func BenchmarkSpamID(b *testing.B) {
 
 	b.Run("Caller", func(b *testing.B) {
 		for b.Loop() {
-			pc, file, _, _ := runtime.Caller(0)
+			pc, file, _, _ := runtime.Caller(callerat)
 			sinkPC = pc
 			sinkFile = file
+		}
+	})
+
+	b.Run("Callers", func(b *testing.B) {
+		for b.Loop() {
+			pcs := make([]uintptr, maxCallerDepth)
+			n := runtime.Callers(callerat, pcs)
+			sinkPC = pcs[0]
+			_ = n
 		}
 	})
 }
