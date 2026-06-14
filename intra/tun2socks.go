@@ -432,9 +432,18 @@ func setCrashFd(f *os.File) (ok bool) {
 // that captures crash output and the logger ring buffer into that file.
 // Returns true if successful, false on error (the file cannot be opened).
 func SetCrashOutput(fp string) bool {
-	return sync.OnceValue(func() bool {
-		ok := setCrashOutput(fp)
-		log.I("tun: crashout: set %s, ok? %t", fp, ok)
+	return sync.OnceValue(func() (ok bool) {
+		if crashoutWithHist {
+			ok = setCrashOutput(fp)
+		} else {
+			fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+			if err == nil {
+				ok = setCrashFd(fout)
+			}
+			logei(err)("tun: crashout: open %s; err? %v", fp, err)
+			return ok
+		}
+		log.I("tun: crashout: set %s, hist? false; ok? %t", fp, ok)
 		return ok
 	})()
 }
@@ -463,8 +472,8 @@ func setCrashOutput(fp string) bool {
 	core.Go("crashout."+fname(fout), func() {
 		defer core.Close(fout, r)
 
-		n, err := core.Stream(fout, r) // blocks until crash output arrives
-		if n > 0 && err != nil {       // append the recent history
+		n, _ := core.Stream(fout, r) // blocks until crash output arrives
+		if n > 0 {                   // append the recent history
 			log.Hist(fout)
 		}
 		runtime.KeepAlive(fout)
