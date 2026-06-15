@@ -366,15 +366,17 @@ type Client interface {
 // ProxyListener is a listener for proxy events.
 type ProxyListener interface {
 	// OnProxyAdded is called when a proxy is added.
-	OnProxyAdded(id string)
+	OnProxyAdded(id, handle string)
 	// OnProxyRemoved is called when a proxy is removed except when all
 	// proxies are stopped, in which case OnProxiesStopped is called.
-	OnProxyRemoved(id string)
+	OnProxyRemoved(id, handle string)
+	// OnProxyUpdated is called when a proxy's configuration is updated.
+	OnProxyUpdated(id, handle string)
 	// OnProxyStopped is called when a proxy is stopped instead of being
 	// removed (that is, this callback is not called in all proxy stop scenarios).
 	// A stopped proxy, if added again, is replaced/updated instead; and subsequently,
 	// the onProxyAdded callback is invoked.
-	OnProxyStopped(id string)
+	OnProxyStopped(id, handle string)
 	// OnProxiesStopped is called when all proxies are stopped.
 	// Note: OnProxyRemoved is not called for each proxy, even
 	// if they are removed instead of being merely "stopped".

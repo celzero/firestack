@@ -337,21 +337,20 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 func (px *proxifier) add(p Proxy) (ok bool) {
 	var old Proxy
 	id := idstr(p)
+	hdl := hdlstr(p)
 
 	px.Lock()
 	defer px.Unlock()
 
 	defer func() {
 		if ok {
-			core.Go("pxr.add: "+id, func() {
-				px.obs.OnProxyAdded(p.ID())
-			})
+			core.Go2("pxr.add: "+id, px.obs.OnProxyAdded, id, hdl)
 			// new proxy, invoke Stop on old proxy
 			if old != nil && !Same(old, p) {
 				// holding px.lock, so exec stop in a goroutine
 				core.Go("pxr.add.stop: "+id, func() {
 					if oldVia, _ := old.Router().Via(); oldVia != nil {
-						px.Hop(oldVia.ID(), p.ID())
+						px.Hop(oldVia.ID(), id)
 					}
 					_ = old.Stop()
 					// onRmv is not sent here, as one has just been added
@@ -424,6 +423,7 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 
 	perma := immutable(id)
 	if p, ok := px.p[id]; ok {
+		hdl := hdlstr(p)
 		if !perma {
 			delete(px.p, id)
 		}
@@ -432,11 +432,11 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 
 			_ = p.Stop()
 			if !perma {
-				px.obs.OnProxyRemoved(id)
-				log.I("proxy: removed %s", id)
+				px.obs.OnProxyRemoved(id, hdl)
+				log.I("proxy: removed %s@%s", id, hdl)
 			} else {
-				px.obs.OnProxyStopped(id)
-				log.I("proxy: stopped (not removed) %s", id)
+				px.obs.OnProxyStopped(id, hdl)
+				log.I("proxy: stopped (not removed) %s@%s", id, hdl)
 			}
 		})
 		return true
@@ -1039,7 +1039,7 @@ func (px *proxifier) stopProxies() {
 	in := px.ipPins.Clear()
 	un := px.uidPins.Clear()
 
-	core.Go("pxr.onStop", func() { px.obs.OnProxiesStopped() })
+	core.Go("pxr.onStop", px.obs.OnProxiesStopped)
 	log.I("proxy: removed: %d+%d; stall: %d; pins: %d+%d", n, l, sn, in, un)
 }
 

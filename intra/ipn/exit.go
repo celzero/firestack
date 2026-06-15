@@ -191,7 +191,7 @@ func idhandle(p Proxy) string {
 	if p == nil || core.IsNil(p) {
 		return "<no proxy>"
 	}
-	return idstr(p) + "@" + strconv.Itoa(int(p.Handle()))
+	return idstr(p) + "@" + hdlstr(p)
 }
 
 func refhandle(ref *core.WeakRef[Proxy]) string {
@@ -206,6 +206,13 @@ func idstr(p x.Proxy) string {
 		return ""
 	}
 	return p.ID()
+}
+
+func hdlstr(p Proxy) string {
+	if p == nil || core.IsNil(p) {
+		return ""
+	}
+	return strconv.FormatUint(p.Handle(), 10)
 }
 
 func typstr(p x.Proxy) string {

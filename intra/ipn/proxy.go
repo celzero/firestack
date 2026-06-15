@@ -139,7 +139,7 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 		return nil, errAddProxy
 	}
 
-	who := "postAddRpnProxy." + proxyid
+	who := "proxy.addrpn2." + proxyid
 	// TODO: setup hop from mainCountryCode to forked rpn proxies
 	core.Gx(who, func() { pxr.refreshHopOriginsIfAny(p, who) })
 
@@ -172,7 +172,7 @@ func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) 
 		log.I("proxy: rpn: add: post: registered %s as rpn proxy for %s", proxyid, provider)
 	} else if idstr(p) == idstr(rp) {
 		log.I("proxy: rpn: add: post: %s already registered for %s; emplacing...", proxyid, provider)
-		core.Gx("emplace."+idstr(p), func() { rp.Emplace(p) }) // may fail
+		core.Gx("proxy.rpnemplace."+idstr(p), func() { rp.Emplace(p) }) // may fail
 	}
 
 	return p, nil
@@ -197,7 +197,7 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 
 	defer func() {
 		if err != nil {
-			core.Gx("addProxy.refreshHop"+id, func() { pxr.refreshHopOriginsIfAny(p, "addProxy."+id) })
+			core.Gx("proxy.add.refreshHop"+id, func() { pxr.refreshHopOriginsIfAny(p, "addProxy."+id) })
 		}
 	}()
 
@@ -209,18 +209,20 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 		if force {
 			p, err = NewWgProxy(pxr.ctx, id, pxr.ctl, pxr, lp, txt)
 		} else if p, _ = pxr.proxyFor(id); p != nil {
+			hdl := hdlstr(p)
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {
 					p = nil
-					log.W("proxy: add: cannot update wg(%s); readd it!", id)
+					log.W("proxy: add: cannot update wg(%s@%s); readd it!", id, hdl)
 				} else {
-					log.I("proxy: add: updated wg %s/%s/%s", id, lp, p.GetAddr())
+					log.I("proxy: add: updated wg %s@%s/%s/%s", id, hdl, lp, p.GetAddr())
+					core.Go2("proxy.update", pxr.obs.OnProxyUpdated, id, hdl)
 					return
 				}
 			} else { // else: recreate
 				p = nil
-				log.W("proxy: add: update not ok for wg(%s); readd...", id)
+				log.W("proxy: add: update not ok for wg(%s@%s); readd...", id, hdl)
 			}
 		}
 		if !force && p == nil {
@@ -266,7 +268,7 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 		return nil, errAddProxy
 	}
 
-	log.I("proxy: add: force? %t; done %s/%s/%s", force, p.ID(), p.Type(), p.GetAddr())
+	log.I("proxy: add: force? %t; done %s@%s/%s/%s", force, idstr(p), hdlstr(p), typstr(p), p.GetAddr())
 	return
 }
 
@@ -728,13 +730,13 @@ func healthy(p Proxy) error {
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
 	if (oldEnough && lastOKNeverOK) || lastOKBeyondThres {
-		core.Gx("healthy.TNT."+pid, func() { p.onNotOK() }) // not ok for too long
+		core.Gx("proxy.health.TNT."+pid, func() { p.onNotOK() }) // not ok for too long
 		return fmt.Errorf("proxy: %s not ok; age: %s / lastOKNeverOK? %t / lastOKBeyondThres? %t",
 			pid, core.FmtMillis(age), lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
-		core.Gx("healthy.TZZ."+pid, func() { p.Ping() })
+		core.Gx("proxy.health.TZZ."+pid, func() { p.Ping() })
 	} else if p.Status() != TOK {
-		core.Gx("healthy.TOK."+pid, func() { p.Ping() })
+		core.Gx("proxy.health.TOK."+pid, func() { p.Ping() })
 	}
 
 	return nil // ok
