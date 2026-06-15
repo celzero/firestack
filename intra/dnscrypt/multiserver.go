@@ -89,7 +89,7 @@ func chooseAny[T any](s []T) (zz T) {
 	return core.ChooseOne(s)
 }
 
-func udpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
+func udpExchange(pid string, serverInfo *server, relayAddrs []*net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.UDPAddr
 	userelay := false
 	if len(relayAddrs) > 0 {
@@ -143,7 +143,7 @@ func udpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.UDPAddr, 
 	return
 }
 
-func tcpExchange(pid string, serverInfo *serverinfo, relayAddrs []*net.TCPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
+func tcpExchange(pid string, serverInfo *server, relayAddrs []*net.TCPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.TCPAddr
 	userelay := false
 	if len(relayAddrs) > 0 {
@@ -198,7 +198,7 @@ func prepareForRelay(ip net.IP, port int, eq *[]byte) {
 	*eq = relayedQuery
 }
 
-func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (ans *dns.Msg, relay net.Addr, qerr *dnsx.QueryError) {
+func query(pid string, packet *dns.Msg, serverInfo *server, useudp bool) (ans *dns.Msg, relay net.Addr, qerr *dnsx.QueryError) {
 	var response []byte
 	if packet == nil || !xdns.HasAnyQuestion(packet) {
 		qerr = dnsx.NewBadQueryError(errQueryTooShort)
@@ -244,6 +244,8 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 	tcprelays := serverInfo.RelayTCPAddrs.Load() // may return nil
 	udprelays := serverInfo.RelayUDPAddrs.Load() // may return nil
 	usetcprelay := len(tcprelays) > 0
+	// save original protocol for truncation decision after potential TCP fallback
+	originalWasUDP := useudp
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
 		sharedKey, encryptedQuery, clientNonce, cerr := encrypt(serverInfo, query, useudp, usetcprelay)
 
@@ -286,7 +288,10 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 		return // nil ans
 	}
 
-	response, err = intercept.handleResponse(response, useudp)
+	// Use originalWasUDP for truncation decision: if the original client request
+	// came over UDP, the response must be truncated to fit UDP size limits even
+	// when the upstream query fell back to TCP.
+	response, err = intercept.handleResponse(response, originalWasUDP)
 
 	if err != nil {
 		log.E("dnscrypt: err intercept response for %s: %w", serverInfo, err)
@@ -305,7 +310,7 @@ func query(pid string, packet *dns.Msg, serverInfo *serverinfo, useudp bool) (an
 }
 
 // resolve resolves incoming DNS query, data
-func resolve(network string, data *dns.Msg, si *serverinfo, smm *x.DNSSummary) (ans *dns.Msg, err error) {
+func resolve(network string, data *dns.Msg, si *server, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	var qerr *dnsx.QueryError
 	var anonrelayaddr net.Addr
 
@@ -442,14 +447,29 @@ func (proxy *DcMulti) start() error {
 			default:
 			}
 
+			var servers []*registeredserver
+			// re-sync registered servers before refreshing to recover any
+			// that may have been removed from ServersInfo.registeredServers
+			// (e.g. by a failed cert fetch in a previous cycle).
+			proxy.RLock()
+			for _, s := range proxy.registeredServers {
+				sp := &s // stackoverflow.com/a/68247837
+				servers = append(servers, sp)
+			}
+			proxy.RUnlock()
+			for _, registeredServer := range servers {
+				proxy.serversInfo.registerServer(registeredServer.name, registeredServer.stamp)
+			}
+
 			hasServers := proxy.serversInfo.len() > 0
 			if !hasServers {
 				log.D("dnscrypt: no servers; next check after %v", certRefreshDelayAfterFailure)
 				return
 			}
+
 			proxy.liveServers, _ = proxy.serversInfo.refresh(proxy)
 			if someAlive := len(proxy.liveServers) > 0; someAlive {
-				log.I("dnscrypt: some servers alive; retry #%d; next check after",
+				log.I("dnscrypt: some servers alive; retry #%d; next check after %v",
 					i, certRefreshDelayAfterFailure)
 				proxy.certIgnoreTimestamp = false
 				return
@@ -549,10 +569,11 @@ func (proxy *DcMulti) removeOne(uid string) int {
 	delete(proxy.registeredServers, uid)
 	proxy.Unlock()
 
-	// TODO: handle err
 	n, err := proxy.serversInfo.unregisterServer(uid)
-	if settings.Debug {
-		log.D("dnscrypt: removed %s; %d servers (err? %v)", uid, n, err)
+	if err != nil {
+		log.W("dnscrypt: remove %s; %d remaining (err? %v)", uid, n, err)
+	} else if settings.Debug {
+		log.D("dnscrypt: removed %s; %d servers remaining", uid, n)
 	}
 	return n
 }
@@ -580,7 +601,8 @@ func (proxy *DcMulti) RemoveAll(servernamescsv string) (int, error) {
 		if len(name) == 0 {
 			continue
 		}
-		c = proxy.removeOne(name)
+		proxy.removeOne(name)
+		c++
 	}
 
 	log.I("dnscrypt: removed %d servers %s", c, servernamescsv)
@@ -732,7 +754,7 @@ func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controlle
 }
 
 // AddTransport creates and adds a dnscrypt transport to p
-func AddTransport(p *DcMulti, id, serverstamp string) (*serverinfo, error) {
+func AddTransport(p *DcMulti, id, serverstamp string) (*server, error) {
 	if p == nil {
 		return nil, dnsx.ErrNoDcProxy
 	}

@@ -215,26 +215,25 @@ func packTxtString(s string) []byte {
 func dnsExchange(dialer protect.RDialer, query *dns.Msg, serverAddress string, serverName *string) (*dns.Msg, time.Duration, error) {
 	// always use udp to fetch certs since most servers like adguard, cleanbrowsing
 	// don't support fetching certs over tcp
-	proto := "udp"
 
 	// add padding to ensure that the cert txt response is large enough
 	minsz := 480
 	cancelChannel := make(chan struct{})
 	channel := make(chan dnsExchangeResponse)
 	var err error
-	options := 0
 
 	for tries := range 4 {
 		queryCopy := query.Copy()
-		queryCopy.Id += uint16(options)
+		queryCopy.Id += uint16(tries) // use different ID per attempt
+		proto := "udp"
+		if tries%2 == 0 {
+			proto = "udp"
+		} else {
+			proto = "tcp"
+		}
 		timeout := time.Duration(200*tries) * time.Millisecond
 		core.Go2("cert.dnsExchange", func(query *dns.Msg, delay time.Duration) {
 
-			if proto == "udp" {
-				proto = "tcp"
-			} else {
-				proto = "udp"
-			}
 			option := dnsExchangeResponse{err: errCancelled}
 			time.Sleep(delay)
 			select {
@@ -246,11 +245,11 @@ func dnsExchange(dialer protect.RDialer, query *dns.Msg, serverAddress string, s
 			option.priority = 0
 			channel <- option
 		}, queryCopy, timeout)
-		options++
 	}
 	deadline := time.NewTimer(30 * time.Second)
 	var bestOption *dnsExchangeResponse
-	for i := 0; i < options; i++ {
+	totalAttempts := 4
+	for i := 0; i < totalAttempts; i++ {
 		select {
 		case res := <-channel:
 			if res.err == nil {
@@ -259,21 +258,21 @@ func dnsExchange(dialer protect.RDialer, query *dns.Msg, serverAddress string, s
 				} else if res.rtt < bestOption.rtt {
 					bestOption = &res
 					close(cancelChannel)
-					i = options // break
+					i = totalAttempts // break
 				}
 			} else {
 				err = res.err
 			}
 		case <-deadline.C:
-			i = options // break
+			i = totalAttempts // break
 		}
 	}
 	if bestOption != nil {
-		log.D("dnscrypt: cert retrieval for [%v] succeeded via relay?", *serverName)
+		log.D("dnscrypt: cert retrieval for [%v] succeeded", *serverName)
 		return bestOption.response, bestOption.rtt, nil
 	}
 
-	log.I("dnscrypt: no cert, ignoring server: [%v] proto: [%v]", *serverName, proto)
+	log.I("dnscrypt: no cert, ignoring server: [%v]", *serverName)
 
 	err = core.OneErr(err, errFetchingCerts)
 

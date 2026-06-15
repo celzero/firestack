@@ -46,7 +46,7 @@ type registeredserver struct {
 	stamp stamps.ServerStamp
 }
 
-type serverinfo struct {
+type server struct {
 	ctx                context.Context
 	done               context.CancelFunc
 	Proto              stamps.StampProtoType
@@ -70,11 +70,11 @@ type serverinfo struct {
 	status        *core.Volatile[int]            // status of the last query
 }
 
-var _ dnsx.Transport = (*serverinfo)(nil)
+var _ dnsx.Transport = (*server)(nil)
 
 type ServersInfo struct {
 	sync.RWMutex
-	inner             map[string]*serverinfo
+	inner             map[string]*server
 	registeredServers map[string]registeredserver
 }
 
@@ -82,7 +82,7 @@ type ServersInfo struct {
 func newServersInfo() *ServersInfo {
 	return &ServersInfo{
 		registeredServers: make(map[string]registeredserver),
-		inner:             make(map[string]*serverinfo),
+		inner:             make(map[string]*server),
 	}
 }
 
@@ -93,11 +93,11 @@ func (serversInfo *ServersInfo) len() int {
 	return len(serversInfo.registeredServers)
 }
 
-func (serversInfo *ServersInfo) getAll() []*serverinfo {
+func (serversInfo *ServersInfo) getAll() []*server {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
 
-	servers := make([]*serverinfo, 0)
+	servers := make([]*server, 0)
 	for _, si := range serversInfo.inner {
 		if si != nil {
 			servers = append(servers, si)
@@ -109,7 +109,7 @@ func (serversInfo *ServersInfo) getAll() []*serverinfo {
 	return servers
 }
 
-func (serversInfo *ServersInfo) getOne() (serverInfo *serverinfo) {
+func (serversInfo *ServersInfo) getOne() (serverInfo *server) {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
 
@@ -142,11 +142,10 @@ retry:
 	return serverInfo
 }
 
-func (serversInfo *ServersInfo) get(name string) *serverinfo {
+func (serversInfo *ServersInfo) get(name string) *server {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
-	serversCount := len(name)
-	if serversCount <= 0 {
+	if len(name) <= 0 {
 		return nil
 	}
 	return serversInfo.inner[name] // may be nil
@@ -178,7 +177,7 @@ func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
 		log.D("dnscrypt: refreshing certificates")
 	}
 	var liveServers []string
-	var err error
+	var errs []error
 
 	// Get a snapshot of registered servers under lock to prevent race conditions
 	serversInfo.RLock()
@@ -187,13 +186,18 @@ func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
 	serversInfo.RUnlock()
 
 	for _, registeredServer := range copied {
-		if err = serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
+		if err := serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
 		} else {
 			log.E("dnscrypt: %s not a live server? %w", registeredServer.stamp, err)
+			errs = append(errs, err)
 		}
 	}
-	return liveServers, err
+	// Only return an error if no servers are live; individual failures are logged.
+	if len(liveServers) <= 0 {
+		return liveServers, core.OneErr(core.JoinErr(errs...), errNoServers)
+	}
+	return liveServers, nil
 }
 
 func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp stamps.ServerStamp) error {
@@ -215,21 +219,21 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 	return nil
 }
 
-func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
+func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (server, error) {
 	switch stamp.Proto {
 	case stamps.StampProtoTypeDNSCrypt:
 		return fetchDNSCryptServerInfo(proxy, name, stamp)
 	case stamps.StampProtoTypeDoH:
 		return fetchDoHServerInfo(proxy, name, stamp)
 	}
-	return serverinfo{}, log.EE("unsupported protocol for %s", stamp.ServerAddrStr)
+	return server{}, log.EE("unsupported protocol for %s", stamp.ServerAddrStr)
 }
 
-func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (serverinfo, error) {
+func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (server, error) {
 	if len(stamp.ServerPk) != ed25519.PublicKeySize {
 		serverPk, err := hex.DecodeString(strings.ReplaceAll(string(stamp.ServerPk), ":", ""))
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
-			return serverinfo{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
+			return server{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
 		log.W("dnscrypt: public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
 		stamp.ServerPk = serverPk
@@ -238,7 +242,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	// note: relays are not used to fetch certs due to multiple issues reported by users
 	certInfo, err := fetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName)
 	if err != nil {
-		return serverinfo{}, err
+		return server{}, err
 	}
 	var tcpaddr *net.TCPAddr
 	var udpaddr *net.UDPAddr
@@ -248,10 +252,10 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		tcpaddr = net.TCPAddrFromAddrPort(ipp)
 		udpaddr = net.UDPAddrFromAddrPort(ipp)
 	} else {
-		return serverinfo{}, fmt.Errorf("dnscrypt: no ips for [%s]: %v", s, err)
+		return server{}, fmt.Errorf("dnscrypt: no ips for [%s]: %v", s, err)
 	}
 	if udpaddr == nil || tcpaddr == nil {
-		return serverinfo{}, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
+		return server{}, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
 	}
 	px := proxy.proxies
 	var relay string
@@ -263,7 +267,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	}
 
 	ctx, done := context.WithCancel(proxy.ctx)
-	si := serverinfo{
+	si := server{
 		ctx:                ctx,
 		done:               done,
 		Proto:              stamps.StampProtoTypeDNSCrypt,
@@ -283,13 +287,13 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		est:                core.NewP50Estimator(ctx),
 		status:             core.NewVolatile(dnsx.Start),
 	}
-	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, len(relay) > 0)
+	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, len(relay) > 0, px != nil)
 	return si, nil
 }
 
-func fetchDoHServerInfo(_ *DcMulti, _ string, _ stamps.ServerStamp) (serverinfo, error) {
+func fetchDoHServerInfo(_ *DcMulti, _ string, _ stamps.ServerStamp) (server, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported
-	return serverinfo{}, errors.New("unsupported protocol")
+	return server{}, errors.New("unsupported protocol")
 }
 
 func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
@@ -355,7 +359,7 @@ func hostport(stamp *stamps.ServerStamp) (string, uint16) {
 	return s, uint16(p)
 }
 
-func (s *serverinfo) String() string {
+func (s *server) String() string {
 	if s == nil {
 		return "<nil>"
 	}
@@ -374,15 +378,15 @@ func (s *serverinfo) String() string {
 	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
 }
 
-func (s *serverinfo) ID() string {
+func (s *server) ID() string {
 	return s.Name
 }
 
-func (s *serverinfo) Type() string {
+func (s *server) Type() string {
 	return dnsx.DNSCrypt
 }
 
-func (s *serverinfo) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
+func (s *server) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err error) {
 	r, err = resolve(network, q, s, smm)
 	s.status.Store(smm.Status)
 
@@ -396,7 +400,7 @@ func (s *serverinfo) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dn
 	return
 }
 
-func (s *serverinfo) P50() int64 {
+func (s *server) P50() int64 {
 	if s.est != nil {
 		return s.est.Get()
 	} else {
@@ -404,19 +408,19 @@ func (s *serverinfo) P50() int64 {
 	}
 }
 
-func (s *serverinfo) GetAddr() string {
+func (s *server) GetAddr() string {
 	return s.getAddr()
 }
 
-func (s *serverinfo) getAddr() string {
+func (s *server) getAddr() string {
 	return s.HostName
 }
 
-func (s *serverinfo) GetRelay() x.Proxy {
+func (s *server) GetRelay() x.Proxy {
 	return s.getRelay()
 }
 
-func (s *serverinfo) getRelay() ipn.Proxy {
+func (s *server) getRelay() ipn.Proxy {
 	if r := s.relay; len(r) > 0 {
 		px, _ := s.proxies.ProxyFor(r)
 		return px
@@ -424,14 +428,14 @@ func (s *serverinfo) getRelay() ipn.Proxy {
 	return nil
 }
 
-func (s *serverinfo) IPPorts() []netip.AddrPort {
+func (s *server) IPPorts() []netip.AddrPort {
 	if relay := s.RelayUDPAddrs.Load(); len(relay) > 0 {
 		return addr2ipp(relay...)
 	}
 	return addr2ipp(s.UDPAddr)
 }
 
-func (s *serverinfo) Status() int {
+func (s *server) Status() int {
 	if px := s.getRelay(); px != nil {
 		if px.Status() == ipn.TPU {
 			return dnsx.Paused
@@ -447,7 +451,7 @@ func (s *serverinfo) Status() int {
 	return st
 }
 
-func (s *serverinfo) Stop() error {
+func (s *server) Stop() error {
 	if s != nil {
 		s.status.Store(dnsx.DEnd)
 		s.done()
@@ -455,7 +459,7 @@ func (s *serverinfo) Stop() error {
 	return nil
 }
 
-func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
+func (s *server) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 	userelay := s.GetRelay() != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
@@ -464,7 +468,7 @@ func (s *serverinfo) dialudp(pid string, addr *net.UDPAddr) (net.Conn, error) {
 	return nil, dnsx.ErrNoProxyProvider
 }
 
-func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
+func (s *server) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 	userelay := s.GetRelay() != nil
 	useproxy := len(pid) != 0 // pid == dnsx.NetNoProxy => ipn.Base
 	if userelay || useproxy {
@@ -473,7 +477,7 @@ func (s *serverinfo) dialtcp(pid string, addr *net.TCPAddr) (net.Conn, error) {
 	return nil, dnsx.ErrNoProxyProvider
 }
 
-func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
+func (s *server) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	relay := s.getRelay()
 	if relay != nil {
 		// addr is always ip:port; hence protect.dialers are not needed
@@ -490,7 +494,7 @@ func (s *serverinfo) dialpx(pid, proto string, addr string) (net.Conn, error) {
 	return nil, err
 }
 
-func (s *serverinfo) chooseProxy(pids []string) string {
+func (s *server) chooseProxy(pids []string) string {
 	return dnsx.ChooseHealthyProxy("dnscrypt: "+s.ID(), s.IPPorts(), pids, s.proxies)
 }
 

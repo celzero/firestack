@@ -78,7 +78,7 @@ func computeSharedKey(cryptoConstruction xdns.CryptoConstruction, secretKey *[32
 }
 
 func encrypt(
-	serverInfo *serverinfo,
+	serverInfo *server,
 	packet []byte,
 	useudp, userelay bool,
 ) (sharedKey *[32]byte, encrypted []byte, clientNonce []byte, err error) {
@@ -129,7 +129,7 @@ func encrypt(
 	return
 }
 
-func decrypt(serverInfo *serverinfo, sharedKey *[32]byte, encrypted []byte, nonce []byte) ([]byte, error) {
+func decrypt(serverInfo *server, sharedKey *[32]byte, encrypted []byte, nonce []byte) ([]byte, error) {
 	serverMagicLen := len(xdns.ServerMagic)
 	responseHeaderLen := serverMagicLen + NonceSize
 	if len(encrypted) < responseHeaderLen+TagSize+int(xdns.MinDNSPacketSize) ||
