@@ -104,22 +104,22 @@ var (
 )
 
 var (
-	ErrNotDefaultTransport     = errors.New("dns: not a default transport")
-	ErrNoDcProxy               = errors.New("dns: no dnscrypt-proxy")
-	ErrNoProxyProvider         = errors.New("dns: no proxy provider")
-	ErrNoProxyDNS              = errors.New("dns: no proxy")
-	ErrAddFailed               = errors.New("dns: add failed")
-	errNoSuchTransport         = errors.New("dns: missing transport")
-	errTransportEnd            = errors.New("dns: transport ended")
-	errTransportPaused         = errors.New("dns: transport paused")
-	errOnQueryTimeout          = errors.New("dns: timeout fetching query prefs")
-	errOnUpstreamAnswerTimeout = errors.New("dns: timeout fetching answer prefs")
-	errBlockFreeTransport      = errors.New("dns: block free transport")
-	errNoRdns                  = errors.New("dns: no rdns")
-	errTransportNotMult        = errors.New("dns: not a multi-transport")
-	errTransportNotMDNS        = errors.New("dns: not an mdns transport")
-	errMissingQueryName        = errors.New("dns: no query name")
-	errResolverClosed          = errors.New("dns: closed for business")
+	ErrNotDefaultTransport  = errors.New("dns: not a default transport")
+	ErrNoDcProxy            = errors.New("dns: no dnscrypt-proxy")
+	ErrNoProxyProvider      = errors.New("dns: no proxy provider")
+	ErrNoProxyDNS           = errors.New("dns: no proxy")
+	ErrAddFailed            = errors.New("dns: add failed")
+	errNoSuchTransport      = errors.New("dns: missing transport")
+	errTransportEnd         = errors.New("dns: transport ended")
+	errTransportPaused      = errors.New("dns: transport paused")
+	errOnQueryTimeout       = errors.New("dns: timeout fetching query prefs")
+	errOnUpstreamAnsTimeout = errors.New("dns: timeout fetching answer prefs")
+	errBlockFreeTransport   = errors.New("dns: block free transport")
+	errNoRdns               = errors.New("dns: no rdns")
+	errTransportNotMult     = errors.New("dns: not a multi-transport")
+	errTransportNotMDNS     = errors.New("dns: not an mdns transport")
+	errMissingQueryName     = errors.New("dns: no query name")
+	errResolverClosed       = errors.New("dns: closed for business")
 )
 
 type MDNSTransport interface {
@@ -757,9 +757,9 @@ runagain:
 		if !ouacompleted {
 			log.W("dns: fwd: 8 for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
 			smm.Status = ClientError
-			smm.Msg = errOnUpstreamAnswerTimeout.Error()
+			smm.Msg = errOnUpstreamAnsTimeout.Error()
 			smm.ID = NoDNS
-			return nil, NoDNS, errOnUpstreamAnswerTimeout
+			return nil, NoDNS, errOnUpstreamAnsTimeout
 		}
 
 		if pref2 != nil && len(pref2.TIDCSV) > 0 && pref2.TIDCSV != pref.TIDCSV {
