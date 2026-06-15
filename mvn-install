@@ -25,6 +25,8 @@ mvn install:install-file \
     -Dsources=${FSRC}
 #    -Dclassifier=${CLASSFULL} \
 
+# GROUP, VERSION, ARTIFACT env auto set by jitpack build server
+# FOUT, FSRC, PACK set in jitpack.yml
 # usage: docs.gradle.org/current/userguide/dependency_management.html
 # mvn install:install-file
 # -Dfile=firestack.aar
