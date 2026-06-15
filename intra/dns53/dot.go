@@ -400,7 +400,14 @@ func (t *dot) Status() int {
 			return dnsx.Paused
 		}
 	}
-	return t.status.Load()
+	s := t.status.Load()
+	if s == dnsx.Paused {
+		// paused status is a pseudo state dependent on underlying relay
+		// or requested pid, not a permanent state of this transport.
+		t.status.Cas(s, dnsx.Unpaused)
+		return dnsx.Unpaused
+	}
+	return s
 }
 
 func (t *dot) Stop() error {

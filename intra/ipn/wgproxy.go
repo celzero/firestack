@@ -510,7 +510,7 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		return anew
 	}
 
-	if settings.Debug {
+	if log.Debug {
 		if !w.amnezia.Load().Same(opts.amnezia) {
 			log.D("proxy: wg: update(%s<>%s): failed; amnezia %v != %v",
 				id, w.who(), opts.amnezia, w.amnezia.Load())
@@ -1513,12 +1513,12 @@ func (h *wgproxy) Pause() (paused bool) {
 
 	st := h.status.Load()
 	if st == END {
-		log.W("wg: %s pause called when stopped", h.tag())
+		log.W("wg: %s listener: pause called when stopped", h.tag())
 		return false
 	}
 
 	paused = h.status.Cas(st, TPU)
-	log.I("wg: %s paused? %t", h.tag(), paused)
+	log.I("wg: %s listener: paused? %t", h.tag(), paused)
 
 	return
 }
@@ -1527,7 +1527,7 @@ func (h *wgproxy) Pause() (paused bool) {
 func (h *wgproxy) Resume() (resumed bool) {
 	st := h.status.Load()
 	if st != TPU {
-		log.W("wg: %s resume called when not paused; status %d", h.tag(), st)
+		log.W("wg: %s listener: resume called when not paused; status %d", h.tag(), st)
 		return false
 	}
 
@@ -1537,7 +1537,7 @@ func (h *wgproxy) Resume() (resumed bool) {
 	}
 	core.Gxe("wg.resume.refresh."+h.id, h.Refresh) // refresh unconditionally
 
-	log.I("wg: %s resumed? %t", h.tag(), resumed)
+	log.I("wg: %s listener: resumed? %t", h.tag(), resumed)
 
 	return
 }
@@ -1662,8 +1662,8 @@ func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
 func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 	s := h.status.Load()
 	cur := s
-	ended = s == END
-	paused := s == TPU
+	ended = cur == END
+	paused := cur == TPU
 
 	if op != wg.Clo {
 		if op.Read() {
@@ -1677,7 +1677,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 
 	if ended || paused { // stopped or paused
 		h.statusReason.Store("TXX: paused or stopped")
-		logeif(ended)("wg: %s listener: %s; status %s; ignoring1", h.tag(), op, pxstatus(s))
+		logeif(ended)("wg: %s listener: %s; status %s; ignoring1", h.tag(), op, pxstatus(cur))
 		return
 	}
 
@@ -1697,7 +1697,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		if !updatedlatest {
 			updatedlatest = h.status.Cas(cur, s)
 		}
-		if settings.Debug || !updatedlatest {
+		if log.Debug || !updatedlatest {
 			logeif(!updatedlatest)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",
 				h.tag(), op, pxstatus(cur), pxstatus(s), cur != s, !updatedlatest, why)
 		}

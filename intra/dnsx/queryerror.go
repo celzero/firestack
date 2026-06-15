@@ -22,6 +22,7 @@ const (
 	TransportError = x.TransportError
 	ClientError    = x.ClientError
 	Paused         = x.Paused
+	Unpaused       = x.Unpaused
 	DEnd           = x.DEnd
 	Unknown        = 100
 )
@@ -50,6 +51,8 @@ func Status2Str(status int) string {
 		return "End"
 	case Paused:
 		return "Paused"
+	case Unpaused:
+		return "Unpaused"
 	default:
 		return "Unknown" // 100
 	}

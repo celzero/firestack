@@ -34,8 +34,9 @@ var fakePlusIpports = []netip.AddrPort{
 }
 
 type plus struct {
-	mu         sync.RWMutex         // protects all
-	transports map[string]Transport // id => transport
+	mu sync.RWMutex // protects all
+	// id => transport; should contain transports owned by Plus
+	transports map[string]Transport
 
 	r       TransportProviderInternal
 	ctx     context.Context

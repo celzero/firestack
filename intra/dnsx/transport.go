@@ -1373,7 +1373,7 @@ func Categorize(ts []Transport) (best []Transport, preferred []Transport, recove
 		switch t.Status() {
 		case Complete:
 			best = append(best, t)
-		case Start, NoResponse, BadQuery:
+		case Start, Unpaused, NoResponse, BadQuery:
 			preferred = append(preferred, t)
 		case BadResponse:
 			preferred = append(preferred, t)
@@ -1710,6 +1710,10 @@ func cachedTransport(t Transport) bool {
 		strings.HasPrefix(t.GetAddr(), cacheprefix)
 }
 
+// WillErr fetches current status and returns if t will
+// error out due to dnsx.DEnd or dnsx.Paused states.
+// It always calls into t.Status(), which has a chance to
+// rectify if its entered incorrect states, if any.
 func WillErr(t Transport) *QueryError {
 	switch t.Status() {
 	case DEnd:

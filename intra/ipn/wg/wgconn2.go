@@ -274,7 +274,7 @@ func (s *StdNetBind2) listenNet(network string, port int) (*net.UDPConn, int, er
 		clos(conn)
 		return nil, 0, errNoLocalAddr
 	}
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("wg: bind2: %s %s: listen(%v)", s.id, network, laddr)
 	}
 	// typecast is safe, because "network" is always udp[4|6]; see: Open
@@ -829,7 +829,7 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 	}
 	if err != nil {
 		log.E("wg: bind2: %s send: %s batch? %t; n(%d); err? %v", s.id, who, batch, n, err)
-	} else {
+	} else if log.Verbose {
 		log.V("wg: bind2: %s send: %s batch? %t; n(%d); err? %v", s.id, who, batch, n, err)
 	}
 	return err

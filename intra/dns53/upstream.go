@@ -161,7 +161,7 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uint64, erro
 		return c, rpid, who, nil
 	}
 
-	if settings.Debug {
+	if log.Debug {
 		log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s",
 			t.id, network, px.ID(), px.GetAddr())
 	}
@@ -206,7 +206,7 @@ func (t *transport) fromPool(id uint64) (c *dns.Conn) {
 		log.W("dns53: pool: (%s) not a dns.Conn for %d!", t.id, id)
 		return &dns.Conn{Conn: pooled}
 	}
-	if settings.Debug {
+	if log.Debug {
 		log.V("dns53: pool: (%s) got conn for %d", t.id, id)
 	}
 	return
@@ -302,6 +302,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 		status = qerr.Status()
 		log.W("dns53: (%s) err(%v) / size(%d)", t.id, err, xdns.Len(ans))
 	}
+	// may store dnsx.Paused which is NOT a reflection of
+	// the correct state of this transport
 	t.status.Store(status)
 
 	smm.Latency = elapsed.Seconds()
@@ -317,7 +319,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	smm.Status = status
 	t.est.Add(smm.Latency)
 
-	if settings.Debug {
+	if log.Debug {
 		log.V("dns53: (%s) len(res): %d, data: %s, via: %s, err? %v",
 			t.id, xdns.Len(ans), smm.RData, smm.PID, err)
 	}
@@ -377,7 +379,15 @@ func (t *transport) Status() int {
 			return dnsx.Paused
 		}
 	}
-	return t.status.Load()
+
+	s := t.status.Load()
+	if s == dnsx.Paused {
+		// paused status is a pseudo state dependent on underlying relay
+		// or requested pid, not a permanent state of this transport.
+		t.status.Cas(s, dnsx.Unpaused)
+		return dnsx.Unpaused
+	}
+	return s
 }
 
 func (t *transport) Stop() error {

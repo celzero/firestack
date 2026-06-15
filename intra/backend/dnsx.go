@@ -80,6 +80,8 @@ const ( // from dnsx/queryerror.go
 	ClientError
 	// Paused: Transport is paused
 	Paused
+	// Unpaused: Transport may have been unpaused
+	Unpaused
 	// DEnd: Transport stopped
 	DEnd
 )

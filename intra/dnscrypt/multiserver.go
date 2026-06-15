@@ -474,6 +474,7 @@ func (proxy *DcMulti) start() error {
 
 // Stop stops this dnscrypt proxy
 func (proxy *DcMulti) Stop() error {
+	// TODO: on END do not add, remove, or serve queries.
 	proxy.lastStatus.Store(dnsx.DEnd)
 	proxy.sigterm()
 	return nil
@@ -693,6 +694,7 @@ func (p *DcMulti) IPPorts() []netip.AddrPort {
 
 // Status implements dnsx.TransportMult
 func (p *DcMulti) Status() int {
+	// TODO? Does it transition out of dnsx.Paused correctly?
 	return p.lastStatus.Load()
 }
 
