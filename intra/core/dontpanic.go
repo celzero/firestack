@@ -124,7 +124,7 @@ func captureRecorderOutput(code ExitCode) bool {
 	if code == DontExit {
 		return false
 	}
-	if recorder == nil {
+	if neverrecord || recorder == nil {
 		return false
 	}
 
