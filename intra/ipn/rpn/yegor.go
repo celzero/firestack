@@ -911,8 +911,8 @@ func (e *WsEntitlement) Token() string {
 	return e.SessionToken
 }
 
-func (e *WsEntitlement) Expiry() string {
-	return e.Exp.Format(time.RFC3339)
+func (e *WsEntitlement) Expiry() int64 {
+	return e.Exp.UnixMilli()
 }
 
 func (e *WsEntitlement) Status() string {

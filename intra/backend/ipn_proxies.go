@@ -291,8 +291,8 @@ type RpnEntitlement interface {
 	DID() string
 	// Token is the entitlement token, if any.
 	Token() string
-	// Expiry is ISO 8601 string of the expiry time of this entitlement, if any.
-	Expiry() string
+	// Expiry is the expiry time of this entitlement in Unix milliseconds, if any.
+	Expiry() int64
 	// "valid", "invalid", "banned", "expired", "unknown"
 	Status() string
 	// AllowRestore returns true if this entitlement can be transferred around for restores.
