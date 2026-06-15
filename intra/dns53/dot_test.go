@@ -129,9 +129,10 @@ type fakeObs struct {
 	x.ProxyListener
 }
 
-func (*fakeObs) OnProxyAdded(string)   {}
-func (*fakeObs) OnProxyRemoved(string) {}
-func (*fakeObs) OnProxiesStopped()     {}
+func (*fakeObs) OnProxyAdded(string, string)   {}
+func (*fakeObs) OnProxyRemoved(string, string) {}
+func (*fakeObs) OnProxyUpdated(string, string) {}
+func (*fakeObs) OnProxiesStopped()             {}
 
 type fakeBdg struct {
 	protect.Controller
