@@ -909,7 +909,7 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 		if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
 			swapped := l.skips[lvl].CompareAndSwap(n, 0)
 			if swapped && (cc || ll) {
-				spammsgs, spamslabs := l.fmtmsg(lvl, file1+"spammy... %d msgs; dropped? %t", n, !spamConsole)
+				spammsgs, spamslabs := l.fmtmsg(lvl, "spammy..."+file1+" %d msgs; dropped? %t", n, !spamConsole)
 				if ll {
 					for _, line := range spammsgs {
 						l.out(line)
