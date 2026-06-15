@@ -81,6 +81,7 @@ const (
 	ttl10m = 10 * time.Minute
 
 	listenerTimeout = 3 * time.Second
+	answerTimeout   = 15 * time.Second
 
 	// pseudo transport ID to tag dns64 responses
 	AlgDNS64 = "dns64"
@@ -111,8 +112,8 @@ var (
 	errNoSuchTransport         = errors.New("dns: missing transport")
 	errTransportEnd            = errors.New("dns: transport ended")
 	errTransportPaused         = errors.New("dns: transport paused")
-	errOnQueryTimeout          = errors.New("dns: timeout fetching prefs")
-	errOnUpstreamAnswerTimeout = errors.New("dns: timeout fetching prefs for upstream answer")
+	errOnQueryTimeout          = errors.New("dns: timeout fetching query prefs")
+	errOnUpstreamAnswerTimeout = errors.New("dns: timeout fetching answer prefs")
 	errBlockFreeTransport      = errors.New("dns: block free transport")
 	errNoRdns                  = errors.New("dns: no rdns")
 	errTransportNotMult        = errors.New("dns: not a multi-transport")
@@ -752,7 +753,7 @@ runagain:
 	if run == 1 {
 		pref2, ouacompleted := core.Grx("r.onUA."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 			return r.listener.OnUpstreamAnswer(smm, pref.Copy(), realips), nil
-		}, listenerTimeout)
+		}, answerTimeout)
 		if !ouacompleted {
 			log.W("dns: fwd: 8 for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
 			smm.Status = ClientError
