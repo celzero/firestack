@@ -929,6 +929,7 @@ func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error
 	defer clos(c)
 
 	var rxv, txv atomic.Int64
+	var errsMu sync.Mutex
 
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -965,7 +966,11 @@ func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error
 					uid, cnts, core.FmtTimeAsPeriod(start), err)
 				rxv.Add(int64(m))
 				txv.Add(int64(n))
-				errs = append(errs, err)
+				if err != nil {
+					errsMu.Lock()
+					errs = append(errs, err)
+					errsMu.Unlock()
+				}
 			})
 		}
 		cnt++
@@ -983,6 +988,7 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 	defer clos(c)
 
 	var rxv, txv atomic.Int64
+	var errsMu sync.Mutex
 
 	var wg sync.WaitGroup
 	start := time.Now()
@@ -1037,7 +1043,11 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 			m, err := r.dnstcp(qs, c, uid)
 			logeif(err != nil)("dns: tcp: for %s err! tot: %d, t: %s, %v",
 				uid, cnts, core.FmtTimeAsPeriod(start), err)
-			errs = append(errs, err)
+			if err != nil {
+				errsMu.Lock()
+				errs = append(errs, err)
+				errsMu.Unlock()
+			}
 			txv.Add(int64(n))
 			rxv.Add(int64(m))
 		})
