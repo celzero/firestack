@@ -7,10 +7,10 @@
 package core
 
 import (
-	"fmt"
 	"hash/maphash"
 	"math/rand/v2"
 	"reflect"
+	"strconv"
 
 	_ "go4.org/unsafe/assume-no-moving-gc"
 )
@@ -44,7 +44,7 @@ func Loc[T comparable](x T) uint64 {
 }
 
 func LocStr[T comparable](x T) string {
-	return fmt.Sprintf("%x", Loc(x))
+	return strconv.FormatUint(Loc(x), 10)
 }
 
 func HashStr(s string) uint64 {
