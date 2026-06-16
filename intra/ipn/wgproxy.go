@@ -1426,7 +1426,7 @@ func (h *wgproxy) Hop(via *core.WeakRef[Proxy], dryrun bool) (err error) {
 			return
 		}
 
-		if Same(old.Load(), viaPx) {
+		if old != nil && Same(old.Load(), viaPx) {
 			log.I("wg: %s hop: via-ref unchanged; no refresh needed", h.id)
 			return
 		}

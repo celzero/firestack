@@ -79,7 +79,7 @@ func RecoverFn(aux string, fn Finally) (didpanic bool) {
 
 	defer Gif(didpanic, "fin."+aux, Callback(fn))
 
-	msg := fmt.Sprintf("%s [%d] %v", aux, DontExit, recovered)
+	msg := fmt.Sprintf("%s [%d] %v [%s]", aux, DontExit, recovered, stamp())
 	log.E2(parentCallerDepthAt+1, msg)
 
 	captureRecorderOutput(DontExit)
