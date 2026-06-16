@@ -751,6 +751,7 @@ func (px *proxifier) ProxyFor(id string) (_ Proxy, err error) {
 	return px.proxyFor(id)
 }
 
+// Gets proxy from the underlying map with retries.
 func (px *proxifier) proxyFor(id string) (Proxy, error) {
 	defer core.Recover(core.Exit11, "pxr.proxyFor."+id)
 
@@ -790,7 +791,8 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 		log.W("proxy: for: %s; not found", id)
 		return nil, errProxyNotFound
 	}
-	if isWG(idstr(p)) {
+	pid := idstr(p)
+	if isWG(pid) || isRPN(pid) {
 		// ping or refresh, in case dns layer is asking for this proxy
 		_ = healthy(p)
 	}
