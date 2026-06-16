@@ -467,6 +467,10 @@ func TestWinReaches(t *testing.T) {
 	ent, err := pxr.EntitlementFrom(entjson, x.RpnWin, "")
 	ko(t, err)
 
+	if ent == nil {
+		t.Fail()
+	}
+
 	// const did = "deadbeefdeadbeefdeadbeefdeadbeef" // some device id
 
 	if wreg, err := pxr.RegisterWin(entjson, ent.DID(), nil); err != nil {
@@ -629,6 +633,10 @@ func TestWinDownloadSpeed(t *testing.T) {
 
 	ent, err := pxr.EntitlementFrom(entjson, x.RpnWin, "")
 	ko(t, err)
+
+	if ent == nil {
+		t.Fail()
+	}
 
 	if wreg, err := pxr.RegisterWin(entjson, ent.DID(), nil); err != nil {
 		t.Fatal(err)
