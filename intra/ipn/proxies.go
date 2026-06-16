@@ -96,7 +96,6 @@ var (
 	errUnexpectedProxy    = errors.New("proxy: unexpected type")
 	errAddProxy           = errors.New("proxy: add failed")
 	errAddProxyAsRpn      = errors.New("proxy: cannot add rpn proxy")
-	errRpnAsProxy         = errors.New("proxy: cannot conv rpn to proxy")
 	errProxyNotFound      = errors.New("proxy: not found")
 	errGetProxyTimeout    = errors.New("proxy: get timeout")
 	errProxyAllDown       = errors.New("proxy: all down")
