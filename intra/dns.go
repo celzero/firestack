@@ -249,6 +249,7 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 	}
 	// todo: unexpose DcMulti, cast to TransportMult
 	if p, ok := tm.(*dnscrypt.DcMulti); ok {
+		// add to both DcMulti and Resolver
 		if dns, err := dnscrypt.AddTransport(p, id, stamp); err != nil {
 			return err
 		} else {

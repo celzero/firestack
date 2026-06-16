@@ -623,7 +623,7 @@ func (proxy *DcMulti) addOne(uid, rawstamp string) (string, error) {
 	proxy.registeredServers[uid] = registeredserver{name: uid, stamp: stamp}
 	proxy.Unlock()
 
-	if settings.Debug {
+	if log.Debug {
 		log.D("dnscrypt: added [%s] %s", uid, stamp2str(stamp))
 	}
 	return uid, nil

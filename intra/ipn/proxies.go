@@ -96,6 +96,7 @@ var (
 	errUnexpectedProxy    = errors.New("proxy: unexpected type")
 	errAddProxy           = errors.New("proxy: add failed")
 	errAddProxyAsRpn      = errors.New("proxy: cannot add rpn proxy")
+	errRpnAsProxy         = errors.New("proxy: cannot conv rpn to proxy")
 	errProxyNotFound      = errors.New("proxy: not found")
 	errGetProxyTimeout    = errors.New("proxy: get timeout")
 	errProxyAllDown       = errors.New("proxy: all down")
@@ -729,7 +730,7 @@ func (px *proxifier) ProxyFor(id string) (_ Proxy, err error) {
 	}()
 
 	p, err := px.proxyFor(id)
-	if !errors.Is(err, errProxyNotFound) || !isWellknown(id) {
+	if err == nil || !errors.Is(err, errProxyNotFound) || !isWellknown(id) {
 		// return proxy not found for non-wellknown proxy ids immediately without waiting
 		// because the constructor's of dns transports call into ProxyFor with their own IDs
 		// (ex: dnsx.Default / dnsx.Preferred) to auto-setup the transporting over proxy
@@ -738,7 +739,7 @@ func (px *proxifier) ProxyFor(id string) (_ Proxy, err error) {
 		// it results in prolonged intra.NewTunnel creation, which is sensitive to delays,
 		// as it is expected to be called from the main service thread of the Android client.
 		return p, err
-	}
+	} // else: retry proxyFor for wellknown not-found proxies
 
 	next := time.Duration(maxWaitPeriodSec)*time.Second - time.Since(start)
 	log.W("proxy: for: %s; not found; waited for %s (will wait: %s)...", id, core.FmtTimeAsPeriod(start), core.FmtPeriod(next))
@@ -1355,6 +1356,8 @@ func (px *proxifier) unregisterRpn(provider string) bool {
 
 // Win implements x.Rpn.
 func (px *proxifier) Win() (x.RpnProxy, error) {
+	// Should be instant without waits or retries (client probably calls this
+	// from a time sensitive path like Flow/OnQuery/Preflow/etc)
 	win, err := px.mainRpnProxyOf(RpnWin)
 	if win == nil {
 		return nil, core.JoinErr(err, px.lastWinErr.Load())

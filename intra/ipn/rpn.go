@@ -23,6 +23,7 @@ import (
 type RpnProxy interface {
 	x.RpnProxy
 	Proxy
+	GetInternal(cc string) (Proxy, error)
 	Emplace(Proxy) error
 	PurgeAll() (n uint32)
 }
@@ -81,7 +82,8 @@ func (r *rpnp) ensureProxy() Proxy {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.p == nil {
-		panic(fmt.Sprintf("proxy: rpn: missing main for %s using provider %s", r.RpnAcc.Who(), r.RpnAcc.ProviderID()))
+		panic(fmt.Sprintf("proxy: rpn: missing main for %s using provider %s",
+			r.RpnAcc.Who(), r.RpnAcc.ProviderID()))
 	}
 	return r.p
 }
@@ -101,6 +103,10 @@ func (r *rpnp) requireProxy() (Proxy, error) {
 
 // ID implements x.Proxy.
 func (r *rpnp) ID() string {
+	// Must match the ID as added in the regular proxy map
+	// Or clients trying to find its dnsx.Transport added via
+	// AddProxyDNS may not find it available (since dnsx.Transport
+	// use ProxyProvider, which only retrieves from proxy map).
 	return r.ensureProxy().ID()
 }
 
@@ -509,25 +515,30 @@ func (r *rpnp) purge(cc string) bool {
 	return rmv
 }
 
+func (r *rpnp) GetInternal(cc string) (Proxy, error) {
+	return r.get(cc)
+}
+
 // Get implements x.RpnProxy.
 func (r *rpnp) Get(cc string) (x.Proxy, error) {
 	return r.get(cc)
 }
 
-func (r *rpnp) get(cc string) (x.Proxy, error) {
+func (r *rpnp) get(cc string) (Proxy, error) {
 	acc := r.RpnAcc
-	rpnid := acc.ProviderID()
+	provider := acc.ProviderID()
 
 	if cc == noCountryForOldMen && !acc.MultiCountry() {
 		return r, nil
 	}
 	if !acc.MultiCountry() {
-		return nil, log.EE("proxy: rpn: get: %s not multi-country %s", cc, rpnid)
+		return nil, log.EE("proxy: rpn: get: %s not multi-country %s", cc, provider)
 	}
-	if len(cc) < 2 {
-		log.W("proxy: rpn: get: %s bad country code", cc)
-		return nil, errRpnBadCC
-	}
+
+	// cc may be fully-qualified ex: "typcity;cc"
+	// but we need cc to be "city;cc"  (ref addRpnProxy(acc, cc))
+	cc, _ = strings.CutPrefix(cc, provider)
+
 	cc = strings.ToUpper(cc)
 
 	r.mu.RLock()
@@ -535,14 +546,24 @@ func (r *rpnp) get(cc string) (x.Proxy, error) {
 	_, gotCC := r.kids[cc]
 	r.mu.RUnlock()
 
-	if rpnid+cc == idstr(main) {
+	mainpid := idstr(main)
+	// see fork(cc)
+	if provider+cc == mainpid || // true when cc == anyCountryCode
+		cc == mainpid || // true when cc is fully-qualified ID of the main proxy
+		cc == anyCountryCode && acc.MultiCountry() {
 		// return r as-is; r.p is always got after r.mu.RLock()
 		return r, nil
 	}
+
+	if len(cc) < 2 {
+		log.W("proxy: rpn: get: %s bad country code", cc)
+		return nil, errRpnBadCC
+	}
+
 	if !gotCC {
 		return nil, errRpnNotForked
 	}
-	return r.pxr.rpnProxyFor(rpnid, cc)
+	return r.pxr.rpnProxyFor(provider, cc)
 }
 
 // Kids implements x.RpnProxy.
