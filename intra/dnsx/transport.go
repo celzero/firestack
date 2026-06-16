@@ -348,7 +348,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	case DNS53, DNSCrypt, DOH, DOT, ODOH:
 		r.Lock()
 		// stop existing transport if different
-		if oldt := r.transports[tid]; !core.LocEq(t, oldt) {
+		if oldt := r.transports[tid]; !core.PtrEq(t, oldt) {
 			r.stopIfExistsLocked(tid)
 			// close cache if corresponding tid is closed
 			r.stopIfExistsLocked(CT + tid)

@@ -358,7 +358,7 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 	defer t.mu.Unlock()
 
 	if oldt, ok := t.transports[tr.ID()]; ok {
-		if core.LocEq(oldt, newt) {
+		if core.PtrEq(oldt, newt) {
 			log.I("plus: add %s@%s: already present", newt.ID(), newt.GetAddr())
 			return true
 		}
