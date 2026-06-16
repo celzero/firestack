@@ -773,23 +773,6 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 	}
 
 	timeout := getproxytimeout
-	if isRPN(id) {
-		rpn, _ := core.Grx("pxr.mainRpnProxyFor: "+id, func(_ context.Context) (RpnProxy, error) {
-			// id here must be non-countrycode "rpn provider"
-			// ex: x.RpnWin; not "rpn+cc": x.RpnWin+US, x.RpnWin+MX
-			if p, err := px.mainRpnProxyOf(id); err == nil {
-				return p, nil
-			}
-			return nil, errNotRpnID
-		}, timeout/2)
-		if rpn != nil && core.IsNotNil(rpn) {
-			// ping or refresh, in case dns layer is asking for this proxy
-			_ = healthy(rpn)
-			return rpn, nil
-		} // else: search for id in px.p, which includes rpn+cc proxies
-		timeout /= 2
-	}
-
 	// go.dev/play/p/xCug1W3OcMH
 	p, completed := core.Grx("pxr.ProxyFor: "+id, func(_ context.Context) (Proxy, error) {
 		px.RLock()
