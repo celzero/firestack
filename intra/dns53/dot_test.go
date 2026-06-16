@@ -516,6 +516,10 @@ func TestWinReaches(t *testing.T) {
 	p2, err := win.Fork("CA")
 	ko(t, err)
 
+	if p1 == nil || p2 == nil {
+		t.Fatal("nil US/CA proxies")
+	}
+
 	settings.SetAutoDialsParallel(false)
 	settings.SetAutoMode(settings.AutoModeRemote)
 
@@ -561,11 +565,17 @@ func TestWinReaches(t *testing.T) {
 	r, err := c1.Get(u.String())
 	ko(t, err)
 
-	if r.Body != nil {
-		defer r.Body.Close()
+	if r == nil {
+		t.Fatal("nil response from %s", u.String())
+	}
+	if body := r.Body; body != nil {
+		defer body.Close()
 	}
 
 	b, err := io.ReadAll(r.Body)
+	if len(b) <= 0 || b == nil || err != nil {
+		t.Fatal("failed to read body", err)
+	}
 	l := min(len(b), 800)
 	ilog.VV(string(b[:l]))
 	if r.StatusCode != 200 {
