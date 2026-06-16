@@ -566,7 +566,7 @@ func TestWinReaches(t *testing.T) {
 	ko(t, err)
 
 	if r == nil {
-		t.Fatal("nil response from %s", u.String())
+		t.Fatalf("nil response from %s", u.String())
 	}
 	if body := r.Body; body != nil {
 		defer body.Close()
