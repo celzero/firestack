@@ -186,7 +186,7 @@ func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
 	serversInfo.RUnlock()
 
 	for _, registeredServer := range copied {
-		if err := serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
+		if _, err := serversInfo.refreshServer(proxy, registeredServer.name, registeredServer.stamp); err == nil {
 			liveServers = append(liveServers, registeredServer.name)
 		} else {
 			log.E("dnscrypt: %s not a live server? %w", registeredServer.stamp, err)
@@ -200,13 +200,13 @@ func (serversInfo *ServersInfo) refresh(proxy *DcMulti) ([]string, error) {
 	return liveServers, nil
 }
 
-func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp stamps.ServerStamp) error {
+func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp stamps.ServerStamp) (*server, error) {
 	newServer, err := fetchServerInfo(proxy, name, stamp)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if name != newServer.Name {
-		return fmt.Errorf("[%s] != [%s]", name, newServer.Name)
+		return nil, fmt.Errorf("[%s] != [%s]", name, newServer.Name)
 	}
 
 	serversInfo.Lock()
@@ -216,7 +216,7 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 	}
 	serversInfo.inner[name] = &newServer
 	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
-	return nil
+	return &newServer, nil
 }
 
 func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (server, error) {

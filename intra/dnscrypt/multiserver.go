@@ -379,22 +379,23 @@ func (proxy *DcMulti) LiveTransports() string {
 	return strings.Join(proxy.liveServers[:], ",")
 }
 
-func (proxy *DcMulti) refreshOne(uid string) (bool, error) {
+func (proxy *DcMulti) refreshOne(uid string) (*server, error) {
 	proxy.RLock()
 	r, ok := proxy.registeredServers[uid]
 	proxy.RUnlock()
 
 	if !ok {
-		return false, errNoServers
+		return nil, errNoServers
 	}
-	if err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp); err != nil {
+	s, err := proxy.serversInfo.refreshServer(proxy, r.name, r.stamp)
+	if err != nil {
 		log.E("dnscrypt: refresh failed %s: %s; err: %v", r.name, stamp2str(r.stamp), err)
-		return false, err
+		return nil, err
 	}
 	if settings.Debug {
 		log.D("dnscrypt: refresh success %s: %s", r.name, stamp2str(r.stamp))
 	}
-	return true, nil
+	return s, nil
 }
 
 // Refresh re-registers servers
@@ -418,7 +419,7 @@ func (proxy *DcMulti) Refresh() (string, error) {
 		// ignore error if live-servers are around
 		return "", err
 	}
-	go proxy.refreshRoutes()
+	core.Go("dc.r.refresh", proxy.refreshRoutes)
 
 	return proxy.ID(), nil
 }
@@ -537,7 +538,7 @@ func (proxy *DcMulti) AddGateways(routescsv string) (int, error) {
 
 	log.I("dnscrypt: added %d/%d; relay? %s", len(cat), len(r), cat)
 	if len(cat) > 0 {
-		go proxy.refreshRoutes()
+		core.Go("dc.addgw.routes", proxy.refreshRoutes)
 	}
 	return len(cat), nil
 }
@@ -556,7 +557,7 @@ func (proxy *DcMulti) RemoveGateways(routescsv string) (int, error) {
 	n := len(proxy.routes)
 
 	if l != n { // routes changed
-		go proxy.refreshRoutes()
+		core.Go("dc.remgw.routes", proxy.refreshRoutes)
 	}
 	if settings.Debug {
 		log.V("dnscrypt: removed %d/%d; relays: %s", l-n, l, routescsv)
@@ -759,14 +760,10 @@ func AddTransport(p *DcMulti, id, serverstamp string) (*server, error) {
 		return nil, dnsx.ErrNoDcProxy
 	}
 	if _, err := p.addOne(id, serverstamp); err == nil {
-		if ok, err := p.refreshOne(id); ok {
+		if s, err := p.refreshOne(id); s != nil {
 			log.I("dnscrypt: added %s; %s", id, serverstamp)
-			if tr := p.serversInfo.get(id); tr != nil {
-				go p.refreshRoutes()
-				return tr, nil
-			}
-			log.W("dnscrypt: failed to add1 %s; %s", id, serverstamp)
-			return nil, dnsx.ErrAddFailed
+			core.Go("dc.a.refreshroutes", p.refreshRoutes)
+			return s, nil
 		} else {
 			log.W("dnscrypt: failed to add2 %s; %s", id, serverstamp)
 			p.removeOne(id)
