@@ -16,6 +16,9 @@ import (
 type DNSSummary struct {
 	// dnscrypt, dns53, doh, odoh, dot, preset, fixed, etc.
 	Type string
+	// Flow ID that spawned this DNS query, if Origin is "tunnel".
+	// Otherwise, it is randomly generated uint64 as hex.
+	FID string
 	// DNS Transport ID
 	ID string
 	// owner uid that sent this request. May be empty.
@@ -113,8 +116,8 @@ func (s *DNSSummary) String() string {
 	if s == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("id: %s (%s by %s), t: %s, q: %s (do? %t), a: %s (cache? %t / ad? %t), code: %d, ttl: %d, by: %s / via: %s / relay: %s, status: %d, blocklists: %s / upstreamBlocks? %t, msg: %s, loc: %s",
-		s.ID, s.Type, s.Origin, core.FmtSecsFloat(s.Latency), s.QName, s.DO, s.RData, s.Cached, s.AD, s.RCode, s.RTtl, s.Server, s.PID, s.RPID, s.Status, s.Blocklists, s.UpstreamBlocks, s.Msg, s.Region)
+	return fmt.Sprintf("id: %s (fid: %s / %s by %s), t: %s, q: %s (do? %t), a: %s (cache? %t / ad? %t), code: %d, ttl: %d, by: %s / via: %s / relay: %s, status: %d, blocklists: %s / upstreamBlocks? %t, msg: %s, loc: %s",
+		s.ID, s.FID, s.Type, s.Origin, core.FmtSecsFloat(s.Latency), s.QName, s.DO, s.RData, s.Cached, s.AD, s.RCode, s.RTtl, s.Server, s.PID, s.RPID, s.Status, s.Blocklists, s.UpstreamBlocks, s.Msg, s.Region)
 }
 
 // DNSListener receives Summaries.
@@ -127,7 +130,7 @@ type DNSListener interface {
 	// The listener may return DNSOpts to specify if another upstream should override that answer.
 	// Another round of OnQuery is NOT called in this case, and OnResponse is called once after processing
 	// DNSOpts returned by OnUpstreamAnswer if it has a non-empty TIDCSV (overriding the original TIDCSV).
-	OnUpstreamAnswer(smm *DNSSummary, forPref *DNSOpts, unmodifiedipcsv string) *DNSOpts
+	OnUpstreamAnswer(who string, smm *DNSSummary, forPref *DNSOpts, unmodifiedipcsv string) *DNSOpts
 	// OnResponse is called when a DNS response is received. May be called twice for the same query,
 	// for instance, when different options are requested through OnUpstreamAnswer.
 	OnResponse(*DNSSummary)

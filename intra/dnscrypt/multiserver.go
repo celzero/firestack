@@ -364,8 +364,8 @@ func resolve(network string, data *dns.Msg, si *server, smm *x.DNSSummary) (ans 
 	}
 
 	if settings.Debug {
-		log.V("dnscrypt: len(res): %d, data: %s, via: %s, err? %v",
-			xdns.Len(ans), smm.RData, smm.PID, err)
+		log.V("dnscrypt: (fid: %s) len(res): %d, data: %s, via: %s, err? %v",
+			smm.FID, xdns.Len(ans), smm.RData, smm.PID, err)
 	}
 
 	return // ans, err

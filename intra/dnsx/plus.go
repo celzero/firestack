@@ -262,8 +262,8 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 
 		finalsmm = cursmm
 
-		loged(err != nil || failed)("plus: queried %s for %s:%d; data: %s [noans? %t], code: %d, err? %v",
-			idstr(tr), qname, qtyp, finalsmm.RData, noans, finalsmm.RCode, err)
+		loged(err != nil || failed)("plus: queried %s for %s:%d (fid: %s); data: %s [noans? %t], code: %d, err? %v",
+			idstr(tr), qname, qtyp, outSmm.FID, finalsmm.RData, noans, finalsmm.RCode, err)
 
 		if err != nil || ans == nil {
 			errs = core.JoinErr(errs, core.OneErr(err, errNoAnswer))

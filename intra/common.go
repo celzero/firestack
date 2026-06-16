@@ -451,11 +451,12 @@ func (h *baseHandler) dnsOverride(conn net.Conn, uid string, smm *FlowSummary) b
 	// addr with zone information removed; see: netip.ParseAddrPort which h.resolver relies on
 	// addr2 := &net.TCPAddr{IP: addr.IP, Port: addr.Port}
 	// conn closed by the resolver
+	fid := smm.ID // flow ID that spawned this DNS query
 	core.Gx(h.proto+".dns", func() {
 		// SocketSummary is not meant to be used by the listener; x.DNSSummary is
 		// but call into PostFlow & OnSocketClosed anyway, to avoid ambiguities
 		// on which sockets / sessions are still active.
-		rx, tx, errs := h.resolver.Serve(h.proto, conn, uid)
+		rx, tx, errs := h.resolver.Serve(h.proto, conn, uid, fid)
 		smm.Rx = rx
 		smm.Tx = tx
 		// smm.Rtt

@@ -174,8 +174,9 @@ type Resolver interface {
 
 	// IsDnsAddr returns true if the ip:port is resolver's fake endpoint
 	IsDnsAddr(ipport netip.AddrPort) bool
-	// Serve reads DNS query from conn and writes DNS answer to conn
-	Serve(proto string, conn protect.Conn, uid string) (rx, tx int64, errs []error)
+	// Serve reads DNS query from conn and writes DNS answer to conn.
+	// fid is the flow ID that spawned this DNS query, if Origin is "tunnel".
+	Serve(proto string, conn protect.Conn, uid, fid string) (rx, tx int64, errs []error)
 
 	// special purpose pre-defined transports:
 
@@ -488,7 +489,7 @@ func (r *resolver) LookupFor2(q []byte, uid string, tids ...string) ([]byte, str
 		uid = protect.UidSelf
 	}
 	// if len(tids) == 0, use transport from preferences
-	return r.forward(q, OriginInternal, uid, tids...)
+	return r.forward(q, OriginInternal, core.Rand64(), uid, tids...)
 }
 
 // LookupFor implements ResolverSelf.
@@ -502,10 +503,10 @@ func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 	// to use "fixed" transport to later uncover the actual requesting app/uid during
 	// tcp/udp flows (specifically, with preflow)
 	if (uid == core.UNKNOWN_UID_STR || uid == core.DNS_UID_STR || uid == core.ANDROID_UID_STR) && r.gateway.fixedTransport() {
-		return r.forward(q, OriginInternal, uid, Preferred, Fixed)
+		return r.forward(q, OriginInternal, core.Rand64(), uid, Preferred, Fixed)
 	}
 
-	return r.forward(q, OriginInternal, uid)
+	return r.forward(q, OriginInternal, core.Rand64(), uid)
 }
 
 // LocalLookup implements ResovlerSelf.
@@ -519,7 +520,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	defaultIsSystemDNS := r.isDefaultSystemDNS()
 
 	// including dns64 and/or alg
-	ans, tid, err := r.forward(q, OriginInternal, protect.UidSelf, Default)
+	ans, tid, err := r.forward(q, OriginInternal, core.Rand64(), protect.UidSelf, Default)
 	if !defaultIsSystemDNS || goosWillLoopback {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
@@ -527,16 +528,17 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(msg))
-		ans, tid, err = r.forward(q, OriginInternal, protect.UidSelf, Goos) // Goos is System; see: determineTransport
+		ans, tid, err = r.forward(q, OriginInternal, core.Rand64(), protect.UidSelf, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
 	return ans, tid, err
 }
 
-func (r *resolver) forward(q []byte, who, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
+func (r *resolver) forward(q []byte, who, uid string, fid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
 	starttime := time.Now()
 	ogsmm := &x.DNSSummary{
 		ID:     NoDNS,
+		FID:    fid,
 		Origin: who,
 		UID:    uid, // may be overwritten to by Cacher via fillSummary
 		QName:  invalidQname,
@@ -604,7 +606,7 @@ runagain:
 	run++
 	*smm = *copySummary(ogsmm)
 
-	log.V("dns: fwd: 1 for %s (%s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, who, qname, qtyp, run, pref, chosenids)
+	log.V("dns: fwd: 1 for %s (fid: %s / %s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, fid, who, qname, qtyp, run, pref, chosenids)
 
 	id, sid, pids, diag, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 
@@ -616,8 +618,8 @@ runagain:
 	diffT1 := hasT1 && id != idstr(t)
 	diffT2 := hasT2 && sid != idstr(t2)
 
-	log.V("dns: fwd: 2 for %s; query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s, ips? %v",
-		uid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, presetIPs)
+	log.V("dns: fwd: 2 for %s (fid: %s); query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s, ips? %v",
+		uid, fid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, presetIPs)
 
 	if settings.Debug || (!hasPre && (diffT1 || diffT2)) || !hasT1 {
 		smm.Extra += fmt.Sprintf(" #%d Prefs: %s+%s over %s; Actual: %s+%s over %s",
@@ -656,11 +658,11 @@ runagain:
 			} else {
 				smm.Msg = errNop.Error()
 			}
-			log.V("dns: fwd: 3 %s for %s; r%d, query blocked %s:%d by %s", smm.ID, uid, run, qname, qtyp, blocklists)
+			log.V("dns: fwd: 3 %s for %s (fid: %s); r%d, query blocked %s:%d by %s", smm.ID, uid, smm.FID, run, qname, qtyp, blocklists)
 			return b, smm.ID, e
 		}
 	} else {
-		log.V("dns: fwd: 4 %s for %s; r%d, query NOT blocked %s:%d; why? %v", smm.ID, uid, run, qname, qtyp, err)
+		log.V("dns: fwd: 4 %s for %s (fid: %s); r%d, query NOT blocked %s:%d; why? %v", smm.ID, uid, smm.FID, run, qname, qtyp, err)
 	}
 
 	var res2 []byte
@@ -681,7 +683,7 @@ runagain:
 
 	if nonalg == nil || err != nil { // TODO: servfail?
 		if isAlgErr(err) { // alg errs not set when gw.translate is off
-			log.W("dns: fwd: 5 %s for %s; r%d, alg error %s for %s:%d", smm.ID, uid, run, err, qname, qtyp)
+			log.W("dns: fwd: 5 %s for %s (fid: %s); r%d, alg error %s for %s:%d", smm.ID, uid, smm.FID, run, err, qname, qtyp)
 			smm.Status = NoResponse
 		} else if smm.Status == Start {
 			smm.Status = InternalError
@@ -737,8 +739,8 @@ runagain:
 			smm.Msg = err.Error()
 		}
 
-		log.V("dns: fwd: 6 for %s[%s]; query %s:%d, r%d, smm[data: %s, status: %d] blocked",
-			smm.ID, uid, qname, qtyp, run, smm.RData, smm.Status)
+		log.V("dns: fwd: 6 for %s[%s] (fid: %s); query %s:%d, r%d, smm[data: %s, status: %d] blocked",
+			smm.ID, uid, smm.FID, qname, qtyp, run, smm.RData, smm.Status)
 		return res2, smm.ID, err
 	}
 
@@ -746,16 +748,16 @@ runagain:
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
 	if settings.Debug {
-		log.V("dns: fwd: 7 for %s[%s]; query %s:%d, r%d, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
-			smm.ID, uid, qname, qtyp, run, realips, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
+		log.V("dns: fwd: 7 for %s[%s] (fid: %s); query %s:%d, r%d, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
+			smm.ID, uid, smm.FID, qname, qtyp, run, realips, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
 	}
 
 	if run == 1 {
 		pref2, ouacompleted := core.Grx("r.onUA."+qname, func(_ context.Context) (*x.DNSOpts, error) {
-			return r.listener.OnUpstreamAnswer(smm, pref.Copy(), realips), nil
+			return r.listener.OnUpstreamAnswer(who, smm, pref.Copy(), realips), nil
 		}, answerTimeout)
 		if !ouacompleted {
-			log.W("dns: fwd: 8 for %s[%s]; preferences2 missing for %s:%d; ips? %s", smm.ID, uid, qname, qtyp, realips)
+			log.W("dns: fwd: 8 for %s[%s] (fid: %s); preferences2 missing for %s:%d; ips? %s", smm.ID, uid, smm.FID, qname, qtyp, realips)
 			smm.Status = ClientError
 			smm.Msg = errOnUpstreamAnsTimeout.Error()
 			smm.ID = NoDNS
@@ -767,8 +769,8 @@ runagain:
 			goto runagain // re-run with new pids
 		}
 
-		log.V("dns: fwd: 9 for %s[%s], r%d; preferences2 skipped for %s:%d [ips? %s]: %v",
-			smm.ID, uid, run, qname, qtyp, realips, pref2)
+		log.V("dns: fwd: 9 for %s[%s] (fid: %s), r%d; preferences2 skipped for %s:%d [ips? %s]: %v",
+			smm.ID, uid, smm.FID, run, qname, qtyp, realips, pref2)
 	}
 
 	// return transport ID match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)
@@ -777,7 +779,7 @@ runagain:
 }
 
 // Serve implements Resolver.
-func (r *resolver) Serve(proto string, c protect.Conn, uid string) (rx, tx int64, errs []error) {
+func (r *resolver) Serve(proto string, c protect.Conn, uid, fid string) (rx, tx int64, errs []error) {
 	if r.closed.Load() {
 		err := log.EE("dns: serve: closed for business")
 		errs = append(errs, err)
@@ -793,11 +795,11 @@ func (r *resolver) Serve(proto string, c protect.Conn, uid string) (rx, tx int64
 
 	switch proto {
 	case NetTypeTCP:
-		rx, tx, errs = r.accept(c, uid)
+		rx, tx, errs = r.accept(c, uid, fid)
 	case NetTypeUDP:
-		rx, tx, errs = r.reply(c, uid)
+		rx, tx, errs = r.reply(c, uid, fid)
 	default:
-		err := log.EE("dns: unknown proto: %s", proto)
+		err := log.EE("dns: %s unknown proto: %s", fid, proto)
 		errs = append(errs, err)
 	}
 	return
@@ -887,8 +889,8 @@ func (r *resolver) determineTransport(id string) Transport {
 }
 
 // dnstcp queries the transport and writes answers to w, prefixed by length.
-func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) (written int, err error) {
-	ans, _, err := r.forward(q, OriginTunnel, uid)
+func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid, fid string) (written int, err error) {
+	ans, _, err := r.forward(q, OriginTunnel, fid, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -899,14 +901,14 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid string) (written int, 
 	if written, err = writePrefixed(w, ans, rlen); err != nil {
 		clos(w) // close on write back err
 	} else if written != rlen { // do not close on incomplete writes
-		err = fmt.Errorf("dns: tcp: for %s incomplete write: n(%d) != r(%d)", uid, written, rlen)
+		err = fmt.Errorf("dns: tcp: for %s (fid: %s) incomplete write: n(%d) != r(%d)", uid, fid, written, rlen)
 	}
 	return
 }
 
 // dnsudp queries the transport and writes answers to w.
-func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) (written int, err error) {
-	ans, _, err := r.forward(q, OriginTunnel, uid)
+func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid, fid string) (written int, err error) {
+	ans, _, err := r.forward(q, OriginTunnel, fid, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
@@ -918,14 +920,14 @@ func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid string) (written int, 
 		clos(w) // close on write back err
 	} else if written != rlen {
 		// do not close on incomplete writes
-		err = fmt.Errorf("dns: udp: for %s incomplete write: n(%d) != r(%d)", uid, written, rlen)
+		err = fmt.Errorf("dns: udp: for %s (fid: %s) incomplete write: n(%d) != r(%d)", uid, fid, written, rlen)
 	}
 
 	return
 }
 
 // reply DNS-over-UDP from a stub resolver.
-func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error) {
+func (r *resolver) reply(c protect.Conn, uid, fid string) (rx, tx int64, errs []error) {
 	defer clos(c)
 
 	var rxv, txv atomic.Int64
@@ -947,8 +949,8 @@ func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error
 		_ = c.SetDeadline(tm)
 
 		if n, err := c.Read(q); err != nil {
-			log.VV("dns: udp: for %s done; tot: %d, t: %s, err: %v",
-				uid, cnt, core.FmtTimeAsPeriod(start), err)
+			log.VV("dns: udp: for %s (fid: %s) done; tot: %d, t: %s, err: %v",
+				uid, fid, cnt, core.FmtTimeAsPeriod(start), err)
 			free()
 			break
 		} else {
@@ -961,9 +963,9 @@ func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error
 			core.Gx("r.reply.do", func() {
 				defer wg.Done()
 				defer frees()
-				m, err := r.dnsudp(qs, c, uid)
-				logeif(err != nil)("dns: udp: for %s err! tot: %d, t: %s, %v",
-					uid, cnts, core.FmtTimeAsPeriod(start), err)
+				m, err := r.dnsudp(qs, c, uid, fid)
+				logeif(err != nil)("dns: udp: for %s (fid: %s) err! tot: %d, t: %s, %v",
+					uid, fid, cnts, core.FmtTimeAsPeriod(start), err)
 				rxv.Add(int64(m))
 				txv.Add(int64(n))
 				if err != nil {
@@ -984,7 +986,7 @@ func (r *resolver) reply(c protect.Conn, uid string) (rx, tx int64, errs []error
 
 // Accept a DNS-over-TCP socket from a stub resolver, and connect the socket
 // to this DNSTransport.
-func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs []error) {
+func (r *resolver) accept(c io.ReadWriteCloser, uid, fid string) (rx, tx int64, errs []error) {
 	defer clos(c)
 
 	var rxv, txv atomic.Int64
@@ -997,16 +999,16 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 	for {
 		n, err := c.Read(qlbuf)
 		if n == 0 {
-			log.D("dns: tcp: for %s query socket shutdown", uid)
+			log.D("dns: tcp: for %s (fid: %s) query socket shutdown", uid, fid)
 			break
 		}
 		if err != nil {
-			log.W("dns: tcp: for %s err reading from socket: %v", uid, err)
+			log.W("dns: tcp: for %s (fid: %s) err reading from socket: %v", uid, fid, err)
 			break // close on read errs
 		}
 		// TODO: inform the listener?
 		if n < 2 {
-			log.W("dns: tcp: for %s incomplete query length", uid)
+			log.W("dns: tcp: for %s (fid: %s) incomplete query length", uid, fid)
 			break // close on incorrect lengths
 		}
 		qlen := binary.BigEndian.Uint16(qlbuf)
@@ -1021,14 +1023,14 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 
 		n, err = c.Read(q)
 		if err != nil {
-			log.D("dns: tcp: for %s done; err: %v", uid, err)
+			log.D("dns: tcp: for %s (fid: %s) done; err: %v", uid, fid, err)
 			free()
 			break // close on read errs
 		}
 		if n != int(qlen) {
 			free()
-			log.W("dns: tcp: for %s incomplete query: %d < %d; tot: %d, t: %s",
-				uid, n, qlen, cnt, core.FmtTimeAsPeriod(start))
+			log.W("dns: tcp: for %s (fid: %s) incomplete query: %d < %d; tot: %d, t: %s",
+				uid, fid, n, qlen, cnt, core.FmtTimeAsPeriod(start))
 			break // close on incomplete reads
 		}
 		// capture loop-scoped variables locally so the goroutine closure
@@ -1040,9 +1042,9 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 		core.Gx("r.accept.do", func() {
 			defer wg.Done()
 			defer frees()
-			m, err := r.dnstcp(qs, c, uid)
-			logeif(err != nil)("dns: tcp: for %s err! tot: %d, t: %s, %v",
-				uid, cnts, core.FmtTimeAsPeriod(start), err)
+			m, err := r.dnstcp(qs, c, uid, fid)
+			logeif(err != nil)("dns: tcp: for %s (fid: %s) err! tot: %d, t: %s, %v",
+				uid, fid, cnts, core.FmtTimeAsPeriod(start), err)
 			if err != nil {
 				errsMu.Lock()
 				errs = append(errs, err)
@@ -1056,7 +1058,8 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid string) (rx, tx int64, errs 
 	wg.Wait()
 	rx = rxv.Load()
 	tx = txv.Load()
-	log.VV("dns: tcp: for %s done; tot: %d (rx: %d, tx: %d), t: %s", uid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
+	log.VV("dns: tcp: for %s (fid: %s) done; tot: %d (rx: %d, tx: %d), t: %s",
+		uid, fid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
 	// TODO: Cancel outstanding queries.
 	return
 }

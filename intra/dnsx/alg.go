@@ -1219,16 +1219,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	if err != nil || ansin == nil {
 		if ansin == nil {
-			log.I("alg: abort no ans on %s+%s[%s]; self? %t synth? %t; qerr %v",
-				idstr(t1), idstr(t2), uid, uidself, synthAns, err)
+			log.I("alg: abort no ans on %s+%s[%s] (fid: %s); self? %t synth? %t; qerr %v",
+				idstr(t1), idstr(t2), uid, smm.FID, uidself, synthAns, err)
 			return nil, nil, core.JoinErr(err, errNoAnswer)
 		}
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, nil, err
 		}
 		if settings.Debug {
-			log.D("alg: for %s:%s err but ans ok: %d; do? %t, self? %t synth? %t; qerr %v",
-				qname(q), qtype(q), xdns.Len(ansin), hasdnssec, uidself, synthAns, err)
+			log.D("alg: for %s:%s (fid: %s) err but ans ok: %d; do? %t, self? %t synth? %t; qerr %v",
+				qname(ansin), qtype(ansin), smm.FID, xdns.Len(ansin), hasdnssec, uidself, synthAns, err)
 		}
 	}
 

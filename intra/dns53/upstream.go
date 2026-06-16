@@ -320,8 +320,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	t.est.Add(smm.Latency)
 
 	if log.Debug {
-		log.V("dns53: (%s) len(res): %d, data: %s, via: %s, err? %v",
-			t.id, xdns.Len(ans), smm.RData, smm.PID, err)
+		log.V("dns53: (%s) fid: %s; len(res): %d, data: %s, via: %s, err? %v",
+			t.id, smm.FID, xdns.Len(ans), smm.RData, smm.PID, err)
 	}
 
 	return ans, err

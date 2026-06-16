@@ -212,7 +212,7 @@ func hdlstr(p Proxy) string {
 	if p == nil || core.IsNil(p) {
 		return ""
 	}
-	return strconv.FormatUint(p.Handle(), 10)
+	return strconv.FormatUint(p.Handle(), 16)
 }
 
 func typstr(p x.Proxy) string {

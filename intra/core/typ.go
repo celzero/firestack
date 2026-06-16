@@ -35,6 +35,11 @@ func loc(x any) uint64 {
 	return 0
 }
 
+// Rand64 returns a random 64-bit hex string (16 chars long).
+func Rand64() string {
+	return strconv.FormatUint(rand.Uint64(), 16)
+}
+
 // go.dev/play/p/jjI4XJZud4i
 func Loc[T comparable](x T) uint64 {
 	// maphash will be compatible with moving gc
@@ -44,7 +49,7 @@ func Loc[T comparable](x T) uint64 {
 }
 
 func LocStr[T comparable](x T) string {
-	return strconv.FormatUint(Loc(x), 10)
+	return strconv.FormatUint(Loc(x), 16)
 }
 
 func HashStr(s string) uint64 {
