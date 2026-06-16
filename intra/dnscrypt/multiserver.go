@@ -755,7 +755,7 @@ func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controlle
 }
 
 // AddTransport creates and adds a dnscrypt transport to p
-func AddTransport(p *DcMulti, id, serverstamp string) (*server, error) {
+func AddTransport(p *DcMulti, id, serverstamp string) (*refreshingServer, error) {
 	if p == nil {
 		return nil, dnsx.ErrNoDcProxy
 	}
@@ -763,7 +763,7 @@ func AddTransport(p *DcMulti, id, serverstamp string) (*server, error) {
 		if s, err := p.refreshOne(id); s != nil {
 			log.I("dnscrypt: added %s; %s", id, serverstamp)
 			core.Go("dc.a.refreshroutes", p.refreshRoutes)
-			return s, nil
+			return &refreshingServer{id: id, p: p}, nil
 		} else {
 			n := p.removeOne(id)
 			log.W("dnscrypt: failed to add2 %s; %s; rmv? %d", id, serverstamp, n)

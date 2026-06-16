@@ -454,7 +454,7 @@ func (s *server) Status() int {
 func (s *server) Stop() error {
 	if s != nil {
 		s.status.Store(dnsx.DEnd)
-		s.done()
+		s.done() // also call into unregister
 	}
 	return nil
 }

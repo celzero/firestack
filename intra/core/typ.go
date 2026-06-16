@@ -92,6 +92,10 @@ func LocEq[T comparable](a, b T) bool {
 	return Loc(a) == Loc(b)
 }
 
+func PtrEq(a, b any) bool {
+	return loc(a) == loc(b)
+}
+
 func IsZero(x any) bool {
 	if IsNil(x) {
 		return true
