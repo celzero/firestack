@@ -9,7 +9,6 @@ package dnscrypt
 import (
 	"net/netip"
 
-	"github.com/celzero/firestack/intra/backend"
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/miekg/dns"
@@ -45,7 +44,7 @@ func (s *refreshingServer) P50() int64 {
 }
 
 // Query implements [dnsx.Transport].
-func (s *refreshingServer) Query(network string, q *dns.Msg, summary *backend.DNSSummary) (*dns.Msg, error) {
+func (s *refreshingServer) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error) {
 	return s.t().Query(network, q, summary)
 }
 

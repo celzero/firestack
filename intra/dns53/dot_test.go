@@ -548,6 +548,7 @@ func TestWinReaches(t *testing.T) {
 	ilog.VV("\n-----------------------DNSX--------------------------\n")
 	b4, _ := aquery("skysports.com").Pack()
 	r4, _, err := resolv.LocalLookup(b4) // must use "test0"
+	ko(t, err)
 
 	ilog.D("%v", propx2.Router().Stat())
 	time.Sleep(2 * time.Second)
