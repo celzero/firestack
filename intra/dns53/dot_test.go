@@ -468,7 +468,8 @@ func TestWinReaches(t *testing.T) {
 	ko(t, err)
 
 	if ent == nil {
-		t.Fail()
+		t.Fatal("nil entitlement")
+		return
 	}
 
 	// const did = "deadbeefdeadbeefdeadbeefdeadbeef" // some device id
@@ -485,6 +486,7 @@ func TestWinReaches(t *testing.T) {
 	ko(t, err)
 	if win == nil {
 		t.Fatal("nil main ws proxy")
+		return
 	}
 
 	const maxVisited = 10
@@ -636,7 +638,8 @@ func TestWinDownloadSpeed(t *testing.T) {
 	ko(t, err)
 
 	if ent == nil {
-		t.Fail()
+		t.Fatal("nil entitlement")
+		return
 	}
 
 	if wreg, err := pxr.RegisterWin(entjson, ent.DID(), nil); err != nil {
