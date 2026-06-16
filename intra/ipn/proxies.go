@@ -816,7 +816,7 @@ func (px *proxifier) mainRpnProxyOf(provider string) (RpnProxy, error) {
 
 func (px *proxifier) rpnProxyFor(provider, cc string) (Proxy, error) {
 	id := provider + cc
-	p, err := px.ProxyFor(id)
+	p, err := px.proxyFor(id)
 	if p == nil {
 		return nil, core.OneErr(err, errProxyNotFound)
 	}
