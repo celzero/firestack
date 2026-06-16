@@ -765,8 +765,8 @@ func AddTransport(p *DcMulti, id, serverstamp string) (*server, error) {
 			core.Go("dc.a.refreshroutes", p.refreshRoutes)
 			return s, nil
 		} else {
-			log.W("dnscrypt: failed to add2 %s; %s", id, serverstamp)
-			p.removeOne(id)
+			n := p.removeOne(id)
+			log.W("dnscrypt: failed to add2 %s; %s; rmv? %d", id, serverstamp, n)
 			return nil, core.OneErr(err, errNoCert)
 		}
 	} else {
