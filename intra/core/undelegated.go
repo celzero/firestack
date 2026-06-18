@@ -6,6 +6,7 @@
 
 package core
 
+// from: https://github.com/DNSCrypt/dnscrypt-proxy/blob/140587c79df3c1edb7fe11fa2f9c135e122e584b/dnscrypt-proxy/plugin_block_undelegated.go
 var UndelegatedDomains = []string{
 	"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa",
 	"0.in-addr.arpa",
@@ -121,9 +122,11 @@ var UndelegatedDomains = []string{
 	".example",
 	"fritz.box", // github.com/celzero/rethink-app/issues/1298
 	"f.f.ip6.arpa",
+	".fritz.box",
 	".grp",
 	".gw==",
 	".home",
+	".home.arpa", // github.com/celzero/rethink-app/issues/2260
 	".hub",
 	".internal",
 	".intra",
@@ -136,11 +139,12 @@ var UndelegatedDomains = []string{
 	".localdomain",
 	".localhost",
 	".localnet",
+	".mail",
 	".modem",
 	".mynet",
 	".myrouter",
 	".novalocal",
-	// "onion", github.com/celzero/rethink-app/issues/1259
+	// ".onion", // github.com/celzero/rethink-app/issues/1259
 	".openstacklocal",
 	".priv",
 	".private",
