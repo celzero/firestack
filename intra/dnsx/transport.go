@@ -534,7 +534,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	return ans, tid, err
 }
 
-func (r *resolver) forward(q []byte, who, uid string, fid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
+func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
 	starttime := time.Now()
 	ogsmm := &x.DNSSummary{
 		ID:     NoDNS,
