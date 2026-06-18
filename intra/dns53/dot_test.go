@@ -145,12 +145,14 @@ var (
 	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnWin, IPCSV: "", TIDCSV: x.CT + "test0"}
 )
 
-func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts                            { return autoNsOpts }
-func (*fakeBdg) OnUpstreamAnswer(_ *x.DNSSummary, _ *x.DNSOpts, _ string) *x.DNSOpts { return nil }
-func (*fakeBdg) OnResponse(*x.DNSSummary)                                            {}
-func (*fakeBdg) OnDNSAdded(string)                                                   {}
-func (*fakeBdg) OnDNSRemoved(string)                                                 {}
-func (*fakeBdg) OnDNSStopped()                                                       {}
+func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts { return autoNsOpts }
+func (*fakeBdg) OnUpstreamAnswer(_ string, _ *x.DNSSummary, _ *x.DNSOpts, _ string) *x.DNSOpts {
+	return nil
+}
+func (*fakeBdg) OnResponse(*x.DNSSummary) {}
+func (*fakeBdg) OnDNSAdded(string)        {}
+func (*fakeBdg) OnDNSRemoved(string)      {}
+func (*fakeBdg) OnDNSStopped()            {}
 
 func (*fakeBdg) Route(a, b, c, d, e string) *x.Tab { return baseTab }
 func (*fakeBdg) OnComplete(*x.ServerSummary)       {}
