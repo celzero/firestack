@@ -75,7 +75,7 @@ var csetup atomic.Bool
 func init() {
 	// increase garbage collection frequency: archive.is/WQBf7
 	debug.SetGCPercent(50)
-	debug.SetMemoryLimit(maxMemLimit)
+	debug.SetMemoryLimit(maxMemLimit / 2)
 	debug.SetPanicOnFault(true)
 
 	/*
