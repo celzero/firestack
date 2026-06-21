@@ -64,9 +64,6 @@ const (
 	abrt traceout = "crash"  // GOOS-specific crash after tracing
 )
 
-// auto-capture recent logs in crash output?
-const crashoutWithHist = false
-
 func (t traceout) s() string { return string(t) }
 
 const minMemLimit = 32 * 1024 * 1024       // 32MiB
@@ -432,54 +429,13 @@ func setCrashFd(f *os.File) (ok bool) {
 // Returns true if successful, false on error (the file cannot be opened).
 func SetCrashOutput(fp string) bool {
 	return sync.OnceValue(func() (ok bool) {
-		if crashoutWithHist {
-			ok = setCrashOutput(fp)
-		} else {
-			fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-			if err == nil {
-				ok = setCrashFd(fout)
-			}
-			logei(err)("tun: crashout: open %s; err? %v", fp, err)
-			return ok
+		fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		if err == nil {
+			ok = setCrashFd(fout)
 		}
-		log.I("tun: crashout: set %s, hist? false; ok? %t", fp, ok)
+		logei(err)("tun: crashout: open %s; err? %v", fp, err)
 		return ok
 	})()
-}
-
-func setCrashOutput(fp string) bool {
-	fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-	if err != nil {
-		logei(err)("tun: crashout: open %s; err? %v", fp, err)
-		return false
-	}
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		core.CloseFile(fout)
-		logei(err)("tun: crashout: pipe %s; err? %v", fp, err)
-		return false
-	}
-
-	if !setCrashFd(w) { // pw is dup'd
-		core.Close(fout, r, w)
-		return false
-	}
-	core.Close(w) // runtime holds its own dup; safe to close our end
-
-	// goroutine: block on pr, then drain crash output + ring buffer into fout
-	core.Go("crashout."+fname(fout), func() {
-		defer core.Close(fout, r)
-
-		n, _ := core.Stream(fout, r) // blocks until crash output arrives
-		if n > 0 {                   // append the recent history
-			log.Hist(fout)
-		}
-		runtime.KeepAlive(fout)
-		runtime.KeepAlive(r)
-	})
-
-	return true
 }
 
 // SetFlightRecordOutput opens a writable file (and keeps it open) for Go's flight recorder
