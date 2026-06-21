@@ -14,10 +14,10 @@ LDFLAGS_DEBUG='-checklinkname=0 -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X 
 # checklinkname to override runtime.secureMode; see: core/overreach.go
 # github.com/golang/go/issues/69868
 LDFLAGS='-checklinkname=0 -w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
-CGO_LDFLAGS="$(CGO_LDFLAGS) -s -w -Wl,-z,max-page-size=16384"
-# same as above, but without -s -w so DWARF from C/CGO objects is preserved
-# for llvm-objcopy extraction in the debugsymbols target
-CGO_LDFLAGS_DEBUG="$(CGO_LDFLAGS) -Wl,-z,max-page-size=16384"
+# without -s -w so DWARF from C/CGO objects is preserved for llvm-objcopy
+# extraction in the debugsymbols target; must come before CGO_LDFLAGS :=
+CGO_LDFLAGS_DEBUG:="$(CGO_LDFLAGS) -Wl,-z,max-page-size=16384"
+CGO_LDFLAGS:="$(CGO_LDFLAGS) -s -w -Wl,-z,max-page-size=16384"
 # build overlay json via recipe
 BUILD_OVERLAY=$(BUILDDIR)/overlay.json
 
