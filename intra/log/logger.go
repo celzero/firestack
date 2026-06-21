@@ -1110,7 +1110,7 @@ func (l *simpleLogger) logstat() LogStat {
 	s := LogStat{
 		Tag:          l.tag,
 		Level:        l.level,
-		ConsoleLvl:   l.clevel,
+		ConsoleLevel: l.clevel,
 		CallerDepth:  l.callerdepth,
 		ConsoleDrops: l.cskips.Load(),
 		RingSize:     l.q.Len(),

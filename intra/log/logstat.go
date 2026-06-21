@@ -16,8 +16,8 @@ type LogStat struct {
 	// Logger identity
 	Tag string
 	// Current levels
-	Level      LogLevel
-	ConsoleLvl LogLevel
+	Level        LogLevel
+	ConsoleLevel LogLevel
 	// Caller depth
 	CallerDepth uint8
 	// Per-level message counts (indexed by LogLevel)
@@ -46,14 +46,14 @@ func (s LogStat) String() string {
 	lvl := func(l LogLevel) string { return l.s() }
 
 	fmt.Fprintf(&sb, "log[tag=%s level=%s console=%s callerdepth=%d]",
-		s.Tag, lvl(s.Level), lvl(s.ConsoleLvl), s.CallerDepth)
+		s.Tag, lvl(s.Level), lvl(s.ConsoleLevel), s.CallerDepth)
 	sb.WriteByte('\n')
 
 	// per-level counts
 	sb.WriteString("count:")
 	for i := LogLevel(0); i <= NONE; i++ {
 		if c := s.Count[i]; c > 0 {
-			fmt.Fprintf(&sb, " %s=%d", lvl(i), c)
+			fmt.Fprintf(&sb, " %s= %d", lvl(i), c)
 		}
 	}
 	sb.WriteByte('\n')
@@ -64,7 +64,7 @@ func (s LogStat) String() string {
 	for i := LogLevel(0); i <= NONE; i++ {
 		total += s.Bytes[i]
 		if b := s.Bytes[i]; b > 0 {
-			fmt.Fprintf(&sb, " %s=%d", lvl(i), b)
+			fmt.Fprintf(&sb, " %s= %d", lvl(i), b)
 		}
 	}
 	fmt.Fprintf(&sb, " total=%d", total)
@@ -75,7 +75,7 @@ func (s LogStat) String() string {
 	anySkipped := false
 	for i := LogLevel(0); i <= NONE; i++ {
 		if c := s.Skipped[i]; c > 0 {
-			fmt.Fprintf(&sb, " %s=%d", lvl(i), c)
+			fmt.Fprintf(&sb, " %s= %d", lvl(i), c)
 			anySkipped = true
 		}
 	}
@@ -85,7 +85,7 @@ func (s LogStat) String() string {
 	sb.WriteByte('\n')
 
 	// console drops
-	fmt.Fprintf(&sb, "console_drops=%d\n", s.ConsoleDrops)
+	fmt.Fprintf(&sb, "console: drops=%d\n", s.ConsoleDrops)
 
 	// pool stats
 	fmt.Fprintf(&sb, "pool: gets=%d new=%d puts=%d drops=%d",
