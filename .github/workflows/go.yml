@@ -150,11 +150,18 @@ jobs:
 
         # gsa jni/arm64-v8a/*.so -f text --verbose
 
-        # original SO before any strip pass; may or may not exist
+        # The unstripped original at $DBGUNSTRIPPED has a Go buildid note of
+        # the form "Android/<hash>" because gomobile links against the Android
+        # runtime; gsa (via gore/ZxillyFork) parses this as GoVersion="Android"
+        # and aborts with `could not parse the go version Android`. Strip the
+        # note so gsa falls back to scanning .rodata for (runtime.buildVersion
+        # string is always present, even on Android).
         og="${DBGUNSTRIPPED}/jni/arm64-v8a/libgojni.so"
         if [ -f "$og" ]; then
-          echo "=== gsa: orig arm64-v8a ==="
-          gsa "$og" -f text --verbose
+          echo "=== gsa: orig arm64-v8a (buildid note stripped) ==="
+          cp "$og" "$og.gsa"
+          objcopy --remove-section=.note.go.buildid "$og.gsa" 2>/dev/null || true
+          gsa "$og.gsa" -f text --verbose
         else
           echo "::warning::not found $og"
         fi
