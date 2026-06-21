@@ -299,6 +299,9 @@ type RpnEntitlement interface {
 	AllowRestore() bool
 	// Test is set if this entitlement is valid only in the test domain.
 	Test() bool
+	// Authorized returns true if this entitlement is properly authorized to make
+	// changes on behalf of the cid/did pair; false otherwise. Makes a network call.
+	Authorized() bool
 	// Json returns entitlement (but not the state) as json.
 	Json() ([]byte, error)
 }

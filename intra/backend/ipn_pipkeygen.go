@@ -43,6 +43,9 @@ const (
 var (
 	errEmptyPipKeyState = errors.New("pipkey: empty pip key state")
 	errTokenCreat       = errors.New("pipkey: cannot create token")
+	errPipUnmarshalPub  = errors.New("pipkey: cannot unmarshal public key")
+	errPipDecodeModulus = errors.New("pipkey: cannot decode key modulus")
+	errPipDecodeExp     = errors.New("pipkey: cannot decode key exponent")
 )
 
 type PipKeyProvider interface {
@@ -360,19 +363,19 @@ func newPipKey(bjwk []byte, msgOrExistingState string, msgOnly bool) (PipKeyProv
 	jwk := &pubKeyJwk{}
 	err := json.Unmarshal(bjwk, jwk)
 	if err != nil {
-		return nil, fmt.Errorf("cannot unmarshal public key: %v", err)
+		return nil, fmt.Errorf("%w: %v", errPipUnmarshalPub, err)
 	}
 	// base64 decode modulus and exponent into a big.Int
 	n, err := base64.RawURLEncoding.DecodeString(jwk.N)
 	if err != nil {
-		return nil, fmt.Errorf("cannot decode key modulus: %v", err)
+		return nil, fmt.Errorf("%w: %v", errPipDecodeModulus, err)
 	}
 	bn := big.NewInt(0)
 	bn.SetBytes(n)
 	// base64 decode exponent into an int
 	e, err := base64.RawURLEncoding.DecodeString(jwk.E)
 	if err != nil {
-		return nil, fmt.Errorf("cannot decode key exponent: %v", err)
+		return nil, fmt.Errorf("%w: %v", errPipDecodeExp, err)
 	}
 	be := big.NewInt(0)
 	be.SetBytes(e)

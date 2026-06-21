@@ -31,6 +31,8 @@ import (
 	"math/big"
 )
 
+var errRSAInternal = errors.New("rsa: internal error")
+
 // ConvertHashFunction converts a crypto.Hash function to an equivalent hash.Hash type.
 func ConvertHashFunction(hash crypto.Hash) hash.Hash {
 	switch hash {
@@ -103,7 +105,7 @@ func DecryptAndCheck(random io.Reader, priv *BigPrivateKey, c *big.Int) (m *big.
 	// calculated, which should match the original ciphertext.
 	check := encrypt(new(big.Int), priv.Pk.N, priv.Pk.E, m)
 	if c.Cmp(check) != 0 {
-		return nil, errors.New("rsa: internal error")
+		return nil, errRSAInternal
 	}
 	return m, nil
 }

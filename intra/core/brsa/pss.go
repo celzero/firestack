@@ -26,6 +26,12 @@ import (
 	"hash"
 )
 
+var (
+	errPSSBadHash     = errors.New("crypto/rsa: input must be hashed with given hash")
+	errPSSKeyTooSmall = errors.New("crypto/rsa: key size too small for PSS signature")
+	errPSSBadLength   = errors.New("rsa: internal error: inconsistent length")
+)
+
 // Per RFC 8017, Section 9.1
 //
 //     EM = MGF1 xor DB || H( 8*0x00 || mHash || salt ) || 0xbc
@@ -53,13 +59,13 @@ func emsaPSSEncode(mHash []byte, emBits int, salt []byte, hash hash.Hash) ([]byt
 	// 2.  Let mHash = Hash(M), an octet string of length hLen.
 
 	if len(mHash) != hLen {
-		return nil, errors.New("crypto/rsa: input must be hashed with given hash")
+		return nil, errPSSBadHash
 	}
 
 	// 3.  If emLen < hLen + sLen + 2, output "encoding error" and stop.
 
 	if emLen < hLen+sLen+2 {
-		return nil, errors.New("crypto/rsa: key size too small for PSS signature")
+		return nil, errPSSKeyTooSmall
 	}
 
 	em := make([]byte, emLen)
@@ -123,7 +129,7 @@ func emsaPSSVerify(mHash, em []byte, emBits, sLen int, hash hash.Hash) error {
 	}
 	emLen := (emBits + 7) / 8
 	if emLen != len(em) {
-		return errors.New("rsa: internal error: inconsistent length")
+		return errPSSBadLength
 	}
 
 	// 1.  If the length of M is greater than the input limitation for the

@@ -9,6 +9,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -175,8 +176,10 @@ func Gxe(who string, f func() error) {
 
 // errPanic returns an error indicating that the function at index i panicked.
 func errPanic(who string) error {
-	return errors.New(who + " fn panicked")
+	return fmt.Errorf("%w: %s fn panicked", errPanicked, who)
 }
+
+var errPanicked = errors.New("async: function panicked")
 
 // Race runs all the functions in fs concurrently and returns the first non-error result.
 // Returned values are the result, the index of the function that returned the result, and any errors.

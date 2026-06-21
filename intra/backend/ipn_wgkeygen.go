@@ -29,6 +29,8 @@ import (
 
 const klen = ed25519.SeedSize
 
+var errWGEcKeyLen = errors.New("keys must decode to exactly 32 bytes")
+
 type (
 	eckey [klen]byte
 )
@@ -93,10 +95,10 @@ func NewWgPrivateKeyFrom(k [klen]byte) WgKey {
 func parseKeyBase64(s string) (*eckey, error) {
 	k, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return nil, fmt.Errorf("invalid key: %v", err)
+		return nil, fmt.Errorf("invalid key: %w", err)
 	}
 	if len(k) != klen {
-		return nil, errors.New("keys must decode to exactly 32 bytes")
+		return nil, errWGEcKeyLen
 	}
 	var key eckey
 	copy(key[:], k)
