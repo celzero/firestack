@@ -397,6 +397,8 @@ jobs:
       - name: ⚖️ Licenses
         continue-on-error: true
         run: |
+          # github.com/actions/setup-go/issues/27
+          export PATH=${PATH}:`go env GOPATH`/bin
           # installing osv-scanner is ... expensive
           # github.com/google/osv-scanner/blob/main/README.md
           if ! command -v osv-scanner >/dev/null 2>&1; then
