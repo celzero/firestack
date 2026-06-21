@@ -454,7 +454,7 @@ func (px *proxifier) ProxyRef(who, id string) (*core.WeakRef[Proxy], error) {
 		if factory == nil {
 			return nil
 		}
-		p, err := factory.ProxyFor(id)
+		p, err := factory.proxyFor(id)
 		if err != nil {
 			return nil
 		}

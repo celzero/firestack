@@ -910,8 +910,11 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) GetRelay() x.Proxy {
 	if r := t.relay; len(r) > 0 {
-		px, _ := t.proxies.ProxyFor(r)
-		return px
+		if ref, _ := t.proxies.ProxyRef("relay.doh", r); ref != nil {
+			if p, valid := ref.Ref(); valid && p != nil {
+				return *p
+			}
+		}
 	}
 	return nil
 }

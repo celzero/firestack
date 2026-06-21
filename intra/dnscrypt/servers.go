@@ -422,8 +422,11 @@ func (s *server) GetRelay() x.Proxy {
 
 func (s *server) getRelay() ipn.Proxy {
 	if r := s.relay; len(r) > 0 {
-		px, _ := s.proxies.ProxyFor(r)
-		return px
+		if ref, _ := s.proxies.ProxyRef("relay.dnscrypt", r); ref != nil {
+			if p, valid := ref.Ref(); valid && p != nil {
+				return *p
+			}
+		}
 	}
 	return nil
 }
