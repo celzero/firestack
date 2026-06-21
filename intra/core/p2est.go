@@ -43,7 +43,7 @@ var _ P2QuantileEstimator = (*p2)(nil)
 
 // NewP50Estimator returns a new P50 (median) estimator.
 func NewP50Estimator(ctx context.Context) *p2 {
-	// calibrate: go.dev/play/p/Ry1i61XqzgB
+	// calibrate: go.dev/play/p/1Gzn6m4GweJ
 	// 31 worked best amid wild latency fluctuations
 	// using 11 for lower overhead; 5 is the default
 	return NewP2QuantileEstimator(ctx, 11, 0.5)

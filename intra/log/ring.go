@@ -26,6 +26,7 @@ type ring[T any] struct {
 // NewRing creates a new ring buffer with the given capacity (256 if <= 1).
 // evict must be light as it is called for each element displaced by a push, under contention.
 func newRing[T any](ctx context.Context, capacity int, evict func(T)) *ring[T] {
+	// go.dev/play/p/8QUZWqcG5oP
 	if evict == nil {
 		evict = func(T) {}
 	}

@@ -1338,6 +1338,7 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 	}
 	r.RUnlock()
 
+	// TODO: prefer proxy DNS (wg) when available
 	best, preferred, recoverables, errored, ended := Categorize(trs)
 	if settings.Debug {
 		defer func() {
