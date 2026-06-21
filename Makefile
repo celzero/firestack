@@ -11,7 +11,7 @@ DATESTR=$(shell date -u +'%Y%m%d%H%M%S')
 XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 # github.com/xjasonlyu/tun2socks/blob/bf745d0e0/Makefile#L14
 LDFLAGS_DEBUG='-checklinkname=0 -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
-# checklinkname to override runtime.secureMode; see: core/overreach.go
+# checklinkname to override runtime.secureMode; see: core/runtime/overreach.go
 # github.com/golang/go/issues/69868
 LDFLAGS='-checklinkname=0 -w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 # without -s -w so DWARF from C/CGO objects is preserved for llvm-objcopy

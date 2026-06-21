@@ -38,6 +38,7 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
+	crt "github.com/celzero/firestack/intra/core/runtime"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/rnet"
@@ -91,7 +92,7 @@ func init() {
 				godebug = godebug + ",cgocheck=0"
 			}
 			os.Setenv("GODEBUG", godebug)
-			core.RuntimeFinishDebugVarsSetup()
+			runtime.RuntimeFinishDebugVarsSetup()
 		}
 	*/
 }
@@ -224,21 +225,21 @@ func LogLevel(gologLevel, consolelogLevel, callerDepth int32) {
 	}
 
 	// turn off runtime's internal "secure mode" to enable tracebacks
-	prevsm := core.SecureMode(false /*off*/)
+	prevsm := crt.SecureMode(false /*off*/)
 	// traceback is always set to "crash" for c-shared / c-archive buildmodes
 	// github.com/golang/go/blob/fed3b0a298/src/runtime/runtime1.go#L586
 	// gomobile builds a c-shared gojnilib:
 	// github.com/golang/mobile/blob/2553ed8ce2/cmd/gomobile/bind_androidapp.go#L393
-	prevtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
+	prevtraceback, _ := crt.GetRuntimeEnviron("GOTRACEBACK")
 	newtraceback := sys.s()
-	didSet, overwrote, _ := core.SetRuntimeEnviron("GOTRACEBACK", newtraceback)
-	curtraceback, _ := core.GetRuntimeEnviron("GOTRACEBACK")
+	didSet, overwrote, _ := crt.SetRuntimeEnviron("GOTRACEBACK", newtraceback)
+	curtraceback, _ := crt.GetRuntimeEnviron("GOTRACEBACK")
 
-	gotraceenv := core.RuntimeResetTracebackEnv()
-	core.RuntimeFinishDebugVarsSetup()
+	gotraceenv := crt.RuntimeResetTracebackEnv()
+	crt.RuntimeFinishDebugVarsSetup()
 	debug.SetTraceback(newtraceback) // always call this after finishdbeugvars
 
-	gotracelevel, gotraceall, gotracecrash := core.RuntimeGotraceback()
+	gotracelevel, gotraceall, gotracecrash := crt.RuntimeGotraceback()
 
 	log.I("tun: new levels; nslog: %s, golog: %d, consolelog: %d; debug? %t, rec? %t, recerr? %v; traceback (%d): %s => %s => %s (l: %d / a? %t / c? %t) | set? %t / overwrote? %t; sm? %t; args: %v",
 		nslvl, dlvl, clvl, dbg, rec, recerr, gotraceenv, prevtraceback, newtraceback, curtraceback, gotracelevel, gotraceall, gotracecrash, didSet, overwrote, prevsm, os.Args)
@@ -358,19 +359,19 @@ func GoMet() *x.GoMetrics {
 	out.G.NumCgo = int64(runtime.NumCgoCall())
 	out.G.NumCPU = int64(runtime.NumCPU())
 
-	l, all, crash := core.RuntimeGotraceback()
+	l, all, crash := crt.RuntimeGotraceback()
 	out.G.Trac = fmt.Sprintf("%d; all? %t; crash? %t", l, all, crash)
 
 	cachedir, _ := os.UserCacheDir()
 	homedir, _ := os.UserHomeDir()
 	cfgdir, _ := os.UserConfigDir()
-	sm1, sm2 := core.RuntimeSecureMode()
+	sm1, sm2 := crt.RuntimeSecureMode()
 	uid := fmt.Sprintf("uid=%d", syscall.Getuid())
 	pid := fmt.Sprintf("pid=%d", syscall.Getpid())
 	pgsz := fmt.Sprintf("pgsz=%d", os.Getpagesize())
 	sec := fmt.Sprintf("sec=%t/%t", sm1, sm2)
 	out.G.Args = strings.Join(append(os.Args, uid, pid, pgsz, sec), ";")
-	out.G.Env = strings.Join(core.RuntimeEnviron(), ";") +
+	out.G.Env = strings.Join(crt.RuntimeEnviron(), ";") +
 		" / " +
 		strings.Join([]string{cachedir, homedir, cfgdir}, ";")
 	out.G.Pers, _ = os.Executable()

@@ -4,7 +4,21 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-package core
+// Package runtime exposes a curated set of Go runtime internals
+// (secure mode, traceback level, environment variables) that the
+// intra core / tun2socks code needs to control on Android.
+//
+// It is split out of intra/core into its own sub-package so that the
+// //go:linkname directives below (which require the final link to be
+// invoked with -checklinkname=0) only affect the final link of the
+// tun2socks binary, not every other binary or test that imports
+// intra/core transitively. Without this split, any package that
+// transitively imports intra/core (which is most of the intra tree)
+// would have to be built with -checklinkname=0 too.
+//
+// Pushing / pulling runtime symbols via //go:linkname works provided
+// the final link uses -ldflags="-checklinkname=0".
+package runtime
 
 import (
 	"os"
@@ -12,9 +26,6 @@ import (
 
 	"github.com/celzero/firestack/intra/log"
 )
-
-// pushing / pulling symbols work provided
-// -ldflags="checklinkname=0"
 
 //go:linkname secureMode runtime.secureMode
 var secureMode bool
@@ -84,7 +95,7 @@ func SetRuntimeEnviron(key, val string) (didSet, overwrote bool, err error) {
 	// override both key and val from last index
 	if !didSet && len(envs) > 0 {
 		last := len(envs) - 1
-		log.W("core: SetRuntimeEnviron: key %s not found; overriding %s; val %s", key, envs[last], val)
+		log.W("runtime: SetRuntimeEnviron: key %s not found; overriding %s; val %s", key, envs[last], val)
 		envs[last] = kv + val
 		err = os.Setenv(key, val)
 		overwrote = true
