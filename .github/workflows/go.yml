@@ -178,6 +178,8 @@ jobs:
         #  ORDER BY function_size DESC
         #  LIMIT 50;"
         readelf -l jni/arm64-v8a/*.so
+        # check for NT_GNU_BUILD_ID
+        readelf -n jni/arm64-v8a/*.so
 
         # from: cs.android.com/android/platform/superproject/main/+/main:system/extras/tools/check_elf_alignment.sh;drc=97bcb31779;l=87
         RED="\e[31m"

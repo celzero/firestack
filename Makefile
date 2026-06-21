@@ -10,11 +10,14 @@ COMMIT_ID=$(shell git rev-parse --short HEAD)
 DATESTR=$(shell date -u +'%Y%m%d%H%M%S')
 XGO_LDFLAGS='-s -w -X main.version=$(COMMIT_ID)'
 # github.com/xjasonlyu/tun2socks/blob/bf745d0e0/Makefile#L14
-LDFLAGS_DEBUG='-checklinkname=0 -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
+LDFLAGS_DEBUG='-checklinkname=0 -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 # checklinkname to override runtime.secureMode; see: core/overreach.go
 # github.com/golang/go/issues/69868
 LDFLAGS='-checklinkname=0 -w -s -buildid= -X $(IMPORT_PATH)/intra/core.Date=$(DATESTR) -X $(IMPORT_PATH)/intra/core.Commit=$(COMMIT_ID)'
 CGO_LDFLAGS="$(CGO_LDFLAGS) -s -w -Wl,-z,max-page-size=16384"
+# same as above, but without -s -w so DWARF from C/CGO objects is preserved
+# for llvm-objcopy extraction in the debugsymbols target
+CGO_LDFLAGS_DEBUG="$(CGO_LDFLAGS) -Wl,-z,max-page-size=16384"
 # build overlay json via recipe
 BUILD_OVERLAY=$(BUILDDIR)/overlay.json
 
@@ -54,7 +57,7 @@ DEBUG_UNSTRIPPED_DIR = $(BUILDDIR)/intra/unstripped
 ANDROID_BUILD_CMD=env GOTOOLCHAIN=local GODEBUG=cgocheck=0 PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23) \
 				-overlay=$(BUILD_OVERLAY) -ldflags $(LDFLAGS) -gcflags='-trimpath'
 # built without stripping dwarf/symbols
-ANDROID_DEBUG_BUILD_CMD=env GOTOOLCHAIN=local GODEBUG=cgocheck=0 PATH=$(GOBIN):$(PATH) $(GOMOBILE) $(GOBIND) $(ANDROID23_DEBUG) \
+ANDROID_DEBUG_BUILD_CMD=env GOTOOLCHAIN=local GODEBUG=cgocheck=0 PATH=$(GOBIN):$(PATH) CGO_LDFLAGS=$(CGO_LDFLAGS_DEBUG) $(GOMOBILE) $(GOBIND) $(ANDROID23_DEBUG) \
 				-overlay=$(BUILD_OVERLAY) -ldflags $(LDFLAGS_DEBUG)
 # exported pkgs
 INTRA_BUILD_CMD=$(IMPORT_PATH)/intra $(IMPORT_PATH)/intra/backend $(IMPORT_PATH)/intra/settings
@@ -64,12 +67,11 @@ $(BUILDDIR)/intra/tun2socks.aar: $(GOMOBILE) $(BUILD_OVERLAY)
 	$(ANDROID_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
 $(BUILDDIR)/intra/tun2socks-debug.aar: $(GOMOBILE) $(BUILD_OVERLAY)
-	env NDK_DEBUG=1
 	mkdir -p $(BUILDDIR)/intra
 	$(ANDROID_DEBUG_BUILD_CMD) -o $@ $(INTRA_BUILD_CMD)
 
 $(BUILDDIR)/android/tun2socks.aar: $(GOMOBILE) $(BUILD_OVERLAY)
-	env NDK_DEBUG=1
+	env NDK_DEBUG=0
 	mkdir -p $(BUILDDIR)/android
 	$(ANDROID_BUILD_CMD) -o $@ $(IMPORT_PATH)/outline/android $(IMPORT_PATH)/outline/shadowsocks
 
