@@ -1449,7 +1449,7 @@ func noop(typ string) bool {
 // TODO: check for hops on "noop" transports; if those
 // are NOT hoppping, then those are NOT remote, either
 func Remote(id string) bool {
-	return !local(id) || !automatic(id)
+	return !local(id) && !automatic(id)
 }
 
 func hopping(r x.Router) bool {
