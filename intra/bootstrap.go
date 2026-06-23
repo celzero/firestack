@@ -294,7 +294,17 @@ func (b *bootstrap) GetAddr() string {
 }
 
 func (b *bootstrap) GetRelay() x.Proxy {
+	if tr := b.tr; tr != nil {
+		return tr.GetRelay() // usually nil
+	}
 	return nil
+}
+
+func (b *bootstrap) Relaying() bool {
+	if tr := b.tr; tr != nil {
+		return tr.Relaying() // usually false
+	}
+	return false
 }
 
 func (b *bootstrap) IPPorts() []netip.AddrPort {

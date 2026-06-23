@@ -69,6 +69,10 @@ func (t *errorer) GetRelay() x.Proxy {
 	return nil
 }
 
+func (t *errorer) Relaying() bool {
+	return false
+}
+
 func (t *errorer) IPPorts() []netip.AddrPort {
 	return dnsx.NoIPPort
 }

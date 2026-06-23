@@ -23,7 +23,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
-	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
@@ -138,6 +137,8 @@ type Transport interface {
 	Query(network string, q *dns.Msg, summary *x.DNSSummary) (*dns.Msg, error)
 	// IPPorts returns all ip:ports of this server.
 	IPPorts() []netip.AddrPort
+	// Relaying returns true if this transport always uses a relay (proxy).
+	Relaying() bool
 	// Stop closes the transport.
 	Stop() error
 }
@@ -1382,7 +1383,7 @@ func Categorize(ts []Transport) (remote, best, preferred, recoverables, errored,
 	for _, t := range ts {
 		st := t.Status()
 		// TODO: implement t.HasRelay instead
-		if ipn.Remote(t.ID()) && isActiveStatus(st) {
+		if isActiveStatus(st) && t.Relaying() {
 			remote = append(remote, t)
 		}
 		switch st {

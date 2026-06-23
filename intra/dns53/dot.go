@@ -375,13 +375,17 @@ func (t *dot) P50() int64 {
 
 func (t *dot) GetRelay() x.Proxy {
 	if r := t.relay; len(r) > 0 {
-		if ref, _ := t.proxies.ProxyRef("relay.dot", r); ref != nil {
+		if ref, _ := t.proxies.ProxyRef("relay.dot."+t.id, r); ref != nil {
 			if p, valid := ref.Ref(); valid && p != nil {
 				return *p
 			}
 		}
 	}
 	return nil
+}
+
+func (t *dot) Relaying() bool {
+	return len(t.relay) > 0
 }
 
 func (t *dot) GetAddr() string {

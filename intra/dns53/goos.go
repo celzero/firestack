@@ -200,6 +200,10 @@ func (t *goosr) GetRelay() x.Proxy {
 	return nil
 }
 
+func (t *goosr) Relaying() bool {
+	return false
+}
+
 func (t *goosr) IPPorts() []netip.AddrPort {
 	return []netip.AddrPort{netip.AddrPortFrom(netip.IPv6Loopback(), uint16(53))}
 }

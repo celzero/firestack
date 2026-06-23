@@ -420,9 +420,13 @@ func (s *server) GetRelay() x.Proxy {
 	return s.getRelay()
 }
 
+func (s *server) Relaying() bool {
+	return len(s.relay) > 0
+}
+
 func (s *server) getRelay() ipn.Proxy {
 	if r := s.relay; len(r) > 0 {
-		if ref, _ := s.proxies.ProxyRef("relay.dnscrypt", r); ref != nil {
+		if ref, _ := s.proxies.ProxyRef("relay.dc."+s.Name, r); ref != nil {
 			if p, valid := ref.Ref(); valid && p != nil {
 				return *p
 			}

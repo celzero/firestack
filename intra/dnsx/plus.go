@@ -24,6 +24,7 @@ import (
 const plusSupportsCachedTransports = false
 const plusUsesPreferred = false
 const plusUsesSystem = false
+const plusSupportsRelay = false
 
 const plusMaxTries = 6
 
@@ -319,6 +320,11 @@ func (t *plus) GetRelay() x.Proxy {
 	return nil
 }
 
+// Relaying implements dnsx.Transport
+func (t *plus) Relaying() bool {
+	return false // never implements relays
+}
+
 func (t *plus) IPPorts() []netip.AddrPort {
 	return t.ipports
 }
@@ -344,6 +350,12 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 	newt, ok := tr.(Transport)
 	if !ok { // unlikely
 		log.W("plus: add %s: cannot cast %T to Transport", tr.ID(), tr)
+		return false
+	}
+
+	relayingTransport := newt.Relaying()
+	if relayingTransport && !plusSupportsRelay {
+		log.E("plus: add %s@%s: no relaying transports", newt.ID(), newt.GetAddr())
 		return false
 	}
 

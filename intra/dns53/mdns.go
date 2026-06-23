@@ -216,6 +216,10 @@ func (t *dnssd) GetRelay() x.Proxy {
 	return nil
 }
 
+func (t *dnssd) Relaying() bool {
+	return false
+}
+
 func (t *dnssd) IPPorts() []netip.AddrPort {
 	return []netip.AddrPort{
 		xdns.MDNSAddr4.AddrPort(),

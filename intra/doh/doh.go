@@ -910,13 +910,17 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) GetRelay() x.Proxy {
 	if r := t.relay; len(r) > 0 {
-		if ref, _ := t.proxies.ProxyRef("relay.doh", r); ref != nil {
+		if ref, _ := t.proxies.ProxyRef("relay.doh."+t.id, r); ref != nil {
 			if p, valid := ref.Ref(); valid && p != nil {
 				return *p
 			}
 		}
 	}
 	return nil
+}
+
+func (t *transport) Relaying() bool {
+	return len(t.relay) > 0
 }
 
 func (t *transport) IPPorts() (ipps []netip.AddrPort) {

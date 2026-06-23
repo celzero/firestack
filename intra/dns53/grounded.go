@@ -78,6 +78,10 @@ func (t *grounded) GetRelay() x.Proxy {
 	return nil
 }
 
+func (t *grounded) Relaying() bool {
+	return false
+}
+
 func (t *grounded) IPPorts() []netip.AddrPort {
 	return dnsx.NoIPPort
 }

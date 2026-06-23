@@ -1448,6 +1448,7 @@ func noop(typ string) bool {
 
 // TODO: check for hops on "noop" transports; if those
 // are NOT hoppping, then those are NOT remote, either
+// id MUST be valid proxy id (no checks are made if it isn't)
 func Remote(id string) bool {
 	return !local(id) && !automatic(id)
 }
