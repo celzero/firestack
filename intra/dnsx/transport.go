@@ -23,6 +23,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
@@ -1339,15 +1340,20 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 	r.RUnlock()
 
 	// TODO: prefer proxy DNS (wg) when available
-	best, preferred, recoverables, errored, ended := Categorize(trs)
+	remote, best, preferred, recoverables, errored, ended := Categorize(trs)
 	if settings.Debug {
 		defer func() {
-			loged(len(theone) <= 0)("dns: pref: chose: %s from best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
-				theone, tr2csv2(best), tr2csv2(preferred), tr2csv2(recoverables), tr2csv2(errored), tr2csv2(ended), strings.Join(miss, ","))
+			loged(len(theone) <= 0)("dns: pref: chose: %s from remote(%v) best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
+				theone, tr2csv2(remote), tr2csv2(best), tr2csv2(preferred), tr2csv2(recoverables), tr2csv2(errored), tr2csv2(ended), strings.Join(miss, ","))
 		}()
 	}
 
-	if len(best) > 0 {
+	if len(remote) > 0 {
+		if chooseRandom {
+			return idstr(core.ChooseOne(remote))
+		}
+		return idstr(remote[0])
+	} else if len(best) > 0 {
 		if chooseRandom {
 			return idstr(core.ChooseOne(best))
 		}
@@ -1372,9 +1378,14 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 	return ""
 }
 
-func Categorize(ts []Transport) (best []Transport, preferred []Transport, recoverables []Transport, errored []Transport, ended []Transport) {
+func Categorize(ts []Transport) (remote, best, preferred, recoverables, errored, ended []Transport) {
 	for _, t := range ts {
-		switch t.Status() {
+		st := t.Status()
+		// TODO: implement t.HasRelay instead
+		if ipn.Remote(t.ID()) && isActiveStatus(st) {
+			remote = append(remote, t)
+		}
+		switch st {
 		case Complete:
 			best = append(best, t)
 		case Start, Unpaused, NoResponse, BadQuery:
@@ -1391,6 +1402,10 @@ func Categorize(ts []Transport) (best []Transport, preferred []Transport, recove
 	}
 	best = core.Sort(best, Fastest)
 	preferred = core.Sort(preferred, Fastest)
+	// all transports are remote; use categories instead
+	if len(remote) == len(ts) {
+		remote = nil
+	}
 	return
 }
 
@@ -1733,7 +1748,10 @@ func isPlus(id string) bool {
 }
 
 func activeTransport(t Transport) bool {
-	st := t.Status()
+	return isActiveStatus(t.Status())
+}
+
+func isActiveStatus(st int) bool {
 	return st != DEnd && st != Paused && st != Unknown
 }
 
