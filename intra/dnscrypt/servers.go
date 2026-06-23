@@ -59,8 +59,9 @@ type server struct {
 	HostName           string
 	UDPAddr            *net.UDPAddr
 	TCPAddr            *net.TCPAddr
-	proxies            ipn.ProxyProvider // proxy-provider, may be nil
-	relay              string            // proxy relay to use, may be nil
+	proxies            ipn.ProxyProvider        // proxy-provider, may be nil
+	relay              string                   // proxy relay to use, may be nil
+	relayref           *core.WeakRef[ipn.Proxy] // preset ref to relay proxy, if any
 	est                core.P2QuantileEstimator
 
 	// fields below are mutable
@@ -259,10 +260,14 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	}
 	px := proxy.proxies
 	var relay string
+	var relayref *core.WeakRef[ipn.Proxy]
 	if px != nil {
 		x, _ := px.ProxyFor(name)
 		if x != nil {
 			relay = x.ID()
+			if ref, rerr := px.ProxyRef("relay.dc."+name, relay); rerr == nil {
+				relayref = ref
+			}
 		}
 	}
 
@@ -284,6 +289,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		RelayUDPAddrs:      core.NewZeroVolatile[[]*net.UDPAddr](), // populated later; see proxy.refreshRoutes()
 		proxies:            px,
 		relay:              relay,
+		relayref:           relayref,
 		est:                core.NewP50Estimator(ctx),
 		status:             core.NewVolatile(dnsx.Start),
 	}
@@ -425,12 +431,11 @@ func (s *server) Relaying() bool {
 }
 
 func (s *server) getRelay() ipn.Proxy {
-	if r := s.relay; len(r) > 0 {
-		if ref, _ := s.proxies.ProxyRef("relay.dc."+s.Name, r); ref != nil {
-			if p, valid := ref.Ref(); valid && p != nil {
-				return *p
-			}
-		}
+	if s.relayref == nil {
+		return nil
+	}
+	if p, valid := s.relayref.Get(); valid {
+		return p
 	}
 	return nil
 }

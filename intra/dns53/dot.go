@@ -43,8 +43,9 @@ type dot struct {
 	host     string // hostname from the url
 
 	c             *dns.Client
-	proxies       ipn.ProxyProvider // may be nil
-	relay         string            // may be empty
+	proxies       ipn.ProxyProvider        // may be nil
+	relay         string                   // may be empty
+	relayref      *core.WeakRef[ipn.Proxy] // preset ref to relay proxy, if any
 	skipTLSVerify bool
 
 	pool    *core.MultConnPool[uint64]
@@ -78,9 +79,13 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		skipTLSVerify = true
 	}
 	var relay string
+	var relayref *core.WeakRef[ipn.Proxy]
 	if px != nil {
 		if p, _ := px.ProxyFor(id); p != nil {
 			relay = p.ID()
+			if ref, err := px.ProxyRef("relay.dot."+id, relay); err == nil {
+				relayref = ref
+			}
 		}
 	}
 	ctx, done := context.WithCancel(ctx)
@@ -106,6 +111,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		status:         core.NewVolatile(x.Start),
 		proxies:        px,
 		relay:          relay,
+		relayref:       relayref,
 		pool:           core.NewMultConnPool[uint64](ctx),
 		usepool:        usepool,
 		est:            core.NewP50Estimator(ctx),
@@ -374,12 +380,11 @@ func (t *dot) P50() int64 {
 }
 
 func (t *dot) GetRelay() x.Proxy {
-	if r := t.relay; len(r) > 0 {
-		if ref, _ := t.proxies.ProxyRef("relay.dot."+t.id, r); ref != nil {
-			if p, valid := ref.Ref(); valid && p != nil {
-				return *p
-			}
-		}
+	if t.relayref == nil {
+		return nil
+	}
+	if p, valid := t.relayref.Get(); valid {
+		return p
 	}
 	return nil
 }

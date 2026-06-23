@@ -49,9 +49,10 @@ type transport struct {
 	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53, protect.HostlessXYZ:53
 	port     uint16
 
-	client  *dns.Client
-	proxies ipn.ProxyProvider // should never be nil
-	relay   string            // may be empty
+	client   *dns.Client
+	proxies  ipn.ProxyProvider        // should never be nil
+	relay    string                   // may be empty
+	relayref *core.WeakRef[ipn.Proxy] // preset ref to relay proxy, if any
 
 	pool    *core.MultConnPool[uint64]
 	usepool bool
@@ -92,9 +93,13 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	}
 	ctx, done := context.WithCancel(pctx)
 	var relay string
+	var relayref *core.WeakRef[ipn.Proxy]
 	if dnsx.CanUseProxy(id) { // see also: pxdial
 		if p, _ := px.ProxyFor(id); p != nil {
 			relay = p.ID()
+			if ref, err := px.ProxyRef("relay.dns53."+id, relay); err == nil {
+				relayref = ref
+			}
 		}
 	}
 	tx := &transport{
@@ -107,10 +112,11 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		lastaddr: core.NewZeroVolatile[string](),
 		pool:     core.NewMultConnPool[uint64](ctx),
 		// todo: renable once we know why pooled wireguard dns conns are troublesome
-		usepool: false,
-		proxies: px,    // never nil; see above
-		relay:   relay, // may be empty
-		est:     core.NewP50Estimator(ctx),
+		usepool:  false,
+		proxies:  px,       // never nil; see above
+		relay:    relay,    // may be empty
+		relayref: relayref, // may be nil
+		est:      core.NewP50Estimator(ctx),
 	}
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
@@ -359,12 +365,11 @@ func (t *transport) getAddr() string {
 }
 
 func (t *transport) GetRelay() x.Proxy {
-	if r := t.relay; len(r) > 0 {
-		if ref, _ := t.proxies.ProxyRef("relay.dns53."+t.id, r); ref != nil {
-			if p, valid := ref.Ref(); valid && p != nil {
-				return *p
-			}
-		}
+	if t.relayref == nil {
+		return nil
+	}
+	if p, valid := t.relayref.Get(); valid {
+		return p
 	}
 	return nil
 }

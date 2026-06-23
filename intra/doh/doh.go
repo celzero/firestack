@@ -105,6 +105,7 @@ type transport struct {
 	preferGET      bool                        // saw 405 Method Not Allowed
 	proxies        ipn.ProxyProvider           // proxy provider, may be nil
 	relay          string                      // dial doh via relay, may be empty
+	relayref       *core.WeakRef[ipn.Proxy]    // preset ref to relay proxy, if any
 	status         *core.Volatile[int]
 	est            core.P2QuantileEstimator
 }
@@ -135,10 +136,14 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 
 	var renewed, getrelayretried bool
 	var relay string
+	var relayref *core.WeakRef[ipn.Proxy]
 	if px != nil {
 	getrelay:
 		if p, err := px.ProxyFor(id); p != nil {
 			relay = p.ID()
+			if ref, rerr := px.ProxyRef("relay.doh."+id, relay); rerr == nil {
+				relayref = ref
+			}
 		} else if !getrelayretried && errors.Is(err, ipn.ErrGetProxyTimeout) {
 			getrelayretried = true
 			goto getrelay
@@ -154,8 +159,9 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		done:           done,
 		id:             id,
 		typ:            typ,
-		proxies:        px,    // may be nil
-		relay:          relay, // may be empty
+		proxies:        px,       // may be nil
+		relay:          relay,    // may be empty
+		relayref:       relayref, // may be nil
 		status:         core.NewVolatile(dnsx.Start),
 		pxclients:      make(map[string]*proxytransport),
 		echconfig:      core.NewZeroVolatile[*tls.Config](),
@@ -909,12 +915,11 @@ func (t *transport) GetAddr() string {
 }
 
 func (t *transport) GetRelay() x.Proxy {
-	if r := t.relay; len(r) > 0 {
-		if ref, _ := t.proxies.ProxyRef("relay.doh."+t.id, r); ref != nil {
-			if p, valid := ref.Ref(); valid && p != nil {
-				return *p
-			}
-		}
+	if t.relayref == nil {
+		return nil
+	}
+	if p, valid := t.relayref.Get(); valid {
+		return p
 	}
 	return nil
 }
