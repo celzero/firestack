@@ -143,7 +143,7 @@ func (t *plus) preferreddns() (Transport, error) {
 }
 
 func (t *plus) ordered() ([]Transport, error) {
-	best, preferred, recov, errored, ended := Categorize(t.all())
+	_, best, preferred, recov, errored, ended := Categorize(t.all())
 
 	expected := len(best) + len(preferred) + len(recov) + 1
 
