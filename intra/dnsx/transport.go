@@ -601,6 +601,9 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 
 	// TODO? do not use defer func() and do copy: go.dev/play/p/oGUJepa3VUo
 	defer func() {
+		if settings.Debug {
+			smm.Extra = smm.Extra + " / " + core.FmtTimeAsPeriod(starttime)
+		}
 		r.queueSummary(smm) // always call up to the listener
 	}()
 
@@ -1320,9 +1323,6 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 	if len(ids) <= 0 {
 		return ""
 	}
-	if isAnyPlus(ids...) { // prefer Plus, if set
-		return Plus
-	}
 	if len(ids) == 1 {
 		return ids[0]
 	}
@@ -1349,12 +1349,18 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 		}()
 	}
 
-	if len(remote) > 0 {
+	if len(remote) > 0 { // prefer Remote, if set
 		if chooseRandom {
 			return idstr(core.ChooseOne(remote))
 		}
 		return idstr(remote[0])
-	} else if len(best) > 0 {
+	}
+
+	if isAnyPlus(ids...) { // or, prefer Plus
+		return Plus
+	}
+
+	if len(best) > 0 {
 		if chooseRandom {
 			return idstr(core.ChooseOne(best))
 		}
