@@ -80,8 +80,8 @@ const (
 
 	FAST = x.WGFAST
 
-	refreshInterval    = 2 * time.Minute // refresh interval between onNotOKs
-	minRefreshInterval = 5 * time.Second // hard refresh interval; roughly one re-send handshake timeout
+	refreshInterval    = 30 * time.Second // refresh interval between onNotOKs
+	minRefreshInterval = 5 * time.Second  // hard refresh interval; roughly one re-send handshake timeout
 )
 
 var (
