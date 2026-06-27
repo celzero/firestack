@@ -184,9 +184,12 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 		return true // ok
 	}
 
+	h.loopAssoc(smm)
+
 	cid := smm.ID
 	core.Go("udp.forward."+cid, func() {
-		h.listener.Flowing(smm.postMark())
+		defer h.loopUnassoc(smm)
+		h.flowing(smm)
 		h.forward(gconn, rwext{remote, udptimeout}, smm)
 	})
 	return true // ok
@@ -323,6 +326,17 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			continue
 		}
 
+		smm.PID = pxid // last chosen proxy may yet emayrror out
+		smm.RPID = rxid
+		smm.Target = lastselected // may be invalid
+
+		if h.loopDetected(smm) {
+			log.I("udp: loop: break %s => %s via %s for %s; exiting...", src, lastselected, pxid, uid)
+			px, _ = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
+			pxid = ipn.Exit
+			rxid = ""
+		}
+
 		canportfwd = portfwd && ipn.Remote(pxid)
 
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
@@ -353,12 +367,6 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		if end > retryTimeout {
 			break
 		}
-	}
-
-	if len(pxid) > 0 { // last chosen proxy which may have errored
-		smm.PID = pxid
-		smm.RPID = rxid
-		smm.Target = lastselected // may be invalid
 	}
 
 	if !selectedTarget.IsValid() {

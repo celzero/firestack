@@ -339,6 +339,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			continue
 		}
 
+		if h.loopDetected(smm) {
+			log.I("tcp: loop: break %s => %s via %s for %s; exiting...", src, dstipp, pidstr(px), uid)
+			px, _ = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
+			smm.PID = ipn.Exit
+			smm.RPID = ""
+			continue
+		}
+
 		if cont, err = h.handle(px, gconn, src, dstipp, delayForHappyEyeballs, smm); err == nil {
 			return allow // smm instead queued by handle() => forward()
 		} else {
@@ -446,17 +454,21 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 		return stop, synackerr
 	}
 
+	h.loopAssoc(smm)
+
+	dstlocal := dst.LocalAddr()
 	core.Go("tcp.forward."+smm.ID, func() {
-		h.listener.Flowing(smm.postMark())
+		defer h.loopUnassoc(smm)
+		h.flowing(smm)
 		h.forward(gconn, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
-		// TODO assoc if forward was successful
+		// TODO: assoc if forward was successful
 		if eim {
-			h.natAssoc(smm.PID, src, dst.LocalAddr())
+			h.natAssoc(smm.PID, src, dstlocal)
 		}
 	})
 
-	log.I("tcp: %s dialed %s proxy(%s) %s => %s (bind? %t / bindaddr? %s) for %s; rtt? %s",
-		smm.ID, smm.PID, src, targetstr, dialbindOK, bindAddr, smm.UID, core.FmtMillis(smm.Rtt))
+	log.I("tcp: %s dialed %s proxy(%s) %s => %s [%v] (bind? %t / bindaddr? %s) for %s; rtt? %s",
+		smm.ID, smm.PID, src, targetstr, dstlocal, dialbindOK, bindAddr, smm.UID, core.FmtMillis(smm.Rtt))
 
 	return cont, nil // handled; takes ownership of src
 }

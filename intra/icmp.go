@@ -68,10 +68,10 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer func() {
 		smm.PID = pidstr(px)
 		smm.RPID = ipn.ViaID(px)
+		smm.Target = dst.Addr().String()
 		smm.Tx = int64(tx)
 		smm.Rx = int64(rx)
 		smm.Rtt = rtt.Milliseconds()
-		smm.Target = dst.Addr().String()
 		h.queueSummary(smm.done(err)) // err may be nil
 	}()
 
@@ -99,6 +99,20 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		return false // denied
 	}
 
+	smm.PID = pidstr(px)
+	smm.RPID = ipn.ViaID(px)
+	smm.Target = dst.Addr().String()
+
+	if h.loopDetected(smm) {
+		log.I("t.icmp: loop: break %s => %s via %s for %s; exiting...", source, dst, pidstr(px), uid)
+		px, _ = h.prox.ProxyTo(dst, uid, onlyExitPid)
+		smm.PID = ipn.Exit
+		smm.RPID = ""
+	}
+
+	h.loopAssoc(smm)
+	defer h.loopUnassoc(smm)
+
 	rttstart := time.Now()
 	proto, anyaddr := anyaddrFor(dst)
 
@@ -118,7 +132,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	defer h.conntracker.Untrack(cid)
 
 	awaited := core.Await(func() {
-		h.listener.Flowing(smm.postMark())
+		h.flowing(smm)
 	}, onFlowTimeout)
 
 	tx = len(msg)

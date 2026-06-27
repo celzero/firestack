@@ -59,6 +59,8 @@ var (
 	anyaddr6 = netip.IPv6Unspecified()
 )
 
+var onlyExitPid = []string{ipn.Exit}
+
 // immediate is the wait time before sending a summary to the listener.
 var immediate = time.Duration(0)
 
@@ -86,6 +88,9 @@ type baseHandler struct {
 
 	conntracker core.ConnMapper              // connid -> [local,remote]
 	fwtracker   *core.ExpMap[string, string] // uid+dst(domainOrIP) -> blockSecs
+
+	ltmu        sync.RWMutex
+	looptracker map[string]uint64 // dst -> count
 
 	once sync.Once
 
@@ -330,6 +335,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *FlowSummary) {
 	h.queueSummary(smm.done(derr, uploaded.err))
 }
 
+// queueSummary queues a summary to be sent to the listener; thread-safe.
 func (h *baseHandler) queueSummary(s *FlowSummary) {
 	if s == nil {
 		return
@@ -375,6 +381,7 @@ func (h *baseHandler) processSummaries() {
 	}
 }
 
+// sendSummary sends a summary to the listener; thread-safe.
 func (h *baseHandler) sendSummary(s *FlowSummary, after time.Duration) {
 	defer core.Recover(core.DontExit, "c.sendNotif: "+s.ID)
 
@@ -443,6 +450,70 @@ func (h *baseHandler) stall(flowid string) (secs uint32) {
 	return
 }
 
+func (h *baseHandler) loopAssoc(smm *FlowSummary) (y bool) {
+	if smm == nil || smm.UID != SELF_UID || ipn.Exit == smm.PID || len(smm.Target) <= 0 {
+		return false
+	}
+	h.ltmu.Lock()
+	defer h.ltmu.Unlock()
+
+	if settings.Loopingback.Load() {
+		if len(h.looptracker) > 0 {
+			clear(h.looptracker)
+		}
+		return false
+	}
+
+	k := looptrackerKey(smm)
+	v, loaded := h.looptracker[k]
+	if !loaded {
+		h.looptracker[k] = 1
+	} else {
+		h.looptracker[k] = v + 1
+	}
+	return true
+}
+
+func (h *baseHandler) loopDetected(smm *FlowSummary) (y bool) {
+	if smm == nil || smm.UID != SELF_UID || ipn.Exit == smm.PID || len(smm.Target) <= 0 {
+		return false
+	}
+	h.ltmu.RLock()
+	defer h.ltmu.RUnlock()
+
+	if v, ok := h.looptracker[looptrackerKey(smm)]; ok {
+		return v >= 1
+	}
+	return false
+}
+
+func (h *baseHandler) loopUnassoc(smm *FlowSummary) (y bool) {
+	if smm == nil || smm.UID != SELF_UID || ipn.Exit == smm.PID || len(smm.Target) <= 0 {
+		return false
+	}
+
+	h.ltmu.Lock()
+	defer h.ltmu.Unlock()
+	if !settings.Loopingback.Load() {
+		if len(h.looptracker) > 0 {
+			clear(h.looptracker)
+		}
+		return false
+	}
+
+	k := looptrackerKey(smm)
+	v, loaded := h.looptracker[k]
+	if !loaded {
+		return false
+	}
+	if v <= 1 {
+		delete(h.looptracker, k)
+	} else {
+		h.looptracker[k] = v - 1
+	}
+	return true
+}
+
 func (h *baseHandler) isDNS(addr netip.AddrPort) bool {
 	return addr.IsValid() && h.resolver.IsDnsAddr(addr)
 }
@@ -476,6 +547,7 @@ func (h *baseHandler) End() {
 	})
 }
 
+// upload copies data from remote to local, and returns the number of bytes copied and error, if any.
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
 	defer core.Recover(core.Exit11, "c.upload."+id)
@@ -492,6 +564,7 @@ func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
 	ioch <- ioinfo{n, err}
 }
 
+// download copies data from local to remote, and returns the number of bytes copied and error, if any.
 func download(id string, local, remote net.Conn) (n int64, err error) {
 	defer core.CloseOp(local, core.CopW)
 	defer core.CloseOp(remote, core.CopR)
@@ -505,6 +578,7 @@ func download(id string, local, remote net.Conn) (n int64, err error) {
 	return
 }
 
+// oneRealIPPort returns the first valid AddrPort from realips, or origipp if none are valid.
 func oneRealIPPort(realips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool) netip.AddrPort {
 	if len(realips) <= 0 {
 		return origipp
@@ -617,6 +691,8 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 	return
 }
 
+// filterFamilyForDialingWithFailSafe filters out invalid IPs and IPs that are not
+// of the family that the dialer is configured to use, and includes one excluded IP as a fail-safe if needed.
 func filterFamilyForDialingWithFailSafe(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
 	included, excluded, excludedIsIncluded = filterFamilyForDialing(ipcsv)
 	if !excludedIsIncluded && len(excluded) > 0 && len(included) > 0 {
@@ -673,7 +749,7 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 	}
 
 	if len(decision.UID) > 0 {
-		uid = decision.UID
+		uid = decision.UID // may be SELF_UID or UNKNOWN_UID_STR
 	} else {
 		uid = UNKNOWN_UID_STR
 	}
@@ -696,6 +772,7 @@ func (h *baseHandler) judge(decision *Mark, aux ...string) (cid, uid, fid string
 	return
 }
 
+// maybeReplaceDest replaces the target AddrPort with the IP in res, if res.IP is set and valid.
 func (h *baseHandler) maybeReplaceDest(res *Mark, target *netip.AddrPort) {
 	if len(res.IP) <= 0 {
 		return
@@ -707,6 +784,10 @@ func (h *baseHandler) maybeReplaceDest(res *Mark, target *netip.AddrPort) {
 		}
 		*target = netip.AddrPortFrom(resip, target.Port())
 	}
+}
+
+func (h *baseHandler) flowing(smm *FlowSummary) {
+	h.listener.Flowing(smm.postMark())
 }
 
 func conn2str(a net.Conn, b net.Conn) string {
@@ -724,6 +805,7 @@ func clos(c ...core.MinConn) {
 	core.CloseConn(c...)
 }
 
+// ntoa returns the IP protocol number for the given network string.
 func ntoa(n string) int32 {
 	switch n {
 	case "udp", "udp6", "udp4":
@@ -748,6 +830,10 @@ func isAnyBasePid(pids []string) bool {
 
 func containsPid(pids []string, pid string) bool {
 	return slices.Contains(pids, pid)
+}
+
+func looptrackerKey(smm *FlowSummary) string {
+	return smm.Proto + ":" + smm.Target
 }
 
 func extendc(c net.Conn, r time.Duration, w time.Duration) {
