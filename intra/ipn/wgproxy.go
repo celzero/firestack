@@ -335,11 +335,17 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		didRefresh = true
 		allok = err == nil
 	} else {
-		allok, err = w.refreshBa.DoIt(w.who(), func() (bool, error) {
+		v, did := w.refreshBa.Do(w.who(), func() (bool, error) {
 			rerr := w.Refresh()
-			didRefresh = true
 			return rerr == nil, rerr
 		})
+		if v != nil {
+			didRefresh = did == core.Anew
+			allok = v.Val
+			err = v.Err
+		} else {
+			err = core.ErrNoFruitOfLabour
+		}
 	}
 	if !didRefresh { // attempt Ping if refresh skipped by the barrier
 		allok = allok && w.Ping() // ping / sendkeepalive is async
