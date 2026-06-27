@@ -376,13 +376,14 @@ func (w *wgproxy) Refresh() (err error) {
 		return // TODO: err?
 	}
 
+	now := now()
 	lastRefresh := w.latestRefresh.Load()
-	if now()-lastRefresh < minRefreshInterval.Milliseconds() {
+	if now-lastRefresh < minRefreshInterval.Milliseconds() {
 		log.VV("proxy: wg: %s refresh skipped; done recently; status(%s)", w.tag(), pxstatus(status))
 		return // TODO: err?
 	}
 
-	w.latestRefresh.Store(now())
+	w.latestRefresh.Store(now)
 	resetDevice := (resetDeviceOnTNT && status == TNT) ||
 		(resetDeviceOnTUP && status == TUP)
 
@@ -431,8 +432,8 @@ func (w *wgproxy) Refresh() (err error) {
 	}
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
-	logei(err)("proxy: wg: %s: refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t / status: %s => %s; err? %v",
-		w.tag(), n, nn, viaOK, didWait, resetDevice, pxstatus(status), pxstatus(w.Status()), err)
+	logei(err)("proxy: wg: %s: refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t / status: %s => %s; elapsed: %s; err? %v",
+		w.tag(), n, nn, viaOK, didWait, resetDevice, pxstatus(status), pxstatus(w.Status()), core.FmtUnixMillisAsPeriod(now), err)
 	return
 }
 
