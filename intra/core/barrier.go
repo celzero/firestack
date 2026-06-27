@@ -24,10 +24,12 @@ import (
 	"weak"
 )
 
+type DidDo int
+
 const (
 	// Anew is the value returned by Barrier.Do when the function was
 	// executed and its results are stored in the Barrier.
-	Anew = iota
+	Anew DidDo = iota
 	// Shared is the value returned by Barrier.Do when the function's
 	// results are already stored in the Barrier.
 	Shared
@@ -35,7 +37,7 @@ const (
 
 var (
 	errTimeout         = errors.New("core: timeout")
-	errNoFruitOfLabour = errors.New("core: Work did not yield results")
+	ErrNoFruitOfLabour = errors.New("core: Work did not yield results")
 )
 
 // Work is the type of the function to memoize.
@@ -90,6 +92,8 @@ type Barrier[T any, K comparable] struct {
 	nanew   atomic.Uint64 // calls that owned the request (ran once())
 	nshared atomic.Uint64 // calls that coalesced with an in-flight request
 	ndels   atomic.Uint64 // count of Vs removed by scrubbing
+	nerrs   atomic.Uint64 // count of Vs that resulted in errors
+	nto     atomic.Uint64 // count of Vs that timed out
 	closed  atomic.Bool   // true after ctx is done; disables deduplication
 }
 
@@ -145,12 +149,14 @@ func (ba *Barrier[T, K]) Stat() BarrierState {
 	l := len(ba.m)
 	ba.mu.Unlock()
 	return BarrierState{
-		Typ:    ba.typ,
-		ID:     ba.id,
-		Len:    l,
-		Anew:   ba.nanew.Load(),
-		Shared: ba.nshared.Load(),
-		Dels:   ba.ndels.Load(),
+		Typ:      ba.typ,
+		ID:       ba.id,
+		Len:      l,
+		Anew:     ba.nanew.Load(),
+		Shared:   ba.nshared.Load(),
+		Dels:     ba.ndels.Load(),
+		Errs:     ba.nerrs.Load(),
+		Timeouts: ba.nto.Load(),
 	}
 }
 
@@ -214,23 +220,20 @@ func (ba *Barrier[T, K]) addLocked(k K) *V[T, K] {
 	return v
 }
 
-// DoIt is like Do but returns from once as-is.
+// DoIt is like Do but return type is same as func once.
 func (ba *Barrier[T, K]) DoIt(k K, once Work[T]) (zz T, err error) {
 	v, _ := ba.Do(k, once)
-	if v == nil || v.Err != nil {
-		if v == nil { // unlikely
-			return zz, errNoFruitOfLabour
-		}
-		return v.Val, v.Err
+	if v == nil { // unlikely
+		return zz, ErrNoFruitOfLabour
 	}
-	return v.Val, nil
+	return v.Val, v.Err
 }
 
 // Do executes and returns the results of the given function, making
 // sure that only one execution is in-flight for a given key at a
 // time. If a duplicate comes in, the duplicate caller waits for the
 // original to complete and receives the same results.
-func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
+func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], DidDo) {
 	ba.mu.Lock()
 	c, _ := ba.getLocked(k)
 	if c != nil {
@@ -257,8 +260,12 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 	select {
 	case r := <-rch:
 		c.Val, c.Err = r.val, r.err
+		if c.Err != nil {
+			ba.nerrs.Add(1)
+		}
 	case <-time.After(ba.to):
 		c.Err = errTimeout
+		ba.nto.Add(1)
 	}
 
 	c.wg.Done() // unblock all waiters
@@ -267,7 +274,7 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], int) {
 }
 
 // Do1 is like Do but for Work1 with one arg.
-func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
+func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], DidDo) {
 	ba.mu.Lock()
 	c, _ := ba.getLocked(k)
 	if c != nil {
@@ -294,8 +301,12 @@ func (ba *Barrier[T, K]) Do1(k K, once Work1[T], arg T) (*V[T, K], int) {
 	select {
 	case r := <-rch:
 		c.Val, c.Err = r.val, r.err
+		if c.Err != nil {
+			ba.nerrs.Add(1)
+		}
 	case <-time.After(ba.to):
 		c.Err = errTimeout
+		ba.nto.Add(1)
 	}
 
 	c.wg.Done() // unblock all waiters
@@ -325,6 +336,9 @@ func (ba *Barrier[T, K]) Go(k K, once Work[T]) <-chan *V[T, K] {
 		ba.mu.Unlock()
 
 		c.Val, c.Err = once()
+		if c.Err != nil {
+			ba.nerrs.Add(1)
+		}
 
 		c.wg.Done() // unblock all waiters
 		ba.nanew.Add(1)

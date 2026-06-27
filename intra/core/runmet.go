@@ -435,12 +435,14 @@ func unit4float(v float64, u metricUnit) string {
 
 // BarrierState is a snapshot of a Barrier's metrics.
 type BarrierState struct {
-	Typ    string
-	ID     string
-	Len    int
-	Anew   uint64 // calls that owned the request (ran once())
-	Shared uint64 // calls that coalesced with an in-flight request
-	Dels   uint64 // count of barriers removed by scrubbing
+	Typ      string
+	ID       string
+	Len      int
+	Anew     uint64 // calls that owned the request (ran once())
+	Shared   uint64 // calls that coalesced with an in-flight request
+	Dels     uint64 // count of barriers removed by scrubbing
+	Errs     uint64 // count of Vs that resulted in errors
+	Timeouts uint64 // count of Vs that timed out
 }
 
 // MapState is a snapshot of a map's metrics.
@@ -539,8 +541,8 @@ func (c *CoreState) String() string {
 	}
 	fmt.Fprintf(&sb, "\nBarriers: %d\n", len(c.Barriers))
 	for _, b := range c.Barriers {
-		fmt.Fprintf(&sb, "   - %s (%s): len=%d new=%d shared=%d dels=%d\n ",
-			b.ID, b.Typ, b.Len, b.Anew, b.Shared, b.Dels)
+		fmt.Fprintf(&sb, "   - %s (%s): len=%d new=%d shared=%d dels=%d errs=%d timeouts=%d\n ",
+			b.ID, b.Typ, b.Len, b.Anew, b.Shared, b.Dels, b.Errs, b.Timeouts)
 	}
 	fmt.Fprintf(&sb, "\nMaps: %d\n", len(c.Maps))
 	for _, m := range c.Maps {
