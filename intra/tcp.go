@@ -341,9 +341,13 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 		if h.loopDetected(smm) {
 			log.I("tcp: loop: break %s => %s via %s for %s; exiting...", src, dstipp, smm.PID, uid)
-			px, _ = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
+			px, err = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
 			smm.PID = ipn.Exit
 			smm.RPID = ""
+		}
+
+		if px == nil || err != nil { // unlikely
+			continue
 		}
 
 		if cont, err = h.handle(px, gconn, src, dstipp, delayForHappyEyeballs, smm); err == nil {
