@@ -348,7 +348,7 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		}
 	}
 	if !didRefresh { // attempt Ping if refresh skipped by the barrier
-		allok = allok && w.Ping() // ping / sendkeepalive is async
+		allok = w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
 	loged(err)("proxy: wg: %s; onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; status? %s; err? %v",
