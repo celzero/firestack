@@ -832,6 +832,7 @@ func containsPid(pids []string, pid string) bool {
 	return slices.Contains(pids, pid)
 }
 
+// TODO: loop tracker key must account for proto:ip:port not just proto:ip
 func looptrackerKey(smm *FlowSummary) string {
 	return smm.Proto + ":" + smm.Target
 }

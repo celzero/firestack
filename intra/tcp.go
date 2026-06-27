@@ -344,7 +344,6 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			px, _ = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
 			smm.PID = ipn.Exit
 			smm.RPID = ""
-			continue
 		}
 
 		if cont, err = h.handle(px, gconn, src, dstipp, delayForHappyEyeballs, smm); err == nil {

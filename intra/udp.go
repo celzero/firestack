@@ -285,7 +285,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		} // else: not a dns query or target is not a dns addr
 	} // else: proxy src to dst
 
-	var pxid, rxid, lastselected string
+	var pxid string
 	var px ipn.Proxy
 	var errs error
 	var selectedTarget netip.AddrPort
@@ -313,11 +313,6 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 		px, err = h.prox.ProxyTo(dstipp, uid, pids)
 
-		if px != nil { // last chosen (but not dialed in) proxy
-			pxid = pidstr(px)
-			rxid = ipn.ViaID(px)
-			lastselected = dstipp.Addr().String()
-		}
 		selectedTarget = dstipp
 
 		if err != nil || px == nil {
@@ -326,17 +321,18 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			continue
 		}
 
-		smm.PID = pxid // last chosen proxy may yet emayrror out
-		smm.RPID = rxid
-		smm.Target = lastselected // may be invalid
+		smm.PID = pidstr(px) // last chosen proxy may yet emayrror out
+		smm.RPID = ipn.ViaID(px)
+		smm.Target = selectedTarget.Addr().String() // may be invalid
 
 		if h.loopDetected(smm) {
-			log.I("udp: loop: break %s => %s via %s for %s; exiting...", src, lastselected, pxid, uid)
+			log.I("udp: loop: break %s => %v via %s for %s; exiting...", src, selectedTarget, pxid, uid)
 			px, _ = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
-			pxid = ipn.Exit
-			rxid = ""
+			smm.PID = ipn.Exit // last chosen proxy may yet emayrror out
+			smm.RPID = ""
 		}
 
+		pxid = smm.PID
 		canportfwd = portfwd && ipn.Remote(pxid)
 
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
