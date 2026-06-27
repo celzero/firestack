@@ -56,6 +56,7 @@ var (
 	errUdpIncomingDrop = errors.New("udp: at capacity; packet in dropped")
 	errUdpUnconnected  = errors.New("udp: cannot connect")
 	errUdpNoTarget     = errors.New("udp: no target addr")
+	errTcpNoTarget     = errors.New("tcp: no target addr")
 )
 
 const (
@@ -326,10 +327,16 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		smm.Target = selectedTarget.Addr().String() // may be invalid
 
 		if h.loopDetected(smm) {
-			log.I("udp: loop: break %s => %v via %s for %s; exiting...", src, selectedTarget, pxid, uid)
-			px, _ = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
+			log.I("udp: loop: break %s => %v via %s for %s; exiting...", src, selectedTarget, smm.PID, uid)
+			px, err = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
 			smm.PID = ipn.Exit // last chosen proxy may yet emayrror out
 			smm.RPID = ""
+		}
+
+		if px == nil || err != nil { // unlikely
+			log.E("udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, smm.PID, err)
+			errs = err
+			continue
 		}
 
 		pxid = smm.PID

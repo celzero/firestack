@@ -105,9 +105,13 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 
 	if h.loopDetected(smm) {
 		log.I("t.icmp: loop: break %s => %s via %s for %s; exiting...", source, dst, pidstr(px), uid)
-		px, _ = h.prox.ProxyTo(dst, uid, onlyExitPid)
+		px, err = h.prox.ProxyTo(dst, uid, onlyExitPid)
 		smm.PID = ipn.Exit
 		smm.RPID = ""
+	}
+
+	if px == nil || err != nil {
+		return false // unhandled
 	}
 
 	h.loopAssoc(smm)

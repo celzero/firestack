@@ -335,12 +335,12 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 
 		if err != nil || px == nil {
 			err = log.WE("tcp: dial: #%d: %s proxy(%s) to dst(%s) for %s; err %v",
-				i, cid, pidstr(px), dstipp, uid, err)
+				i, cid, smm.PID, dstipp, uid, err)
 			continue
 		}
 
 		if h.loopDetected(smm) {
-			log.I("tcp: loop: break %s => %s via %s for %s; exiting...", src, dstipp, pidstr(px), uid)
+			log.I("tcp: loop: break %s => %s via %s for %s; exiting...", src, dstipp, smm.PID, uid)
 			px, _ = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
 			smm.PID = ipn.Exit
 			smm.RPID = ""
@@ -441,11 +441,11 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	smm.PID = pidstr(px)
 	smm.RPID = ipn.ViaID(px)
 
-	if err != nil {
+	if err != nil || dst == nil {
 		clos(pc)
 		log.W("tcp: err dialing %s proxy(%s) %v [%v] => %v (bind? %t) for %s: %v",
 			smm.ID, smm.PID, src, bindAddr, smm.Target, dialbindOK, smm.UID, err)
-		return cont, err
+		return cont, core.OneErr(err, errTcpNoTarget)
 	}
 
 	if _, synackerr := h.handshakeIfNeededOrClose(gconn, smm); synackerr != nil {
