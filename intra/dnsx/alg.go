@@ -1528,7 +1528,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 	// is too short for translations; use a minimum of 8s to account
 	// for just-in-time re-resolution of the same domain by common.go via
 	// dialers.ResolverFor(uid) which may be called on new tcp / udp conn.
-	ttl = max(ttl8s, ttl)
+	ttl = min(ttl8s, ttl)
 
 	now := time.Now()
 	// ttl is used for algans and xips, but the alg'fied dns answer
