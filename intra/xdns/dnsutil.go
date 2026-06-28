@@ -179,19 +179,19 @@ func WithTtl(msg *dns.Msg, secs uint32, typ ...uint16) (ok bool) {
 	if !HasAnyAnswer(msg) {
 		return ok
 	}
+	msg.AuthenticatedData = false // reset AD flag if any
+	msg.CheckingDisabled = false  // reset CD flag if any
 	for _, a := range msg.Answer {
 		if a == nil {
 			continue
 		}
-		if a.Header().Ttl <= 0 || a.Header().Ttl == secs {
+		h := a.Header()
+		if h.Ttl <= 0 || h.Ttl == secs {
 			continue
 		}
-		resetTtl := len(typ) <= 0
-		if slices.Contains(typ, a.Header().Rrtype) {
-			resetTtl = true
-		}
+		resetTtl := len(typ) <= 0 || slices.Contains(typ, h.Rrtype)
 		if resetTtl {
-			a.Header().Ttl = secs
+			h.Ttl = secs
 			ok = true
 		}
 	}
@@ -205,12 +205,7 @@ func RTtl(msg *dns.Msg) int {
 	}
 
 	for _, a := range msg.Answer {
-		if a.Header().Ttl > 0 {
-			ttl := a.Header().Ttl
-			if maxttl < ttl {
-				maxttl = ttl
-			}
-		}
+		maxttl = max(maxttl, a.Header().Ttl)
 	}
 	return int(maxttl)
 }

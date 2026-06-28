@@ -143,7 +143,7 @@ func Net2ProxyID(network string) (proto string, pids []string) {
 func BustAndroidCacheIfNeeded(ans *dns.Msg) bool {
 	if BustDnsproxydResNetCache && !IsDNSSECAnswerAuthenticated(ans) {
 		// TODO: skip negative records (SOA, NXDOMAIN, etc)
-		return WithTtl(ans, ZeroTTL, dns.TypeA, dns.TypeAAAA)
+		return WithTtl(ans, ZeroTTL, dns.TypeA, dns.TypeAAAA, dns.TypeSVCB, dns.TypeHTTPS, dns.TypeCNAME)
 	}
 	return false
 }
