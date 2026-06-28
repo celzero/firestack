@@ -1273,11 +1273,25 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		smm.UpstreamBlocks = true
 	}
 
+	defer func() {
+		// answers in outmsg may not have been cached at all by xips
+		// since register may not have happened at all
+		xdns.BustAndroidCacheIfNeeded(outmsg)
+
+		if isAlgErr(outerr) && !mod {
+			if settings.Debug {
+				log.D("alg: q: %s<>%s[%s]:%s:%d %s no mod; suppress err %v",
+					smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, outerr)
+			}
+			outerr = nil // ignore alg errors if no modification is desired
+		}
+	}()
+
 	// todo: skip alg for undelegated domains like ipv4only.arpa?
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
 		if settings.Debug {
-			log.D("alg: skip; query %s<>%s[%s]:%s:%d / a:%d + rdata: %s + status: %d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
-				smm.ID, idstr(t1), uid, qname, qtyp, xdns.Len(ansin), smm.RData, smm.Status, smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
+			log.D("alg: q: skip; query %s<>%s[%s]:%s:%d %s / a:%d + rdata: %s + status: %d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
+				smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, xdns.Len(ansin), smm.RData, smm.Status, smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
 		}
 		return ansin, nil, nil
 	}
@@ -1303,23 +1317,9 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	if smm.UpstreamBlocks || len(secres.smm.Msg) > 0 {
 		smsg := secres.smm.Msg
 		spri := secres.pri
-		log.V("alg: %s<>%s[%s]:%s:%d upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg: %s",
-			smm.ID, idstr(t1), uid, qname, qtyp, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
+		log.V("alg: q: %s<>%s[%s]:%s:%d %s upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg: %s",
+			smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
 	}
-
-	defer func() {
-		// answers in outmsg may not have been cached at all by xips
-		// since register may not have happened at all
-		xdns.BustAndroidCacheIfNeeded(outmsg)
-
-		if isAlgErr(outerr) && !mod {
-			if settings.Debug {
-				log.D("alg: %s<>%s[%s]:%s:%d no mod; suppress err %v",
-					smm.ID, idstr(t1), uid, qname, qtyp, outerr)
-			}
-			outerr = nil // ignore alg errors if no modification is desired
-		}
-	}()
 
 	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
 
