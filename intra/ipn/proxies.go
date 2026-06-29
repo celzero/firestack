@@ -489,7 +489,6 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, uid string, pids []string) (the
 		p, err := px.pinID(uid, ipp, pids[0]) // repin & health check
 		if p == nil {
 			if !waitedForMissingProxy {
-				err = core.OneErr(err, errProxyNotFound)
 				// wait for the missing proxy to be added before returning error
 				waitedForMissingProxy = true
 				stalledSec = px.stall(uid + ippstr)
