@@ -70,9 +70,15 @@ func (w *WeakRef[V]) loadOrStore() (v *V, valid bool) {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if v = w.weak.Value(); v == nil { // gc won
+	if !valid { // create new v
+		v = w.storeLocked()
+		return
+	}
+
+	v = w.weak.Value() // cur v?
+	if v == nil {      // no v, gc won
 		v = w.storeLocked() // new v
-	} // else: use existing v
+	} // else: use cur v
 	return
 }
 
