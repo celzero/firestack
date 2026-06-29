@@ -349,6 +349,7 @@ again:
 	// Listen on the same port as we're using for ipv4.
 	ipv6, port, err = s.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
+	// TODO: does loopback mode affect this? Should dialers.Use6 be used as a hint here?
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
 	if err != nil || log.Debug {
 		loge(err)("wg: bind: open: 2 %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
