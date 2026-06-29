@@ -15,18 +15,18 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 )
 
-// FlowSummary reports information about each TCP socket
+// FlowSummary reports information about each TCP connection,
 // or a non-DNS UDP association, or ICMP echo when it is closed.
 type FlowSummary struct {
 	// tcp, udp, or icmp.
 	Proto string
-	// Unique ID for this socket.
+	// Unique ID for this flow.
 	ID string
-	// Proxy ID that handled this socket.
+	// Proxy ID that handled this flow.
 	PID string
 	// Relay Proxy ID that tunneled PID.
 	RPID string
-	// UID of the app that owns this socket (sans ICMP).
+	// UID of the app that owns this flow (sans ICMP).
 	UID string
 	// Source IP.
 	Source string
@@ -66,7 +66,7 @@ type FlowListener interface {
 	// blocklists is a comma-separated list of rdns blocklist names that apply, if any.
 	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
 	// Inflow is called on a new incoming connection. Returned *Mark values have no discernable effect on these connections,
-	// except for the CID field, which is sent back via OnSocketClosed, and "Block" proxy which
+	// except for the CID field, which is sent back via Postflow, and "Block" proxy which
 	// will drop this connection on the floor.
 	Inflow(protocol, uid int32, src, dst string) *Mark
 	// Flowing is called after a flow is marked by Flow or Inflow.
@@ -159,7 +159,7 @@ func (s *FlowSummary) postMark() *Mark {
 // String implements fmt.Stringer.
 func (s *FlowSummary) String() string {
 	if s != nil {
-		return fmt.Sprintf("socket-summary: %s: id=%s pid=%s:%s uid=%s to=%s down=%s up=%s dur=%s synack=%s msg=%s",
+		return fmt.Sprintf("%s: id=%s pid=%s:%s uid=%s to=%s down=%s up=%s dur=%s synack=%s msg=%s",
 			s.Proto, s.ID, s.PID, s.RPID, s.UID, s.Target, core.FmtBytes(uint64(s.Rx)), core.FmtBytes(uint64(s.Tx)), core.FmtMillis(s.Duration), core.FmtMillis(s.Rtt), s.Msg)
 	}
 	return "<nil>"
