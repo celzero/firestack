@@ -95,7 +95,7 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	cid, uid, _, pids := h.judge(fm)
 	smm := udpSummary(cid, uid, to.Addr(), from.Addr())
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("udp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
 	}
 
@@ -295,7 +295,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	canportfwd := portfwd
 	if mux {
 		if muxpid := h.mux.pid(src); len(muxpid) > 0 && containsPid(pids, muxpid) {
-			if settings.Debug {
+			if log.Debug {
 				log.D("udp: connect: %s [%s] mux: %s => %s using muxed-pid %s; all pids %s",
 					cid, uid, src, target, muxpid, pids)
 			}
@@ -303,7 +303,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		} // else: mxr will dial this conn with a different pid
 	}
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t",
 			cid, uid, src, target, actualTargets, pids, mux, canportfwd, targetIsLocalNat64)
 	}
@@ -339,13 +339,18 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			continue
 		}
 
+		if maybeH3(dstipp) && ipn.DontProxyH3(pxid) {
+			errs = log.WE("udp: connect: #%d: %s [%s] proxy(%s) no h3 to dst(%s)", i, cid, uid, pxid, dstipp)
+			continue
+		}
+
 		pxid = smm.PID
 		canportfwd = portfwd && ipn.Remote(pxid)
 
 		if mux { // mux is not supported by all proxies (few like Exit, Base, WG support it)
 			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx), canportfwd)
 		} else {
-			if settings.Debug {
+			if log.Verbose {
 				log.VV("udp: connect: #%d: attempt: %s [%s] proxy(%s) to dst(%s); mux? %t / fwd? %t",
 					i, cid, uid, pxid, selectedTarget, mux, canportfwd)
 			}

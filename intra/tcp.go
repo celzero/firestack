@@ -161,7 +161,7 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 	cid, uid, _, pids := h.judge(fm)
 	smm := tcpSummary(cid, uid, to.Addr(), from.Addr())
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("tcp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
 	}
 
@@ -314,7 +314,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		} // else not a dns request
 	} // if ipn.Exit then let it connect as-is (aka exit)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("tcp: %s proxying %s => %s [%v] (excluded: %v) for %s; pids: %s; localnat64? %t / happyeye? %t",
 			cid, src, target, actualTargets, excluded, uid, pids, targetIsLocalNat64, happyeyeballs)
 	}
@@ -402,7 +402,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 
 	start := time.Now()
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("tcp: %s dial %s: attempt(eim? %t / fwd? %t / canfwd? %t):  %s [%s [%s]] => %s for %s",
 			smm.ID, pid, eim, portfwd, canportfwd, src, gconn.LocalAddr(), bindAddr, targetstr, smm.UID)
 	}

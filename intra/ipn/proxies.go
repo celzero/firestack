@@ -1474,6 +1474,10 @@ func isRPN(id string) bool {
 	return strings.Contains(id, RPN) // RPN is a suffix
 }
 
+func DontProxyH3(id string) bool {
+	return strings.Contains(id, RpnWin)
+}
+
 func isWG(id string) bool {
 	return strings.HasPrefix(id, WG) || strings.HasPrefix(id, WGFAST)
 }
