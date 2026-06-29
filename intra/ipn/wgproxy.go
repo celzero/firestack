@@ -866,11 +866,12 @@ func (w *wgtun) getViaIfDialed() Proxy {
 	return nil
 }
 
-// who concats id of this proxy & status of its via.
+// who returns unique id of this proxy
 func (w *wgtun) who() string {
 	return w.hdl
 }
 
+// who concats id of this proxy & status of its via
 func (w *wgtun) tag() string {
 	return w.who() + " (" + w.viaStatus() + ")"
 }
@@ -1245,6 +1246,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 
 	out = new(x.RouterStats)
 
+	out.Hdl = w.who()
 	out.Addrs = w.ifaddrs() // may be empty
 	out.Rx = -1
 	out.Tx = -2

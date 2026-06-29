@@ -177,34 +177,34 @@ func ChangeBufferSizes(c MinConn, rsz, wsz int) (n int, err error) {
 	return -2, errNotTcpNotUdp
 }
 
-func ChangeBufferSizesSockOpt(c MinConn, rsz, wsz int) (n int, err error) {
+func ChangeBufferSizesSockOpt(who string, c MinConn, rsz, wsz int) (sock, n int, err error) {
 	// min socket buffer size is at least 4kib
 	if rsz < MinMtu6*4 || wsz < MinMtu6*4 {
-		return -1, errBufferSmall
+		return -3, -1, errBufferSmall
 	}
 	cs, ok := c.(ControlConn)
 	if !ok {
-		return -2, errNotSyscallConn
+		return -3, -2, errNotSyscallConn
 	}
 	s, err := cs.SyscallConn()
 	if err != nil || s == nil {
-		return -3, OneErr(err, errNotSyscallConn)
+		return -3, -3, OneErr(err, errNotSyscallConn)
 	}
 	var oerr1, oerr2 error
 	err = s.Control(func(fd uintptr) {
-		sock := int(fd)
+		sock = int(fd)
 		if oerr1 = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_RCVBUF, rsz); oerr1 != nil {
 			if log.Debug {
-				log.V("core: sockopt: set SO_RCVBUF %d failed: %v", sock, oerr1)
+				log.V("core: sockopt: %s set SO_RCVBUF %d failed: %v", who, sock, rsz, oerr1)
 			}
 		}
 		if oerr2 = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_SNDBUF, wsz); oerr2 != nil {
 			if log.Debug {
-				log.V("core: sockopt: set SO_SNDBUF %d failed: %v", sock, oerr2)
+				log.V("core: sockopt: %s set SO_SNDBUF %d failed: %v", who, sock, wsz, oerr2)
 			}
 		}
 	})
-	return rsz, JoinErr(err, oerr1, oerr2)
+	return sock, rsz, JoinErr(err, oerr1, oerr2)
 }
 
 func boolint(b bool) int {

@@ -385,6 +385,7 @@ type ProxyListener interface {
 
 // RouterStats lists interesting stats of a Router.
 type RouterStats struct {
+	Hdl string
 	// addresses (csv) of the router
 	Addrs string
 	// bytes received

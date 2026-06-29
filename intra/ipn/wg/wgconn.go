@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -146,6 +147,8 @@ type StdNetBind struct {
 	mu   sync.RWMutex   // protects following fields
 	ipv4 net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
 	ipv6 net.PacketConn // (*net.UDPConn or *gonet.UDPConn)
+	fd4  int
+	fd6  int
 
 	// keeps wireguard's recv routine running by not returning errors yet dropping packets
 	blackhole4 bool
@@ -284,13 +287,9 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 	saddr := net.JoinHostPort(anyaddr.String(), fmt.Sprintf("%d", port))
 
 	conn, err := s.connect(network, saddr)
-	if err != nil {
+	if err != nil || conn == nil {
 		log.E("wg: bind: listen: %s %s: on(%v); err: %v", s.id, network, saddr, err)
-		return nil, 0, err
-	}
-	if conn == nil {
-		log.E("wg: bind: listen: %s %s: on(%v); conn nil", s.id, network, saddr)
-		return nil, 0, errNoListen
+		return nil, 0, core.OneErr(err, errNoListen)
 	}
 
 	laddr := conn.LocalAddr()
@@ -303,13 +302,9 @@ func (s *StdNetBind) listenNet(network string, port int) (net.PacketConn, int, e
 		laddr.Network(),
 		laddr.String(),
 	)
-	if err != nil {
+	if err != nil || uaddr == nil {
 		clos(conn)
-		return nil, 0, err
-	}
-	if uaddr == nil {
-		clos(conn)
-		return nil, 0, errNoLocalAddr
+		return nil, 0, core.OneErr(err, errNoLocalAddr)
 	}
 
 	log.I("wg: bind: listen: %s %s: on(%v)", s.id, network, laddr)
@@ -344,7 +339,7 @@ again:
 
 	ipv4, port, err = s.listenNet("udp4", port)
 	no4 := errors.Is(err, syscall.EAFNOSUPPORT)
-	if err != nil || settings.Debug {
+	if err != nil || log.Debug {
 		loge(err)("wg: bind: open: 1 %s #%d listen4(%d); no4? %t err? %v", s.id, tries, port, no4, err)
 	}
 	if err != nil && !no4 {
@@ -355,7 +350,7 @@ again:
 	ipv6, port, err = s.listenNet("udp6", port)
 	busy := errors.Is(err, syscall.EADDRINUSE)
 	no6 := errors.Is(err, syscall.EAFNOSUPPORT)
-	if err != nil || settings.Debug {
+	if err != nil || log.Debug {
 		loge(err)("wg: bind: open: 2 %s #%d listen6(%d); busy? %t no6? %t err? %v", s.id, tries, port, busy, no6, err)
 	}
 	if uport == 0 && busy && tries < maxbindtries {
@@ -371,17 +366,17 @@ again:
 	var fns []conn.ReceiveFunc
 	if ipv4 != nil {
 		s.ipv4 = ipv4
-		core.ChangeBufferSizesSockOpt(ipv4, wgreadsz, wgwritesz)
-		fns = append(fns, s.makeReceiveFn(ipv4))
+		s.fd4, _, _ = core.ChangeBufferSizesSockOpt(s.id, ipv4, wgreadsz, wgwritesz)
+		fns = append(fns, s.makeReceiveFn(s.fd4, ipv4))
 	}
 	if ipv6 != nil {
 		s.ipv6 = ipv6
-		core.ChangeBufferSizesSockOpt(ipv6, wgreadsz, wgwritesz)
-		fns = append(fns, s.makeReceiveFn(ipv6))
+		s.fd6, _, _ = core.ChangeBufferSizesSockOpt(s.id, ipv6, wgreadsz, wgwritesz)
+		fns = append(fns, s.makeReceiveFn(s.fd6, ipv6))
 	}
 
-	log.I("wg: bind: open: %s opened port(requested %d => using %d) for v4? %t v6? %t",
-		s.id, uport, port, ipv4 != nil, ipv6 != nil)
+	log.I("wg: bind: open: %s opened port(requested %d => using %d) for v4? %t (%d) v6? %t (%d)",
+		s.id, uport, port, ipv4 != nil, s.fd4, ipv6 != nil, s.fd6)
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
@@ -475,7 +470,7 @@ again:
 			retry = false
 			goto again
 		}
-		if settings.Debug { // warn if in debug mode ;)
+		if log.Debug { // warn if in debug mode ;)
 			log.W("wg: bind: %s obs channel full (drained %d); dropping %s", s.id, drained, op)
 		}
 	}
@@ -496,6 +491,7 @@ func (s *StdNetBind) Close() error {
 		var err1, err2 error
 		var addr1, addr2 net.Addr
 		v4, v6 := s.ipv4, s.ipv6
+		fd4, fd6 := s.fd4, s.fd6
 		if v4 != nil {
 			addr1 = v4.LocalAddr()
 			err1 = v4.Close()
@@ -506,13 +502,15 @@ func (s *StdNetBind) Close() error {
 			err2 = v6.Close()
 			s.ipv6 = nil
 		}
+		s.fd4 = -1
+		s.fd6 = -1
 		// resume if paused, so wireguard routines calling into send/recv error out
 		s.blackhole4 = false
 		s.blackhole6 = false
 
 		s.sendObsMsg(Clo, nil)
 
-		log.I("wg: bind: close: %s addrs %v + %v; err4? %v err6? %v", s.id, addr1, addr2, err1, err2)
+		log.I("wg: bind: close: %s addrs %v (%d) + %v (%d); err4? %v err6? %v", s.id, addr1, fd4, addr2, fd6, err1, err2)
 		return core.JoinErr(err1, err2)
 	}
 	log.W("wg: bind: close: %s racing... ignored", s.id)
@@ -523,10 +521,11 @@ func (s *StdNetBind) quit() {
 	_ = s.Close()
 }
 
-func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
+func (s *StdNetBind) makeReceiveFn(fd int, uc net.PacketConn) conn.ReceiveFunc {
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
-		defer core.Recover(core.Exit11, "wgconn.recv."+s.id)
+		who := strconv.Itoa(fd)
+		defer core.Recover(core.Exit11, "wgconn.recv."+who+"."+s.id)
 
 		anyProcessed := false // true when numMsgs > 0 (ex: no error)
 		anyTransportTyp := false
@@ -564,9 +563,9 @@ func (s *StdNetBind) makeReceiveFn(uc net.PacketConn) conn.ReceiveFunc {
 			epsz, eps[i] = s.asEndpoint(addr)
 		}
 
-		if settings.Debug { // log errors if in debug mode
-			loge(err)("wg: bind: recv: %s recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
-				s.id, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
+		if err != nil || log.Debug { // log errors if in debug mode
+			loge(err)("wg: bind: recv: %s (%s) recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
+				s.id, who, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
 		}
 		return numMsgs, err
 	}
@@ -602,10 +601,12 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	blackhole := s.blackhole4
 	uc := s.ipv4
 	noconn := uc == nil
+	fd := s.fd4
 	if dstIpp.Addr().Is6() {
 		blackhole = s.blackhole6
 		uc = s.ipv6
 		noconn = uc == nil
+		fd = s.fd6
 	}
 	s.mu.RUnlock()
 
@@ -620,9 +621,9 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	for _, data := range buf {
 		bufok := len(data) > 0
 
-		if false && settings.Debug {
-			log.VV("wg: bind: send: %s addr(%v) floodwg? %t, blackhole? %t; noconn? %t; hasbuf? %t",
-				s.id, dstIpp, floodWg, blackhole, noconn, bufok)
+		if false && log.Debug {
+			log.VV("wg: bind: send: %s (%d) addr(%v) floodwg? %t, blackhole? %t; noconn? %t; hasbuf? %t",
+				s.id, fd, dstIpp, floodWg, blackhole, noconn, bufok)
 		}
 
 		if blackhole || !bufok {
@@ -641,10 +642,10 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		if !flooded && (floodWg || hasAmnezia) {
 			if datalen == device.MessageInitiationSize {
-				s.flood(uc, ep, fkHandshake) // was probably a handshake
+				s.flood(fd, uc, ep, fkHandshake) // was probably a handshake
 				flooded = true
 			} else if datalen == device.MessageKeepaliveSize {
-				s.flood(uc, ep, fkKeepalive) // was probably a keepalive
+				s.flood(fd, uc, ep, fkKeepalive) // was probably a keepalive
 				flooded = true
 			}
 		}
@@ -661,9 +662,9 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(&dstIpp)
 
-	if settings.Debug {
-		loge(err)("wg: bind: send: %s addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",
-			s.id, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, errs)
+	if err != nil || log.Debug {
+		loge(err)("wg: bind: send: %s (%d) addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",
+			s.id, fd, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, errs)
 	}
 
 	return errs
@@ -673,7 +674,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 // this is okay to do because wireguard silently drops packets that won't decrypt.
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 // github.com/GFW-knocker/wireguard/blob/8bd9f582b4/device/send.go#L98
-func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) (int, error) {
+func (s *StdNetBind) flood(fd int, c net.PacketConn, dst StdNetEndpoint, why floodkind) (int, error) {
 	return s.floodBa.DoIt(dst.AddrPort, func() (int, error) {
 		hdrlen := len(wgheader)
 		hdr := make([]byte, hdrlen)
@@ -702,9 +703,9 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 			expectedsent[i] = hdrlen + int(sz)
 			n += sent
 
-			if settings.Debug && err != nil { // log error iff in debug mode
-				log.E("wg: bind: flood: %s %s %s: expected sent?(%v) / tot(%d); %v",
-					s.id, why, dst, expectedsent[:i], n, err)
+			if log.Debug && err != nil { // log error iff in debug mode
+				log.E("wg: bind: flood: %s (%d) %s %s: expected sent?(%v) / tot(%d); %v",
+					s.id, fd, why, dst, expectedsent[:i], n, err)
 				return n, err
 			}
 
@@ -712,9 +713,9 @@ func (s *StdNetBind) flood(c net.PacketConn, dst StdNetEndpoint, why floodkind) 
 			time.Sleep(wait)
 		}
 
-		if settings.Debug {
-			log.D("wg: bind: flood %s %s %s: expected sent?(%v) / tot(%d)",
-				s.id, why, dst, expectedsent, n)
+		if log.Debug {
+			log.D("wg: bind: flood %s (%d) %s %s: expected sent?(%v) / tot(%d)",
+				s.id, fd, why, dst, expectedsent, n)
 		}
 		return n, nil
 	})
@@ -823,7 +824,7 @@ func loge(err error) log.LogFn {
 	l := log.N // no-op
 	if err != nil {
 		l = log.W
-	} else if settings.Debug {
+	} else if log.Verbose {
 		l = log.V
 	}
 	return l

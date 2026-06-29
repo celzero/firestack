@@ -335,9 +335,10 @@ again:
 
 	canBatch := supportsBatchRw()
 
+	var fd4, fd6 int
 	var fns []conn.ReceiveFunc
 	if v4conn != nil {
-		core.ChangeBufferSizesSockOpt(v4conn, wgreadsz, wgwritesz)
+		fd4, _, _ = core.ChangeBufferSizesSockOpt(s.id, v4conn, wgreadsz, wgwritesz)
 		s.ipv4TxOffload, s.ipv4RxOffload = supportsUDPOffload(v4conn)
 		if canBatch {
 			s.ipv4PC = ipv4.NewPacketConn(v4conn)
@@ -346,7 +347,7 @@ again:
 		fns = append(fns, s.makeReceiveIPv4())
 	}
 	if v6conn != nil {
-		core.ChangeBufferSizesSockOpt(v6conn, wgreadsz, wgwritesz)
+		fd6, _, _ = core.ChangeBufferSizesSockOpt(s.id, v6conn, wgreadsz, wgwritesz)
 		s.ipv6TxOffload, s.ipv6RxOffload = supportsUDPOffload(v6conn)
 		if canBatch {
 			s.ipv6PC = ipv6.NewPacketConn(v6conn)
@@ -355,7 +356,7 @@ again:
 		fns = append(fns, s.makeReceiveIPv6())
 	}
 
-	log.I("wg: bind2: %s supports batch read/write? %t; has4? %t; has6 %t", s.id, canBatch, s.ipv4PC != nil, s.ipv6PC != nil)
+	log.I("wg: bind2: %s supports batch read/write? %t; has4? %t (%d); has6 %t (%d)", s.id, canBatch, s.ipv4PC != nil, fd4, s.ipv6PC != nil, fd6)
 	log.I("wg: bind2: %s opened port(%d) for v4? %t / v6? %t", s.id, port, v4conn != nil, v6conn != nil)
 
 	if len(fns) == 0 {
