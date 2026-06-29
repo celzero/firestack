@@ -344,7 +344,7 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	// re-adds + updates if the proxy already exists
 	kid, err := r.pxr.addRpnProxy(acc, cc)
 
-	if kid != nil {
+	if kid != nil && core.IsNotNil(kid) {
 		r.mu.Lock()
 		r.kids[cc] = struct{}{}
 		r.mu.Unlock()
