@@ -358,7 +358,7 @@ again:
 		tries++
 		goto again
 	}
-	if err != nil && !no6 {
+	if err != nil && !no6 { // err and supports v6
 		clos(ipv4)
 		return nil, 0, err
 	}
@@ -522,9 +522,9 @@ func (s *StdNetBind) quit() {
 }
 
 func (s *StdNetBind) makeReceiveFn(fd int, uc net.PacketConn) conn.ReceiveFunc {
+	who := strconv.Itoa(fd)
 	// github.com/WireGuard/wireguard-go/blob/469159ecf/device/device.go#L531
 	return func(bufs [][]byte, sizes []int, eps []conn.Endpoint) (n int, err error) {
-		who := strconv.Itoa(fd)
 		defer core.Recover(core.Exit11, "wgconn.recv."+who+"."+s.id)
 
 		anyProcessed := false // true when numMsgs > 0 (ex: no error)
@@ -619,9 +619,10 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	hasAmnezia := amnezia.Set()
 
 	for _, data := range buf {
-		bufok := len(data) > 0
+		datalen := len(data) // grab the length before amnezia overwrites it
+		bufok := datalen > 0
 
-		if false && log.Debug {
+		if false && log.Verbose {
 			log.VV("wg: bind: send: %s (%d) addr(%v) floodwg? %t, blackhole? %t; noconn? %t; hasbuf? %t",
 				s.id, fd, dstIpp, floodWg, blackhole, noconn, bufok)
 		}
@@ -635,8 +636,6 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		anyProcessed = true
 		anyTransportTyp = anyTransportTyp || transportType(data)
-
-		datalen := len(data) // grab the length before we overwrite it
 
 		overwritten = amnezia.send(&data)
 

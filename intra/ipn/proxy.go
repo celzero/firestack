@@ -724,7 +724,7 @@ func healthy(p Proxy) error {
 
 	stat := p.Router().Stat()
 	now := now()
-	age := now - stat.Since
+	age := now - stat.LastOpen
 
 	oldEnough := age > ageThreshold.Milliseconds()
 	lastOK := stat.LastOK

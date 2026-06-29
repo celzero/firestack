@@ -414,6 +414,8 @@ type RouterStats struct {
 	LastOK int64
 	// last refresh time in millis
 	LastRefresh int64
+	// last re-connection opened in unix millis
+	LastOpen int64
 	// uptime in millis
 	Since int64
 	// Current proxy status

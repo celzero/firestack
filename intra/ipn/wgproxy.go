@@ -150,6 +150,7 @@ type wgtun struct {
 	// TODO: move status to a state-machine for all proxies
 	status          *core.Volatile[int]   // status of this interface
 	statusReason    core.Volatile[string] // last state transition reason
+	latestOpen      atomic.Int64          // last open time in unix millis
 	latestRefresh   atomic.Int64          // last refresh time in unix millis
 	latestPing      atomic.Int64          // last ping time in unix millis
 	latestErr       core.Volatile[error]  // last open/dial err
@@ -1265,6 +1266,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.LastGoodRx = w.latestGoodRx.Load()
 	out.LastGoodTx = w.latestGoodTx.Load()
 	out.LastRefresh = w.latestRefresh.Load()
+	out.LastOpen = w.latestOpen.Load()
 	out.Since = w.since
 	out.Status = pxstatus(w.status.Load()).String()
 	out.StatusReason = w.statusReason.Load()
@@ -1720,10 +1722,12 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		why = "TNT: closed; prev: " + pxstatus(s).String()
 		s = TNT
 		return
+	} else if op == wg.Opn {
+		h.latestOpen.Store(now())
 	}
 
 	now := now()
-	age := now - h.since
+	age := now - h.latestOpen.Load()
 	if err != nil { // failing
 		s = TKO
 		why = "TKO: " + err.Error()
@@ -1738,6 +1742,8 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 			// on net.ErrClosed, wg stops recieving routine for all peers; this among
 			// other things mean that the wg.Device is effectively down and would not
 			// recieve any incoming messages (nor outgoing as those use the same socket)
+			// Note that, there could be multiple receive functions (not just one) and
+			// the other ones (one each per ip family) may be running just fine.
 			s = TNT
 			why = "TNT: closed " + string(op)
 		}
@@ -1791,7 +1797,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		hasNewReads := lastRead > age
 
 		// too much time since last good write and good reads
-		readWriteDeviation := (hasNewReads || hasNewWrites) && deviationMs > markTNTAfterMillis
+		readWriteDeviation := (hasNewReads || hasNewWrites) && deviationMs > 2*markTNTAfterMillis
 		// too much time since last attempted read was good
 		readThres := hasNewReads && readElapsedMs > markTNTAfterMillis
 		// too much time since last attempted write was good
