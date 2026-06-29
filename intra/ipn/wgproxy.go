@@ -569,7 +569,7 @@ func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 }
 
 func wglogger(w *wgtun) *device.Logger {
-	tag := WG + ":" + w.id + ":" + core.LocStr(w)
+	tag := WG + "#" + w.idhdl
 	logger := &device.Logger{
 		Verbosef: log.Of(tag, log.V2),
 		Errorf:   log.Of(tag, log.E2),
