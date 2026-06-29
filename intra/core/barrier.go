@@ -251,10 +251,10 @@ func (ba *Barrier[T, K]) Do(k K, once Work[T]) (*V[T, K], DidDo) {
 		val T
 		err error
 	}
-	rch := make(chan res, 1)
+	rch := make(chan *res, 1)
 	Go("ba.do."+ba.id+">"+c.id(), func() {
 		v, e := once()
-		rch <- res{v, e}
+		rch <- &res{v, e}
 	})
 
 	select {
