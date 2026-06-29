@@ -80,8 +80,8 @@ const (
 
 	FAST = x.WGFAST
 
-	refreshInterval    = 30 * time.Second // refresh interval between onNotOKs
-	minRefreshInterval = 5 * time.Second  // hard refresh interval; roughly one re-send handshake timeout
+	refreshInterval    = 1 * time.Minute // refresh interval between onNotOKs
+	minRefreshInterval = 5 * time.Second // hard refresh interval; roughly one re-send handshake timeout
 )
 
 var (
@@ -145,7 +145,7 @@ type wgtun struct {
 
 	uapicfg *core.Volatile[string] // stores the last UAPI-formatted peer config
 
-	refreshBa *core.Barrier[bool, string] // 2mins refresh barrier
+	refreshBa *core.Barrier[bool, string] // 1min refresh barrier
 
 	// TODO: move status to a state-machine for all proxies
 	status          *core.Volatile[int]   // status of this interface
@@ -361,7 +361,7 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 }
 
 func (w *wgproxy) tooyoung() bool {
-	return now()-w.since < ageThreshold.Milliseconds()
+	return now()-w.latestOpen.Load() < ageThreshold.Milliseconds()
 }
 
 // Refresh implements Proxy.
@@ -1744,8 +1744,8 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 			// recieve any incoming messages (nor outgoing as those use the same socket)
 			// Note that, there could be multiple receive functions (not just one) and
 			// the other ones (one each per ip family) may be running just fine.
-			s = TNT
-			why = "TNT: closed " + string(op)
+			s = TKO
+			why = "TKO: closed " + string(op)
 		}
 
 		if op == wg.Rcv && !timedout(err) { // read error

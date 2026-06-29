@@ -730,7 +730,7 @@ func healthy(p Proxy) error {
 	lastOK := stat.LastOK
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
-	if (oldEnough && lastOKNeverOK) || status == TNT || lastOKBeyondThres {
+	if (oldEnough && lastOKNeverOK) || lastOKBeyondThres {
 		core.Gx("proxy.health.TNT."+pid, func() { p.onNotOK() }) // not ok for too long
 		return fmt.Errorf("proxy: %s not ok; age: %s / %s / lastOKNeverOK? %t / lastOKBeyondThres? %t",
 			pid, core.FmtMillis(age), pxstatus(status), lastOKNeverOK, lastOKBeyondThres)
