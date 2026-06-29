@@ -602,7 +602,8 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 	// TODO? do not use defer func() and do copy: go.dev/play/p/oGUJepa3VUo
 	defer func() {
 		if settings.Debug {
-			smm.Extra = smm.Extra + " / " + core.FmtTimeAsPeriod(starttime)
+			smm.Extra = smm.Extra + " / " + core.FmtSecsFloat(smm.Latency)
+			smm.Latency = time.Since(starttime).Seconds()
 		}
 		r.queueSummary(smm) // always call up to the listener
 	}()
