@@ -443,7 +443,7 @@ jobs:
       - name: 🥏 Checkout
         uses: actions/checkout@v6
       - name: 🍭 Run
-        uses: oss-review-toolkit/ort-ci-github-action@main
+        uses: oss-review-toolkit/ort-ci-github-action@v1.2.0
         with:
           run: >
             cache-dependencies,
