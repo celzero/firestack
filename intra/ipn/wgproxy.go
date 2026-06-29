@@ -105,8 +105,9 @@ type wgtun struct {
 	ctx  context.Context
 	done context.CancelFunc
 
-	id  string // id
-	hdl string // id+handle
+	id    string // id
+	hdl   uint64 // handle
+	idhdl string // id+handle
 
 	addrs         []netip.Prefix    // interface addresses
 	stack         *stack.Stack      // stack fakes tun device for wg
@@ -190,16 +191,18 @@ type WgProxy interface {
 
 // Handle implements Proxy.
 func (h *wgproxy) Handle() uint64 {
-	return core.Loc(h.Device)
+	// TODO: if wgdev is swappable / volatile, hdl needs to track that instead
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.
+// TODO: DialerHandle should track wgconn, but it does not
 func (h *wgproxy) DialerHandle() uint64 {
 	via, up := h.getViaWithStatus()
 	if up && via != nil {
 		return via.Handle()
 	}
-	return core.Loc(h.direct)
+	return h.hdl
 }
 
 // Dial implements Proxy.
@@ -492,7 +495,7 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 	}
 
 	// str copy: go.dev/play/p/eO814kGGNtO
-	cptxt := txt
+	cptxt := strings.Clone(txt)
 	opts, err := wgIfConfigOf(w.id, &cptxt)
 	if err != nil {
 		log.W("proxy: wg: update(%s<>%s): err: %v", id, w.who(), err)
@@ -798,7 +801,7 @@ func NewWgProxy(pctx context.Context, id string, ctl protect.Controller, px Prox
 		wgep,  // endpoint
 	}
 
-	defer context.AfterFunc(pctx, func() { _ = w.Close() })
+	context.AfterFunc(pctx, func() { _ = w.Close() })
 
 	log.D("proxy: wg: new %s; addrs(%v) mtu(%d/%d) peers(%d) / v4(%t) v6(%t)",
 		wgtun.tag(), opts.ifaddrs, opts.mtu, w.ep.MTU(), len(opts.peers), wgtun.IP4(), wgtun.IP6())
@@ -868,7 +871,7 @@ func (w *wgtun) getViaIfDialed() Proxy {
 
 // who returns unique id of this proxy
 func (w *wgtun) who() string {
-	return w.hdl
+	return w.idhdl
 }
 
 // who concats id of this proxy & status of its via
@@ -951,7 +954,8 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	t.dns.Store(ifopts.dns)
 	t.remote.Store(ifopts.eps) // may be nil
 	t.amnezia.Store(ifopts.amnezia)
-	t.hdl = id2 + ":" + core.LocStr(t)
+	t.hdl = core.Loc(t)
+	t.idhdl = id2 + ":" + core.LocStr(t)
 	t.latestRefresh.Store(t.since)
 	t.desiredmtu.Store(uint32(ifopts.mtu))
 	t.netmtu.Store(uint32(lp.mtu))

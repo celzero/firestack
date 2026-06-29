@@ -194,12 +194,12 @@ func ChangeBufferSizesSockOpt(who string, c MinConn, rsz, wsz int) (sock, n int,
 	err = s.Control(func(fd uintptr) {
 		sock = int(fd)
 		if oerr1 = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_RCVBUF, rsz); oerr1 != nil {
-			if log.Debug {
+			if log.Verbose {
 				log.V("core: sockopt: %s set SO_RCVBUF %d failed: %v", who, sock, rsz, oerr1)
 			}
 		}
 		if oerr2 = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_SNDBUF, wsz); oerr2 != nil {
-			if log.Debug {
+			if log.Verbose {
 				log.V("core: sockopt: %s set SO_SNDBUF %d failed: %v", who, sock, wsz, oerr2)
 			}
 		}
