@@ -715,7 +715,8 @@ func healthy(p Proxy) error {
 		return nil
 	}
 
-	if err := candial2(p.Status()); err != nil {
+	status := p.Status()
+	if err := candial2(status); err != nil {
 		return err
 	} // TODO: err on TNT, TKO?
 
@@ -729,13 +730,13 @@ func healthy(p Proxy) error {
 	lastOK := stat.LastOK
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
-	if (oldEnough && lastOKNeverOK) || lastOKBeyondThres {
+	if (oldEnough && lastOKNeverOK) || status == TNT || lastOKBeyondThres {
 		core.Gx("proxy.health.TNT."+pid, func() { p.onNotOK() }) // not ok for too long
-		return fmt.Errorf("proxy: %s not ok; age: %s / lastOKNeverOK? %t / lastOKBeyondThres? %t",
-			pid, core.FmtMillis(age), lastOKNeverOK, lastOKBeyondThres)
+		return fmt.Errorf("proxy: %s not ok; age: %s / %s / lastOKNeverOK? %t / lastOKBeyondThres? %t",
+			pid, core.FmtMillis(age), pxstatus(status), lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
 		core.Gx("proxy.health.TZZ."+pid, func() { p.Ping() })
-	} else if p.Status() != TOK {
+	} else if status != TOK {
 		core.Gx("proxy.health.TOK."+pid, func() { p.Ping() })
 	}
 
