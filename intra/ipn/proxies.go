@@ -507,7 +507,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 				px.delpin(uid, ipp)
 				return nil, e(core.JoinErr(err, errProxyRoute))
 			} // there is only one pid to route to
-			if maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+			if uid != protect.UidSelf && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+				// allow h3 like traffic from uidself, which could actually be rpn/wg on 443
 				err = errProxyProtoH3
 				px.delpin(uid, ipp)
 				return nil, e(core.JoinErr(err, errProxyProtoH3))
@@ -543,7 +544,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 
 		hasp := core.IsNotNil(p)
 		if hasp && p != nil && err != nil {
-			if maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+			// allow h3 like egress from uidself, which could actually be rpn/wg on 443
+			if uid != protect.UidSelf && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
 				err = core.JoinErr(err, errProxyProtoH3)
 			} else if hasroute(p, ippstr) {
 				return p, nil
@@ -599,7 +601,9 @@ retrySearch:
 			continue
 		}
 
-		if maybeH3(proto, ipp) && cantProxyH3(pid) {
+		// TODO: uidself check only required for loopback mode?
+		// allow h3 like egress from uidself, which could actually be rpn/wg on 443
+		if uid != protect.UidSelf && maybeH3(proto, ipp) && cantProxyH3(pid) {
 			noh3proxies = append(noh3proxies, pid)
 			continue
 		}
