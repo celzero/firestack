@@ -25,7 +25,6 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 )
 
 // github.com/Windscribe/browser-extension/blob/ed83749ad/modules/ext/src/utils/constants.js#L31
@@ -1085,6 +1084,8 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 				Count:    rc.Count,
 				Premium:  rc.Premium,
 				Excluded: isExcluded,
+				PubPub:   trunc8(rc.ServerPubKey) + "&" + trunc8(rc.ClientPubKey),
+				Allowed:  strings.Join(rc.AllowedIPs, ","),
 				// cc is always suffixed; see proxy.go:proxifier.postAddRpnProxy
 				Key:   strings.Join([]string{rc.City, rc.CC}, confKeySep),
 				Addrs: strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
@@ -1445,7 +1446,7 @@ func wsRes[T any](res *http.Response, out *T, op string) (*T, error) {
 		return nil, log.EE("ws: %s: %s: unmarshal err: %v; res: %s", op, ray, err, truncate2k(body))
 	}
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: wgconfs: %s: %s: res json: %+v", op, ray, out)
 	}
 
@@ -1478,7 +1479,7 @@ func getSession(h *http.Client, ent *WsEntitlement) (*WsSession, error) {
 	authHeader(req, tok)
 	didAndDBHeader(req, did, ent.DidToken, ent.TestDomain)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: getsess: req: %s tok %s", u.String(), tokst)
 	}
 
@@ -1584,12 +1585,13 @@ func convertToRegionalWgConfs(id *WsWgCreds, list []WsServerList, test bool, por
 			}
 			noip3 := !hasIP3(group.Nodes)
 			if len(group.Nodes) <= 0 || noip3 {
-				log.W("ws: wgconfs: no nodes in %s (%s); ip3? %t", group.City, group.Nick, noip3)
+				log.W("ws: wgconfs: no nodes in %s (%s) [%s@%s]; ip3? %t",
+					group.City, group.Nick, trunc8(group.WgPubKey), group.WgEndpoint, !noip3)
 				continue // skip servers without nodes
 			}
 			if !allPerRegionWgConfs && tot[cc] >= maxPerRegionWgConfs*2 {
-				log.D("ws: wgconfs: skip! %s (%s) has %d configs already",
-					cc, servername, tot[cc])
+				log.D("ws: wgconfs: skip! %s (%s) has %d configs already [%s %s]",
+					cc, servername, tot[cc], trunc8(group.WgPubKey), group.WgEndpoint)
 				break // we have enough configs for this region
 			}
 			tot[cc] = tot[cc] + 1
@@ -1619,9 +1621,9 @@ func convertToRegionalWgConfs(id *WsWgCreds, list []WsServerList, test bool, por
 				ServerIPPort4:    net.JoinHostPort(wsRandomIP3(group.Nodes), portStr),
 				AllowedIPs:       allowed,
 			})
-			if settings.Debug {
-				log.VV("ws: wgconfs: gen for %s (%s) [load: %d; link: %s; count: %d]; total for %s: %d; errs? %v",
-					group.City, group.Nick, group.Health, group.LinkSpeed, len(group.Nodes), cc, tot[cc], lerr)
+			if log.Verbose {
+				log.VV("ws: wgconfs: gen for %s (%s) [load: %d; link: %s; count: %d]; total for %s: %d; errs? %v [%s %s]",
+					group.City, group.Nick, group.Health, group.LinkSpeed, len(group.Nodes), cc, tot[cc], lerr, trunc8(group.WgPubKey), group.WgEndpoint)
 			}
 		}
 	}
@@ -1686,7 +1688,7 @@ func getServerList(h *http.Client, sess *WsSession, ent *WsEntitlement) (*WsServ
 	}
 	didAndDBHeader(locreq, did, ent.DidToken, test)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: wgconfs: req: %s tok %s", u.String(), tokenState(bearer))
 	}
 
@@ -1833,7 +1835,7 @@ initagain:
 		authHeader(initreq, bearer)
 		didAndDBHeader(initreq, ent.Did, ent.DidToken, test)
 
-		if settings.Debug {
+		if log.Verbose {
 			log.V("ws: wgconfs: %s init req: %s; tok %s; force %s", details, u.String(), tokst, force)
 		}
 
@@ -1932,7 +1934,7 @@ connectagain:
 	authHeader(creq, sess.SessionToken)
 	didAndDBHeader(creq, ent.Did, ent.DidToken, test)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: wgconfs: %s connect#%d req: %s tok %s", details, runconnect, u.String(), tokst)
 	}
 
@@ -2265,8 +2267,8 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 	notold := !existingConf.LastUpdate.IsZero() &&
 		time.Since(existingConf.LastUpdate) < wsUpdateThreshold
 
-	if settings.Debug {
-		log.D("ws: make: force? %t / old? %t (from: %s); tok? %s", !force, notold, fmtTime(existingConf.LastUpdate), tokst)
+	if log.Debug {
+		log.D("ws: make: force? %t / old? %t (from: %s); tok? %s", !force, !notold, fmtTime(existingConf.LastUpdate), tokst)
 	}
 	if !force && notold {
 		newSess = existingConf.Session
@@ -2376,7 +2378,7 @@ func listKeys(h *http.Client, ent *WsEntitlement, bearer string) (*WsWgListKeysR
 	authHeader(req, bearer)
 	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: listkeys: req: %s tok %s", u.String(), tokst)
 	}
 
@@ -2414,7 +2416,7 @@ func getDNSFilters(h *http.Client, ent *WsEntitlement, bearer string) ([]WsFilte
 	authHeader(req, bearer)
 	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: filters: get: req: %s tok %s", u.String(), tokst)
 	}
 
@@ -2463,7 +2465,7 @@ func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, e
 	authHeader(req, bearer)
 	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: filters: set: %s status=%d req: %s tok %s", filterID, status, u.String(), tokst)
 	}
 
@@ -2593,7 +2595,7 @@ func createPermaCreds(h *http.Client, ent *WsEntitlement, bearer, pubkey string)
 	authHeader(req, bearer)
 	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("ws: conf: perma: (m? %t) req: %s tok %s; port %s", managed, u.String(), tokst, port)
 	}
 

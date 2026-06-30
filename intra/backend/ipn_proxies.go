@@ -440,6 +440,10 @@ type RpnServer struct {
 	Name string
 	// CSV of IP:Port and/or Domain:Port
 	Addrs string
+	// CSV of IP subnets allowed to be used by this server.
+	Allowed string
+	// Public key pair for this peer (WireGuard).
+	PubPub string
 	// Country code of the location.
 	CC string
 	// City name of the location.
