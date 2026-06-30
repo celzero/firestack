@@ -39,6 +39,24 @@ func (m *MHMap) All() (all []*MH) {
 	return
 }
 
+func (m *MHMap) Endpoints() (all []string) {
+	if m == nil {
+		return
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+	for n, _ := range m.byHostport {
+		all = append(all, n)
+	}
+	if len(all) <= 0 {
+		for ipp, _ := range m.byIpp {
+			all = append(all, ipp.String())
+		}
+	}
+	return
+}
+
 func (m *MHMap) Get(hostOrIpport string) (h *MH, _ error) {
 	if m == nil {
 		return nil, errMhNotFound

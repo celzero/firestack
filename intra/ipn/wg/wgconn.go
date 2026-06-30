@@ -222,6 +222,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, err
 	}
 
+	all := d.Addrs()
 	// do what tailscale does, and share a preferred endpoint regardless of "s"
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	ipport := d.PreferredAddr()
@@ -232,7 +233,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, errInvalidEndpoint
 	}
 
-	log.I("wg: bind: %s new shared endpoint for %s %v", e.id, s, ipport)
+	log.I("wg: bind: %s new shared endpoint for %s %v [among: %s]", e.id, s, ipport, all)
 
 	// todo: add stdnetendpoint to s.eps
 	return StdNetEndpoint{ipport, udpaddr(ipport)}, nil

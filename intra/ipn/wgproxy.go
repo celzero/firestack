@@ -139,7 +139,7 @@ type wgtun struct {
 	dns     atomic.Pointer[multihost.MH]    // dns resolver for this interface
 	remote  atomic.Pointer[multihost.MHMap] // peer (remote endpoint) addrs
 	amnezia atomic.Pointer[wg.Amnezia]      // amnezia/warp config, if any
-	allowed *core.Volatile[[]netip.Prefix]  // allowed ips by all peers
+	allowed atomic.Pointer[[]netip.Prefix]  // allowed ips by all peers
 
 	rt x.IpTree // route table for this interface
 
@@ -447,7 +447,7 @@ func (w *wgproxy) redoPeers() {
 
 func (h *wgtun) ipcset(d *device.Device) {
 	if cfg := h.uapicfg.Load(); len(cfg) > 0 {
-		cpcfg := cfg                      // copies string
+		cpcfg := strings.Clone(cfg)       // copies string
 		_, _ = wgIfConfigOf(h.id, &cpcfg) // removes non-uapi fields
 		ipcerr := d.IpcSet(cpcfg)
 		logei(ipcerr)("proxy: wg: %s: ipcset: re-apply; err %v", h.tag(), ipcerr)
@@ -535,9 +535,9 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 
 	// reusing existing tunnel (interface config unchanged)
 	// but peer config may have changed!
-	log.I("proxy: wg: update: (%s<>%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d; dns: %d=>%d; endpoint: %d=>%d",
+	log.I("proxy: wg: update: (%s<>%s): reuse; mtu: %d=>%d, allowed: %d=>%d; peers: %d; dns: %d=>%d; endpoint: %d=>%d (%s => %s)",
 		id, w.who(), w.ep.MTU(), maybeNewMtu, w.rt.Len(), len(opts.allowed), len(opts.peers), w.dns.Load().Len(), opts.dns.Len(),
-		w.remote.Load().Len() /*remote.Load may return nil*/, opts.eps.Len())
+		w.remote.Load().Len() /*remote.Load may return nil*/, opts.eps.Len(), w.remote.Load().Endpoints(), opts.eps.Endpoints())
 
 	w.allowedIPs(opts.allowed)
 	w.remote.Store(opts.eps)             // requires refresh (wg.Conn:ParseEndpoint must be re-called)
@@ -552,8 +552,9 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		log.W("proxy: updating wg(%s<>%s) ipcset; err %v", id, w.who(), ipcerr)
 		return anew
 	}
-	// w.Device is assumed to be Up
-	w.uapicfg.Store(txt) // persist the updated UAPI peer config
+	// w.Device is assumed to be Up? Send an EventDown first?
+	w.events <- tun.EventUp // re-apply interface config to wg device
+	w.uapicfg.Store(txt)    // persist the updated UAPI peer config
 
 	return reused
 }
@@ -563,7 +564,7 @@ func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 	for _, ipnet := range allowed {
 		w.rt.Set(ipnet.String(), w.id)
 	}
-	w.allowed.Store(allowed)
+	w.allowed.Store(&allowed)
 	// TODO: remove IPs on peer replace
 	// TODO: remove IPs on peer update
 }
@@ -586,6 +587,7 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 	opts.peers = make(map[string]device.NoisePublicKey)
 	opts.amnezia = wg.NewAmnezia(id)
 	opts.mtu = MAXMTU // auto
+	opts.allowed = make([]netip.Prefix, 0)
 
 	var currentPeer *multihost.MH
 	for r.Scan() {
@@ -774,7 +776,7 @@ func loadIPNets(id string, out *[]netip.Prefix, v string) (err error) {
 
 // ref: github.com/WireGuard/wireguard-android/blob/713947e432/tunnel/tools/libwg-go/api-android.go#L76
 func NewWgProxy(pctx context.Context, id string, ctl protect.Controller, px ProxyProvider, lp LinkProps, cfg string) (*wgproxy, error) {
-	ogcfg := cfg
+	ogcfg := strings.Clone(cfg)
 	opts, err := wgIfConfigOf(id, &cfg)
 	if err != nil {
 		log.E("proxy: wg: %s failure getting opts from config %v", id, err)
@@ -944,7 +946,6 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		px:            px,
 		via:           core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 		rev:           core.NewVolatile(lp.rev),
-		allowed:       core.NewVolatile(ifopts.allowed),
 		rt:            x.NewIpTree(), // must be set to allowedaddrs
 		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
@@ -954,6 +955,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	}
 	t.dns.Store(ifopts.dns)
 	t.remote.Store(ifopts.eps) // may be nil
+	t.allowed.Store(&ifopts.allowed)
 	t.amnezia.Store(ifopts.amnezia)
 	t.hdl = core.Loc(t)
 	t.idhdl = id2 + ":" + core.LocStr(t)
@@ -1284,7 +1286,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	}
 
 	if settings.Debug {
-		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String() + "\nallowed:" + fmt.Sprintf("%v", w.allowed.Load())
+		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String() + "\nallowed:" + fmt.Sprintf("%v", *w.allowed.Load())
 
 		log.VV("proxy: wg: %s stats: rx: %d, tx: %d, r: %s (rlastok: %s), w: %s (wlastok: %s), lastok: %s",
 			w.tag(), out.Rx, out.Tx,
