@@ -257,8 +257,10 @@ type RpnProxy interface {
 	Purge(cc string) bool
 	// Get returns proxy for country code, cc.
 	Get(cc string) (Proxy, error)
-	// Kids returns csv of forked proxy PIDs, excluding this one.
-	Kids() (csvpids string)
+	// Kids returns RpnServers describing all forked kids, excluding the main proxy.
+	Kids() RpnServers
+	// Main returns RpnServer describing the main proxy, if present.
+	Main() *RpnServer
 }
 
 // RpnAcc represents an account with RPN provider.

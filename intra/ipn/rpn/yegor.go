@@ -1150,10 +1150,10 @@ func (a *WsClient) shallowCopyConfig(b *WsClient) (copied bool, err error) {
 }
 
 // Conf implements RpnAcc.
-func (a *WsClient) Conf(cc string) (string, error) {
+func (a *WsClient) Conf(cc string) (string, *x.RpnServer, error) {
 	cfg := a.config()
 	if cfg == nil {
-		return "", errWsNoConfig
+		return "", nil, errWsNoConfig
 	}
 	usePerma := !disablePermaCreds && a.Ops().Perma()
 	if usePerma && cfg.PermaCreds == nil {
@@ -1179,7 +1179,7 @@ func (a *WsClient) Conf(cc string) (string, error) {
 	if !chooseAny && len(excl) > 0 {
 		if _, excluded := excl[cc]; excluded {
 			log.W("ws: conf: cc %s is excluded...", cc)
-			return "", errWsCCExcluded
+			return "", nil, errWsCCExcluded
 		}
 	}
 
@@ -1188,11 +1188,11 @@ reconf:
 	tot := 0  // total seen
 	c := 0    // good cc conf
 	badc := 0 // bad cc conf
-	x := 0    // total excluded
+	xl := 0   // total excluded
 	v := 0    // total visited
 	visited := make(map[string]struct{}, len(cfg.Configs))
 	out := make([]string, 0, maxPerRegionWgConfs)
-	ids := make([]string, 0, maxPerRegionWgConfs)
+	srvs := make([]x.RpnServer, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
 		// TODO: strings.HasSuffix(rc.Cc, cc) replaced with ==?
 		if (chooseAny || strings.HasSuffix(rc.CC, cc)) && (!hasCity || rc.City == city) {
@@ -1204,7 +1204,7 @@ reconf:
 				v++
 				// skip CCs the user has excluded
 				if _, excluded := excl[rc.CC]; excluded {
-					x++
+					xl++
 					continue
 				}
 				if c > 2 {
@@ -1240,8 +1240,22 @@ reconf:
 				confstr, confok = rc.MakeUapiConfig(cfg.Creds, portstr)
 			}
 			if confok {
+				// _, isExcluded := excl[rc.CC] assert false!
 				out = append(out, confstr)
-				ids = append(ids, strings.Join([]string{rc.CC, rc.City, rc.Name}, "/"))
+				srvs = append(srvs, x.RpnServer{
+					CC:       rc.CC,
+					City:     rc.City,
+					Name:     rc.Name,
+					Load:     rc.Load,
+					Link:     rc.Link,
+					Count:    rc.Count,
+					Premium:  rc.Premium,
+					Excluded: false,
+					PubPub:   trunc8(rc.ServerPubKey) + "&" + trunc8(rc.ClientPubKey),
+					Allowed:  strings.Join(rc.AllowedIPs, ","),
+					Key:      strings.Join([]string{rc.City, rc.CC}, confKeySep),
+					Addrs:    strings.Join([]string{rc.ServerDomainPort, rc.addrCsv()}, ","),
+				})
 				c++
 			} else {
 				badc++
@@ -1251,12 +1265,13 @@ reconf:
 	}
 	if len(out) > 0 {
 		r := rand.IntN(len(out))
-		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s] (port: %s)", cc, city, c, len(out), chooseAny, r, ids[r], portstr)
-		return out[r], nil
+		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s/%s] (port: %s)",
+			cc, city, c, len(out), chooseAny, r, srvs[r].City, srvs[r].CC, portstr)
+		return out[r], &srvs[r], nil
 	}
-	if x > 0 && (tot == 0 || v <= x) { // fail open if all CCs excluded
+	if xl > 0 && (tot == 0 || v <= xl) { // fail open if all CCs excluded
 		logew(retried)("ws: conf: cc %s(%s): all visited(%d) / excluded(%d) / bad(%d); tot: %d / excl: %d; retry?",
-			cc, city, v, x, badc, tot, len(excl), !retried)
+			cc, city, v, xl, badc, tot, len(excl), !retried)
 		if !retried {
 			clear(excl) // fail open; excluded none
 			clear(visited)
@@ -1265,7 +1280,7 @@ reconf:
 		}
 	}
 	log.E("ws: conf: cc %s(%s) not found (tot: %d)", cc, city, tot)
-	return "", errWsNoCcConfig
+	return "", nil, errWsNoCcConfig
 }
 
 // unused on the control plane, so use a fixed but valid hostname

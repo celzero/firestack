@@ -55,7 +55,7 @@ type RpnAcc interface {
 	x.RpnAcc
 	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz, x.RpnWin
 	MultiCountry() bool
-	Conf(key string) (string, error)
+	Conf(key string) (string, *x.RpnServer, error)
 }
 
 var _ RpnAcc = (*WsClient)(nil)
@@ -88,7 +88,7 @@ type RpnStateless struct {
 
 func (RpnStateless) Updated() int64                 { return neverEver.UnixMilli() }
 func (RpnStateless) State() ([]byte, error)         { return nil, errRpnStateless }
-func (RpnStateless) Conf(cc string) (string, error) { return "", errRpnStateless }
+func (RpnStateless) Conf(cc string) (string, *x.RpnServer, error) { return "", nil, errRpnStateless }
 
 type RpnUpdateless struct{}
 

@@ -7,6 +7,7 @@
 package ipn
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,7 +33,7 @@ type RpnAcc = rpn.RpnAcc
 
 // and kick-off an update if the acc is expired?
 type rpnp struct {
-	mu sync.RWMutex // protects Proxy & kids
+	mu sync.RWMutex // protects p, s, kids, & skids
 
 	// parent proxy
 	p Proxy
@@ -45,6 +46,10 @@ type rpnp struct {
 
 	// forked child proxy IDs, may be empty (returned proxy IDs may have stopped)
 	kids map[string]struct{}
+	// server metadata for each forked kid (keyed by CC)
+	skids map[string]*x.RpnServer
+	// server metadata for the main proxy
+	s *x.RpnServer
 }
 
 var _ RpnProxy = (*rpnp)(nil)
@@ -63,7 +68,7 @@ var (
 )
 
 // nb: client code isn't really expecting error from asRpnProxy.
-func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
+func asRpnProxy(e Proxy, srv *x.RpnServer, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 	if e == nil || acc == nil || pxr == nil {
 		return nil, errRpnBadArgs
 	}
@@ -75,7 +80,7 @@ func asRpnProxy(e Proxy, acc RpnAcc, pxr Rpn) (RpnProxy, error) {
 		return nil, errRpnIDsMismatch
 	}
 	log.D("proxy: rpn: make: %s[%s]", providerid, proxyid)
-	return &rpnp{sync.RWMutex{}, e, acc, pxr, make(map[string]struct{}, 0)}, nil
+	return &rpnp{sync.RWMutex{}, e, acc, pxr, make(map[string]struct{}, 0), make(map[string]*x.RpnServer, 0), srv}, nil
 }
 
 func (r *rpnp) ensureProxy() Proxy {
@@ -324,7 +329,13 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 		// re-forking main proxy (which may not be multi-country acc) via Update() => forkAll()
 		log.I("proxy: rpn: fork: %s main cc %s; re-adding...", provider, cc)
 		// expect Emplace to be called
-		return r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
+		kid, srv, err := r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
+		if kid != nil && core.IsNotNil(kid) {
+			r.mu.Lock()
+			r.s = srv
+			r.mu.Unlock()
+		}
+		return kid, err
 	}
 
 	// check main's status if not forking main
@@ -344,11 +355,14 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	log.I("proxy: rpn: fork: %s[%s]", provider, cc)
 
 	// re-adds + updates if the proxy already exists
-	kid, err := r.pxr.addRpnProxy(acc, cc)
+	kid, srv, err := r.pxr.addRpnProxy(acc, cc)
 
 	if kid != nil && core.IsNotNil(kid) {
 		r.mu.Lock()
 		r.kids[cc] = struct{}{}
+		if srv != nil {
+			r.skids[cc] = srv
+		}
 		r.mu.Unlock()
 	}
 
@@ -476,6 +490,9 @@ func (r *rpnp) purgeMain() bool {
 	if err != nil {
 		return false
 	}
+	r.mu.Lock()
+	r.s = nil
+	r.mu.Unlock()
 	return r.pxr.removeRpnProxy(r.RpnAcc, mainpid)
 }
 
@@ -511,6 +528,7 @@ func (r *rpnp) purge(cc string) bool {
 
 	r.mu.Lock()
 	delete(r.kids, cc)
+	delete(r.skids, cc)
 	r.mu.Unlock()
 
 	log.D("proxy: rpn: purge: %s[%s]? %t", provider, cc, rmv)
@@ -569,12 +587,16 @@ func (r *rpnp) get(cc string) (Proxy, error) {
 }
 
 // Kids implements x.RpnProxy.
-func (r *rpnp) Kids() (csvpids string) {
-	return r.kidsCsv()
-}
-
-func (r *rpnp) kidsCsv() string {
-	return strings.Join(r.flattenKids(), ",")
+func (r *rpnp) Kids() x.RpnServers {
+	r.mu.RLock()
+	all := make([]x.RpnServer, 0, len(r.skids))
+	for _, s := range r.skids {
+		if s != nil {
+			all = append(all, *s)
+		}
+	}
+	r.mu.RUnlock()
+	return &liveServers{all: all}
 }
 
 func (r *rpnp) flattenKids() (ccs []string) {
@@ -585,6 +607,46 @@ func (r *rpnp) flattenKids() (ccs []string) {
 	for cc := range r.kids {
 		ccs = append(ccs, cc)
 	}
+	return
+}
+
+// liveServers implements x.RpnServers.
+type liveServers struct {
+	all []x.RpnServer
+}
+
+var _ x.RpnServers = (*liveServers)(nil)
+
+func (s *liveServers) Get(i int) (*x.RpnServer, error) {
+	if i < 0 || i >= len(s.all) {
+		return nil, fmt.Errorf("rpn: live: %d out of range [0, %d)", i, len(s.all))
+	}
+	return &s.all[i], nil
+}
+
+func (s *liveServers) Len() int {
+	return len(s.all)
+}
+
+func (s *liveServers) Json() ([]byte, error) {
+	if s == nil || len(s.all) <= 0 {
+		return nil, fmt.Errorf("rpn: live: no servers")
+	}
+	b, err := json.Marshal(s.all)
+	if err != nil {
+		return nil, fmt.Errorf("rpn: live: json: %w", err)
+	}
+	return b, nil
+}
+
+// Main implements x.RpnProxy.
+func (r *rpnp) Main() (m *x.RpnServer) {
+	r.mu.RLock()
+	if s := r.s; s != nil {
+		m = new(x.RpnServer)
+		*m = *s
+	}
+	r.mu.RUnlock()
 	return
 }
 

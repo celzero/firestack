@@ -194,7 +194,7 @@ type Rpn interface {
 	x.Rpn
 	rpnProxyProvider
 	// addRpnProxy adds an RPN proxy to this multi-transport.
-	addRpnProxy(acc RpnAcc, cc string) (Proxy, error)
+	addRpnProxy(acc RpnAcc, cc string) (Proxy, *x.RpnServer, error)
 	// removeRpnProxy removes an RPN proxy from this multi-transport.
 	removeRpnProxy(acc RpnAcc, cc string) bool
 }
@@ -1322,7 +1322,7 @@ func (px *proxifier) RegisterWin(entitlementOrState []byte, did string, ops *x.R
 
 	// TODO: create a new proxy type for win, so Refresh() could be sent to /connect
 	// TODO: best location: github.com/Windscribe/browser-extension/blob/ed83749ad1/modules/ext/src/utils/getBestLocation.js
-	rp, err := px.addRpnProxy(win, anycc(win))
+	rp, _, err := px.addRpnProxy(win, anycc(win))
 	if err != nil || rp == nil {
 		log.E("proxy: ws: add wg for %s failed: %v", win.Who(), err)
 		return nil, core.JoinErr(err, errNotRpnProxy)

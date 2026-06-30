@@ -87,14 +87,14 @@ func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
 }
 
 // cc may be a fully qualified ID in case when re-adding the main proxy.
-func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
+func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, *x.RpnServer, error) {
 	if acc == nil || core.IsNil(acc) {
-		return nil, errNotRpnAcc
+		return nil, nil, errNotRpnAcc
 	}
 
 	typ := acc.ProviderID()
 	if !isRPN(typ) {
-		return nil, errNotRpnID
+		return nil, nil, errNotRpnID
 	}
 
 	if !acc.MultiCountry() && cc != noCountryForOldMen {
@@ -108,9 +108,9 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 	// but we need cc to be "city;cc"  (ref struct RpnServer.Key)
 	cc, _ = strings.CutPrefix(cc, typ)
 
-	txt, err := acc.Conf(cc)
+	txt, srv, err := acc.Conf(cc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	rpnid := typ + cc
@@ -119,10 +119,11 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 	p, err := pxr.forceAddProxy(rpnid, txt)
 	if p == nil {
 		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
-		return nil, core.JoinErr(err, errAddProxy)
+		return nil, srv, core.JoinErr(err, errAddProxy)
 	}
 
-	return pxr.postAddRpnProxy(p, acc)
+	proxy, err := pxr.postAddRpnProxy(p, srv, acc)
+	return proxy, srv, err
 }
 
 // TODO: on add / update a via proxy; refresh all dependent origins
@@ -143,10 +144,10 @@ func (pxr *proxifier) addRpnProxy2(p Proxy, acc RpnAcc) (Proxy, error) {
 	// TODO: setup hop from mainCountryCode to forked rpn proxies
 	core.Gx(who, func() { pxr.refreshHopOriginsIfAny(p, who) })
 
-	return pxr.postAddRpnProxy(p, acc)
+	return pxr.postAddRpnProxy(p, nil, acc)
 }
 
-func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) {
+func (pxr *proxifier) postAddRpnProxy(p Proxy, srv *x.RpnServer, acc RpnAcc) (_ Proxy, err error) {
 	proxyid := idstr(p)
 	provider := acc.ProviderID()
 
@@ -160,7 +161,7 @@ func (pxr *proxifier) postAddRpnProxy(p Proxy, acc RpnAcc) (_ Proxy, err error) 
 	// as forked children countries only need be added as plain-old proxies
 	// which is done before calling this function (ie, a no-op)
 	if rp == nil {
-		rp, err = asRpnProxy(p, acc, pxr)
+		rp, err = asRpnProxy(p, srv, acc, pxr)
 		if rp == nil { // should not happen; unexpected!
 			defer pxr.removeProxy(proxyid, true /*force*/)
 			return nil, core.JoinErr(err, errAddProxyAsRpn)
