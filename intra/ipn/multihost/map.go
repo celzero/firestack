@@ -46,11 +46,11 @@ func (m *MHMap) Endpoints() (all []string) {
 
 	m.RLock()
 	defer m.RUnlock()
-	for n, _ := range m.byHostport {
+	for n := range m.byHostport {
 		all = append(all, n)
 	}
 	if len(all) <= 0 {
-		for ipp, _ := range m.byIpp {
+		for ipp := range m.byIpp {
 			all = append(all, ipp.String())
 		}
 	}
