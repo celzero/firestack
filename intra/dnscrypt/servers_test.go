@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/dialers"
@@ -132,7 +133,7 @@ func TestOne(t *testing.T) {
 		t.Fatal(errors.Join(dnsx.ErrAddFailed, err))
 	}
 	q := aquery("google.com")
-	smm := &x.DNSSummary{}
+	smm := &x.DNSSummary{Start: time.Now().UnixMilli()}
 	netw := xdns.NetAndProxyID("udp", ipn.Base)
 	// FIXME: querying always fails with EOF
 	ans, err := tr.Query(netw, q, smm)

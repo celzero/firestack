@@ -542,6 +542,7 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 		ID:     NoDNS,
 		FID:    fid,
 		Origin: who,
+		Start:  starttime.UnixMilli(),
 		UID:    uid, // may be overwritten to by Cacher via fillSummary
 		QName:  invalidQname,
 		Status: Start,

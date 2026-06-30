@@ -19,15 +19,17 @@ type DNSSummary struct {
 	// Flow ID that spawned this DNS query, if Origin is "tunnel".
 	// Otherwise, it is randomly generated uint64 as hex.
 	FID string
-	// DNS Transport ID
+	// DNS Transport ID.
 	ID string
 	// owner uid that sent this request. May be empty.
 	UID string
-	// tunnel or internal originated query
+	// tunnel or internal originated query.
 	Origin string
-	// Response (or failure) latency in seconds
+	// Time this query was received (unix millis).
+	Start int64
+	// Response (or failure) latency in seconds.
 	Latency float64
-	// Queried domain name
+	// Queried domain name.
 	QName string
 	// Query type: A, AAAA, SVCB, HTTPS, etc. May be 0.
 	QType int
@@ -37,21 +39,21 @@ type DNSSummary struct {
 	Cached bool
 	// DNS Response data, ex: a csv of ips for A, AAAA.
 	RData string
-	// DNS Response code
+	// DNS Response code.
 	RCode int
-	// DNS Response TTL
+	// DNS Response TTL.
 	RTtl int
-	// DNS Server (ip, ip:port, host, host:port)
+	// DNS Server (ip, ip:port, host, host:port).
 	Server string
-	// Proxy or a relay server address
+	// Proxy or a relay server address.
 	PID string
-	// Relay server PID hops over, if any
+	// Relay server PID hops over, if any.
 	RPID string
-	// Transport status (Start, Complete, SendFailed, NoResponse, BadQuery, BadResponse, etc)
+	// Transport status (Start, Complete, SendFailed, NoResponse, BadQuery, BadResponse, etc).
 	Status int
 	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
 	Blocklists string
-	// Actual target (domain name) that was blocked (could be a CNAME or HTTPS/SVCB alias) by Blocklists
+	// Actual target (domain name) that was blocked (could be a CNAME or HTTPS/SVCB alias) by Blocklists.
 	BlockedTarget string
 	// True if any among upstream transports (primary or secondary) returned blocked ans.
 	// Only valid for A/AAAA queries. Unspecified IPs are considered as "blocked ans".
@@ -62,11 +64,11 @@ type DNSSummary struct {
 	AD bool
 	// True if TLS Encrypted Client Hello was used by this transport, if applicable.
 	ECH bool
-	// Diag message from Transport, if any. Typically, "no error"
+	// Diag message from Transport, if any. Typically, "no error".
 	Msg string
 	// Diag extras, if any. For example, list of proxy & transport overrides.
 	Extra string
-	// Region of the Rethink DNS+ server (if used)
+	// Region of the Rethink DNS+ server (if used).
 	Region string
 }
 

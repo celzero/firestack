@@ -572,21 +572,22 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	if len(out.Origin) <= 0 {
 		out.Origin = s.Origin
 	}
+
 	if len(out.ID) <= 0 {
 		out.ID = s.ID
 		out.Server = s.Server
-		out.PID = s.PID
-		out.RPID = s.RPID
 	} else if len(out.Server) <= 0 {
 		out.Server = s.Server
-		out.PID = s.PID
-		out.RPID = s.RPID
-	} else if len(out.PID) <= 0 {
-		out.PID = s.PID
-		out.RPID = s.RPID
 	}
+
 	if len(out.FID) <= 0 {
 		out.FID = s.FID
+	}
+	if len(out.Origin) <= 0 {
+		out.Origin = s.Origin
+	}
+	if out.Start <= 0 {
+		out.Start = s.Start
 	}
 	if out.Latency <= 0 {
 		out.Latency = s.Latency
@@ -613,7 +614,10 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 		out.DO = s.DO
 	}
 
-	out.Origin = s.Origin
+	if len(s.PID) > 0 {
+		out.PID = s.PID
+		out.RPID = s.RPID
+	}
 	out.ECH = s.ECH
 	out.Cached = s.Cached
 	out.RCode = s.RCode
@@ -624,7 +628,6 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	out.Msg = s.Msg
 	out.UpstreamBlocks = s.UpstreamBlocks
 	out.Extra = s.Extra
-	out.Region = s.Region
 }
 
 func rand33pc() bool {
