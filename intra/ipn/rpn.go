@@ -315,10 +315,6 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	if len(mainpid) <= 0 {
 		return nil, errMissingProxyID
 	}
-	if main.Status() == END {
-		// TODO: PurgeAll?
-		return nil, errRpnMainProxyStopped
-	}
 
 	provider := acc.ProviderID()
 	if mainpid == provider+cc || // true when cc == noCountryForOldMen or anyCountryCode
@@ -329,6 +325,12 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 		log.I("proxy: rpn: fork: %s main cc %s; re-adding...", provider, cc)
 		// expect Emplace to be called
 		return r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
+	}
+
+	// check main's status if not forking main
+	if main.Status() == END {
+		// TODO: PurgeAll?
+		return nil, errRpnMainProxyStopped
 	}
 
 	if len(cc) < 2 {

@@ -116,7 +116,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, error) {
 	rpnid := typ + cc
 
 	// TODO: addProxy may update wg in-place, even if DNS addrs have changed
-	p, err := pxr.addProxy(rpnid, txt)
+	p, err := pxr.forceAddProxy(rpnid, txt)
 	if p == nil {
 		pxr.postAddRpnProxyError(acc) // remove from pxr.rp if exists
 		return nil, core.JoinErr(err, errAddProxy)
@@ -210,6 +210,7 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, force bool) (p Proxy, err
 			p, err = NewWgProxy(pxr.ctx, id, pxr.ctl, pxr, lp, txt)
 		} else if p, _ = pxr.proxyFor(id); p != nil {
 			hdl := hdlstr(p)
+			// note that rpnp does not implement the WgProxy interface
 			if wgp, ok := p.(WgProxy); ok && wgp.update(id, txt) {
 				newcfg, readd := wgp.OnProtoChange(lp)
 				if readd || len(newcfg) > 0 {
