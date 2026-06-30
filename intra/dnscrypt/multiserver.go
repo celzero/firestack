@@ -321,9 +321,9 @@ func resolve(network string, data *dns.Msg, si *server, smm *x.DNSSummary) (ans 
 	pid := dnsx.NetNoProxy
 	if si != nil {
 		if r := si.relay; len(r) > 0 {
-			pid = si.chooseProxy([]string{r})
+			pid = si.chooseProxy(r)
 		} else {
-			pid = si.chooseProxy(pids)
+			pid = si.chooseProxy(pids...)
 		}
 	}
 

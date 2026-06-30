@@ -291,7 +291,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 }
 
 func (t *transport) chooseProxy(pids ...string) string {
-	return dnsx.ChooseHealthyProxyHostPort("dns53: "+t.id, t.addrport, t.port, pids, t.proxies)
+	return dnsx.ChooseHealthyProxyHostPort("dns53: "+t.id, dnsx.NetTypeUDP, t.addrport, t.port, pids, t.proxies)
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {

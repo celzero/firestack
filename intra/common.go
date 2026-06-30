@@ -790,13 +790,6 @@ func (h *baseHandler) flowing(smm *FlowSummary) {
 	h.listener.Flowing(smm.postMark())
 }
 
-func maybeH3(addr netip.AddrPort) bool {
-	if !addr.IsValid() {
-		return false
-	}
-	return addr.Port() == 443 || addr.Port() == 80
-}
-
 func conn2str(a net.Conn, b net.Conn) string {
 	ar := a.RemoteAddr()
 	br := b.RemoteAddr()

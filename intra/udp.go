@@ -312,7 +312,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	for i, dstipp := range actualTargets {
 		rttstart := time.Now()
 
-		px, err = h.prox.ProxyTo(dstipp, uid, pids)
+		px, err = h.prox.ProxyTo(dstipp, "udp", uid, pids)
 
 		selectedTarget = dstipp
 
@@ -328,7 +328,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 		if h.loopDetected(smm) {
 			log.I("udp: loop: break %s => %v via %s for %s; exiting...", src, selectedTarget, smm.PID, uid)
-			px, err = h.prox.ProxyTo(dstipp, uid, onlyExitPid)
+			px, err = h.prox.ProxyTo(dstipp, "udp", uid, onlyExitPid)
 			smm.PID = ipn.Exit // last chosen proxy may yet emayrror out
 			smm.RPID = ""
 		}
@@ -336,11 +336,6 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		if px == nil || err != nil { // unlikely
 			log.E("udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, smm.PID, err)
 			errs = err
-			continue
-		}
-
-		if maybeH3(dstipp) && ipn.DontProxyH3(pxid) {
-			errs = log.WE("udp: connect: #%d: %s [%s] proxy(%s) no h3 to dst(%s)", i, cid, uid, pxid, dstipp)
 			continue
 		}
 

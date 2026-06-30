@@ -826,7 +826,8 @@ func (t *transport) Type() string {
 
 func (t *transport) chooseProxy(pids ...string) string {
 	host, port := t.hostport()
-	return dnsx.ChooseHealthyProxyHostPort("doh: "+t.id, host, port, pids, t.proxies)
+	// TODO: doh3 is udp?
+	return dnsx.ChooseHealthyProxyHostPort("doh: "+t.id, dnsx.NetTypeTCP, host, port, pids, t.proxies)
 }
 
 func (t *transport) hostport() (addr string, port uint16) {
