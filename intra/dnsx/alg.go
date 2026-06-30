@@ -47,6 +47,11 @@ const (
 	notransport = "NoTransport"
 
 	maxiter = 100 // max number alg/nat evict iterations
+
+	// stale threshold for retaining expired ips from merge
+	staleXipsThres = 24 * time.Hour
+	// stale threshold for retaining expired domains from merge
+	staleDomainThres = 24 * time.Hour
 )
 
 type iptype int
@@ -134,7 +139,7 @@ func (a expaddr) sizes() (alive, tot int) {
 	if a.ips == nil {
 		return
 	}
-	return len(a.get(xalive)), len(a.ips)
+	return len(a.alive()), len(a.ips)
 }
 
 func (a expaddr) all() []netip.Addr {
@@ -194,12 +199,14 @@ func expaddrDobSorter(a, b expaddr) int {
 }
 
 type xips struct {
-	// protects pri, aux
+	// protects pri, aux, past
 	pmu sync.RWMutex
 	// resolved expaddr(v6 or v4) by tid; may be nil
 	pri map[string]expaddr
 	// resolved expaddr(v6 or v4) by secondary tid for a uid; may be nil
 	aux map[string]expaddr
+	// recently expired ips within staleXipsThres captured from merge; tid+uid -> expaddr
+	past map[string]expaddr
 }
 
 type xaddrstatus bool
@@ -247,8 +254,9 @@ func NewXips(tid, uid string, pri, sec []netip.Addr, ttl time.Time) *xips {
 	}
 
 	x := &xips{
-		pri: make(map[string]expaddr),
-		aux: make(map[string]expaddr), // sec may be nil
+		pri:  make(map[string]expaddr),
+		aux:  make(map[string]expaddr), // sec may be nil
+		past: make(map[string]expaddr),
 	}
 	now := time.Now()
 	// id == "" for dnsx.NoDNS, in which case pri should be empty
@@ -281,7 +289,7 @@ func (p *xips) String() string {
 	}
 	p.pmu.RLock()
 	defer p.pmu.RUnlock()
-	return fmt.Sprintf("xips: pri(%v) sec(%v)", p.pri, p.aux)
+	return fmt.Sprintf("xips: pri(%v) sec(%v) past(%v)", p.pri, p.aux, p.past)
 }
 
 // secondary ips for all tids+uids
@@ -309,9 +317,16 @@ func (p *xips) allips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 	}
 	const all = 0
 	addrs := append([]expaddr{}, vals(g, all)...)
-
 	for _, v := range core.Sort(addrs, expaddrDobSorter) {
 		out = append(out, v.get(s)...)
+	}
+	// staleXipsThres only applies to pastips, not pri/aux entries
+	if s == xall && t == xpri {
+		for _, v := range core.Sort(vals(p.past, all), expaddrDobSorter) {
+			if !v.dob.IsZero() && time.Since(v.dob) <= staleXipsThres {
+				out = copyUniq(out, v.ips)
+			}
+		}
 	}
 	return
 }
@@ -486,6 +501,19 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 	for qk, qv := range q.pri {
 		pv := p.pri[qk]
 		if _, y := pv.fresh(); !y {
+			// pv is not fresh; capture its stale ips before replacement
+			if len(pv.ips) > 0 && !pv.dob.IsZero() && time.Since(pv.dob) <= staleXipsThres {
+				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleXipsThres {
+					existing.ips = copyUniq(existing.ips, pv.ips)
+					if pv.dob.Before(existing.dob) {
+						existing.dob = pv.dob
+					}
+					p.past[qk] = existing
+				} else {
+					p.past[qk] = expaddr{ips: copyUniq(nil, pv.ips), ttl: pv.ttl, dob: pv.dob}
+				}
+			}
+
 			p.pri[qk] = qv // copy v from q into p
 			szqaliv, szqpri := qv.sizes()
 			szprialiv += szqaliv
@@ -502,6 +530,19 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 				// pv is younger, so pv's ips should come first (youngest first ordering)
 				ips = copyUniq(pv.alive(), qv.alive())
 			}
+			// capture stale (expired) ips from qv that would otherwise be lost
+			if len(qv.ips) > 0 && !qv.dob.IsZero() && time.Since(qv.dob) <= staleXipsThres {
+				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleXipsThres {
+					existing.ips = copyUniq(existing.ips, qv.ips)
+					if qv.dob.Before(existing.dob) {
+						existing.dob = qv.dob
+					}
+					p.past[qk] = existing
+				} else {
+					p.past[qk] = expaddr{ips: copyUniq(nil, qv.ips), ttl: qv.ttl, dob: qv.dob}
+				}
+			}
+
 			if !pv.fresherThan(qv) {
 				// ips from aa & v both get assigned the latest ttl
 				// which is strictly incorrect, but for accounting
@@ -540,7 +581,7 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 			if !pv.fresherThan(qv) {
 				ttl = qv.ttl
 			}
-			v := expaddr{ips, ttl, dob}
+			v := expaddr{ips: ips, ttl: ttl, dob: dob}
 			p.aux[qk] = v
 			szqaliv, szqsec := v.sizes()
 			szsecaliv += szqaliv
@@ -619,8 +660,9 @@ func expdomainsDobSorter(a, b expdomains) int {
 
 // xdomains tracks domains per tid+uid; there is no secondary (aux) store.
 type xdomains struct {
-	pmu *sync.RWMutex
-	pri map[string]expdomains // tid+uid -> domains
+	pmu  *sync.RWMutex
+	pri  map[string]expdomains // tid+uid -> domains
+	past map[string]expdomains // recently expired domains within staleDomainThres captured from merge; tid+uid -> expdomains
 }
 
 // NewXdomains returns a new xdomains object keyed by tid+uid.
@@ -634,8 +676,9 @@ func NewXdomains(tid, uid string, pri []string, ttl time.Time) *xdomains {
 	}
 
 	x := &xdomains{
-		pmu: new(sync.RWMutex),
-		pri: make(map[string]expdomains),
+		pmu:  new(sync.RWMutex),
+		pri:  make(map[string]expdomains),
+		past: make(map[string]expdomains),
 	}
 
 	if len(pri) > 0 { // pri may be nil
@@ -650,7 +693,7 @@ func (p *xdomains) String() string {
 	}
 	p.pmu.RLock()
 	defer p.pmu.RUnlock()
-	return fmt.Sprintf("xdomains: pri(%v)", p.pri)
+	return fmt.Sprintf("xdomains: pri(%v) past(%v)", p.pri, p.past)
 }
 
 func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) (out []string) {
@@ -682,11 +725,36 @@ func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) 
 			}
 			out = append(out, v.get(s)...)
 		}
-	} else if v, ok := p.pri[key]; ok {
-		if settings.Debug {
-			ttls = append(ttls, v.ttl)
+		// staleDomainThres only applies to pastdomains, not pri entries
+		if s == xall {
+			past := make([]expdomains, 0)
+			for k, v := range p.past {
+				if !strings.HasSuffix(k, uid) {
+					continue
+				}
+				past = append(past, v)
+			}
+			for _, v := range core.Sort(past, expdomainsDobSorter) {
+				if !v.dob.IsZero() && time.Since(v.dob) <= staleDomainThres {
+					out = copyUniq(out, v.domains)
+				}
+			}
 		}
-		out = v.get(s)
+	} else {
+		if v, ok := p.pri[key]; ok {
+			if settings.Debug {
+				ttls = append(ttls, v.ttl)
+			}
+			out = v.get(s)
+		}
+		// staleDomainThres only applies to pastdomains, not pri entries
+		if s == xall {
+			if v, ok := p.past[key]; ok {
+				if !v.dob.IsZero() && time.Since(v.dob) <= staleDomainThres {
+					out = copyUniq(out, v.domains)
+				}
+			}
+		}
 	}
 
 	if settings.Debug {
@@ -740,6 +808,19 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 	for qk, qv := range q.pri {
 		pv := p.pri[qk]
 		if _, y := pv.fresh(); !y {
+			// pv is not fresh; capture its stale domains before replacement
+			if len(pv.domains) > 0 && !pv.dob.IsZero() && time.Since(pv.dob) <= staleDomainThres {
+				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleDomainThres {
+					existing.domains = copyUniq(existing.domains, pv.domains)
+					if pv.dob.Before(existing.dob) {
+						existing.dob = pv.dob
+					}
+					p.past[qk] = existing
+				} else {
+					p.past[qk] = expdomains{domains: copyUniq(nil, pv.domains), ttl: pv.ttl, dob: pv.dob}
+				}
+			}
+
 			p.pri[qk] = qv // copy v from q into p
 			szqaliv, szqpri := qv.sizes()
 			szprialiv += szqaliv
@@ -756,6 +837,19 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 				// pv is younger, so pv's domains should come first (youngest first ordering)
 				doms = copyUniq(pv.get(xalive), qv.get(xalive))
 			}
+			// capture stale (expired) domains from qv that would otherwise be lost
+			if len(qv.domains) > 0 && !qv.dob.IsZero() && time.Since(qv.dob) <= staleDomainThres {
+				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleDomainThres {
+					existing.domains = copyUniq(existing.domains, qv.domains)
+					if qv.dob.Before(existing.dob) {
+						existing.dob = qv.dob
+					}
+					p.past[qk] = existing
+				} else {
+					p.past[qk] = expdomains{domains: copyUniq(nil, qv.domains), ttl: qv.ttl, dob: qv.dob}
+				}
+			}
+
 			if !pv.fresherThan(qv) {
 				pv.ttl = qv.ttl
 			}
