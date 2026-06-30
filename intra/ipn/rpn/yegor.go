@@ -1170,7 +1170,8 @@ func (a *WsClient) Conf(cc string) (string, *x.RpnServer, error) {
 		cc = cccsv[1]
 	}
 	// in sync with anyCountryCode / noCountryForOldMen vars in proxy.go
-	chooseAny := cc == "**" || len(cc) <= 0
+	anycc := "**"
+	chooseAny := cc == anycc || len(cc) <= 0
 	hasCity := len(city) > 0
 	cc = strings.ToUpper(cc)
 
@@ -1267,6 +1268,10 @@ reconf:
 		r := rand.IntN(len(out))
 		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s/%s] (port: %s)",
 			cc, city, c, len(out), chooseAny, r, srvs[r].City, srvs[r].CC, portstr)
+		// change key to "any"
+		if chooseAny {
+			srvs[r].Key = anycc
+		}
 		return out[r], &srvs[r], nil
 	}
 	if xl > 0 && (tot == 0 || v <= xl) { // fail open if all CCs excluded

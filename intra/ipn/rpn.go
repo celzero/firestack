@@ -272,6 +272,7 @@ func (r *rpnp) Probe(network, local string) (protect.PacketConn, error) {
 // Emplace implements RpnProxy.
 func (r *rpnp) Emplace(new Proxy) (err error) {
 	if new == nil {
+		// TODO: main RpnServer information must be reverted to prev?
 		log.W("proxy: rpn: emplace: no-op as new proxy nil")
 		return errRpnBadEmplace
 	}
@@ -329,13 +330,14 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 		// re-forking main proxy (which may not be multi-country acc) via Update() => forkAll()
 		log.I("proxy: rpn: fork: %s main cc %s; re-adding...", provider, cc)
 		// expect Emplace to be called
-		kid, srv, err := r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
-		if kid != nil && core.IsNotNil(kid) {
+		mp, ms, err := r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
+		// see: Emplace (and errBadEmplace)
+		if mp != nil && core.IsNotNil(mp) {
 			r.mu.Lock()
-			r.s = srv
+			r.s = ms
 			r.mu.Unlock()
 		}
-		return kid, err
+		return mp, err
 	}
 
 	// check main's status if not forking main
@@ -584,6 +586,32 @@ func (r *rpnp) get(cc string) (Proxy, error) {
 		return nil, errRpnNotForked
 	}
 	return r.pxr.rpnProxyFor(provider, cc)
+}
+
+// Has implements RpnProxy.
+func (r *rpnp) Has(cc string) bool {
+	acc := r.RpnAcc
+	provider := acc.ProviderID()
+
+	// strip ProviderID prefix if present (see get)
+	cc, _ = strings.CutPrefix(cc, provider)
+	cc = strings.ToUpper(cc)
+
+	r.mu.RLock()
+	main := r.p
+	_, gotCC := r.kids[cc]
+	r.mu.RUnlock()
+
+	mainpid := idstr(main)
+
+	if provider+cc == mainpid ||
+		cc == mainpid ||
+		(cc == noCountryForOldMen && !acc.MultiCountry()) ||
+		(cc == anyCountryCode && acc.MultiCountry()) {
+		return main != nil && core.IsNotNil(main)
+	}
+
+	return gotCC
 }
 
 // Kids implements x.RpnProxy.

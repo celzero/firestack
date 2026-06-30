@@ -848,7 +848,13 @@ func (px *proxifier) GetProxy(id string) (x.Proxy, error) {
 	return px.ProxyFor(id)
 }
 
-// TestHop implements Proxies.
+// Has implements x.Proxies.
+func (px *proxifier) HasProxy(id string) bool {
+	p, err := px.proxyFor(id)
+	return err == nil && p != nil && core.IsNotNil(p)
+}
+
+// TestHop implements x.Proxies.
 func (px *proxifier) TestHop(via, origin string) string {
 	defer core.Recover(core.Exit11, "pxr.TestHop."+via+">>"+origin)
 	if err := px.hop(via, origin, true /*dryrun*/); err != nil {

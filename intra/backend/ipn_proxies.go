@@ -255,6 +255,8 @@ type RpnProxy interface {
 	PingAll() (csvpids string, err error)
 	// Purge removes proxy for country code, cc.
 	Purge(cc string) bool
+	// Has returns true if a proxy for country code, cc, has been forked.
+	Has(cc string) bool
 	// Get returns proxy for country code, cc.
 	Get(cc string) (Proxy, error)
 	// Kids returns RpnServers describing all forked kids, excluding the main proxy.
@@ -321,6 +323,8 @@ type Proxies interface {
 	AddProxy(id, url string) (Proxy, error)
 	// Remove removes a transport from this multi-transport.
 	RemoveProxy(id string) bool
+	// HasProxy returns true if a proxy with the given id is registered.
+	HasProxy(id string) bool
 	// GetProxy returns a transport from this multi-transport.
 	GetProxy(id string) (Proxy, error)
 	// TestHop returns empty diag if origin can hop to via,
