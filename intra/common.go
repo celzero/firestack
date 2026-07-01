@@ -253,11 +253,12 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			h.proto, ips, doms, pdoms, localaddr, target, preuid, undidAlg)
 	}
 
+	// note the loopback status before listener.Flow.
+	loopback := settings.Loopingback.Load()
+
 	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
 		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists), nil
 	}, onFlowTimeout)
-
-	loopback := settings.Loopingback.Load()
 
 	if fm == nil || !ok { // zeroListener returns nil
 		log.W("com: %s: onFlow: empty res or on flow timeout %t; block!", h.proto, ok)
