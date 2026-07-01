@@ -47,6 +47,10 @@ const (
 	notransport = "NoTransport"
 
 	maxiter = 100 // max number alg/nat evict iterations
+	// minimum interval between two consecutive vaccums
+	vaccumInterval = 2 * time.Minute
+	// max number of past entries to vaccum in one go
+	maxVaccumIterCount = maxiter
 
 	// stale threshold for retaining expired ips from merge
 	staleXipsThres = 24 * time.Hour
@@ -174,6 +178,11 @@ func (a expaddr) fresherThan(b expaddr) bool {
 	return a.ttl.After(b.ttl)
 }
 
+// withinStaleThres returns true if a is within the stale threshold for retaining expired ips.
+func (a expaddr) withinStaleThres() bool {
+	return !a.dob.IsZero() && time.Since(a.dob) <= staleXipsThres
+}
+
 func (a expaddr) get(s xaddrstatus) (out []netip.Addr) {
 	if a.ips == nil {
 		return
@@ -207,6 +216,8 @@ type xips struct {
 	aux map[string]expaddr
 	// recently expired ips within staleXipsThres captured from merge; tid+uid -> expaddr
 	past map[string]expaddr
+	// last time past was vaccumed (unix millis)
+	lastVaccum time.Time
 }
 
 type xaddrstatus bool
@@ -323,7 +334,7 @@ func (p *xips) allips(t xaddrtyp, s xaddrstatus) (out []netip.Addr) {
 	// staleXipsThres only applies to pastips, not pri/aux entries
 	if s == xall && t == xpri {
 		for _, v := range core.Sort(vals(p.past, all), expaddrDobSorter) {
-			if !v.dob.IsZero() && time.Since(v.dob) <= staleXipsThres {
+			if v.withinStaleThres() {
 				out = copyUniq(out, v.ips)
 			}
 		}
@@ -428,6 +439,7 @@ func (p *xips) rmv(tid string) (done bool) {
 		i++
 		xaddr.ttl = time.Now() // mark as expired
 		p.pri[tid] = xaddr
+		p.relegateLocked(tid, xaddr)
 	}
 	for k, v := range p.aux {
 		if _, y := v.fresh(); !y {
@@ -440,12 +452,45 @@ func (p *xips) rmv(tid string) (done bool) {
 			p.aux[k] = v
 		}
 	}
-	if done = i > 0 || j > 0; done {
-		if settings.Debug {
-			log.D("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
-		}
+	if done {
+		p.vaccumLocked()
+	}
+	if done && settings.Debug {
+		log.D("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
 	}
 	return
+}
+
+// relegateLocked moves v (expaddr) into past under key k, merging with an existing entry if still within stale threshold.
+func (p *xips) relegateLocked(k string, v expaddr) {
+	if cur, ok := p.past[k]; ok && cur.withinStaleThres() {
+		cur.ips = copyUniq(cur.ips, v.ips)
+		if v.dob.Before(cur.dob) {
+			cur.dob = v.dob
+		}
+		p.past[k] = cur
+	} else {
+		p.past[k] = expaddr{ips: copyUniq(nil, v.ips), ttl: v.ttl, dob: v.dob}
+	}
+}
+
+// vaccumLocked removes stale entries from past, limiting to maxVaccumIterCount.
+func (p *xips) vaccumLocked() {
+	last := p.lastVaccum
+	if !last.IsZero() && time.Since(last) < vaccumInterval {
+		return
+	}
+	n := 0
+	for k, v := range p.past {
+		n++
+		if !v.withinStaleThres() {
+			delete(p.past, k)
+		}
+		if n >= maxVaccumIterCount {
+			break
+		}
+	}
+	p.lastVaccum = time.Now()
 }
 
 // block returns true if any secondary ip is unspecified
@@ -502,16 +547,8 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 		pv := p.pri[qk]
 		if _, y := pv.fresh(); !y {
 			// pv is not fresh; capture its stale ips before replacement
-			if len(pv.ips) > 0 && !pv.dob.IsZero() && time.Since(pv.dob) <= staleXipsThres {
-				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleXipsThres {
-					existing.ips = copyUniq(existing.ips, pv.ips)
-					if pv.dob.Before(existing.dob) {
-						existing.dob = pv.dob
-					}
-					p.past[qk] = existing
-				} else {
-					p.past[qk] = expaddr{ips: copyUniq(nil, pv.ips), ttl: pv.ttl, dob: pv.dob}
-				}
+			if len(pv.ips) > 0 && pv.withinStaleThres() {
+				p.relegateLocked(qk, pv)
 			}
 
 			p.pri[qk] = qv // copy v from q into p
@@ -531,16 +568,8 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 				ips = copyUniq(pv.alive(), qv.alive())
 			}
 			// capture stale (expired) ips from qv that would otherwise be lost
-			if len(qv.ips) > 0 && !qv.dob.IsZero() && time.Since(qv.dob) <= staleXipsThres {
-				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleXipsThres {
-					existing.ips = copyUniq(existing.ips, qv.ips)
-					if qv.dob.Before(existing.dob) {
-						existing.dob = qv.dob
-					}
-					p.past[qk] = existing
-				} else {
-					p.past[qk] = expaddr{ips: copyUniq(nil, qv.ips), ttl: qv.ttl, dob: qv.dob}
-				}
+			if len(qv.ips) > 0 && qv.withinStaleThres() {
+				p.relegateLocked(qk, qv)
 			}
 
 			if !pv.fresherThan(qv) {
@@ -588,6 +617,8 @@ func (p *xips) merge(q *xips) (szprialiv, szpri, szsecaliv, szsec int) {
 			szsec += szqsec
 		}
 	}
+
+	p.vaccumLocked()
 
 	return
 }
@@ -649,6 +680,11 @@ func (a expdomains) fresherThan(b expdomains) bool {
 	return a.ttl.After(b.ttl)
 }
 
+// withinStaleThres returns true if a is within the stale threshold for retaining expired domains.
+func (a expdomains) withinStaleThres() bool {
+	return !a.dob.IsZero() && time.Since(a.dob) <= staleDomainThres
+}
+
 func expdomainsDobSorter(a, b expdomains) int {
 	if a.after(b) { // a is born after b (ie, a is younger)
 		return -1
@@ -663,6 +699,8 @@ type xdomains struct {
 	pmu  *sync.RWMutex
 	pri  map[string]expdomains // tid+uid -> domains
 	past map[string]expdomains // recently expired domains within staleDomainThres captured from merge; tid+uid -> expdomains
+	// last time past was vaccumed
+	lastVaccum time.Time
 }
 
 // NewXdomains returns a new xdomains object keyed by tid+uid.
@@ -735,7 +773,7 @@ func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) 
 				past = append(past, v)
 			}
 			for _, v := range core.Sort(past, expdomainsDobSorter) {
-				if !v.dob.IsZero() && time.Since(v.dob) <= staleDomainThres {
+				if v.withinStaleThres() {
 					out = copyUniq(out, v.domains)
 				}
 			}
@@ -750,7 +788,7 @@ func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) 
 		// staleDomainThres only applies to pastdomains, not pri entries
 		if s == xall {
 			if v, ok := p.past[key]; ok {
-				if !v.dob.IsZero() && time.Since(v.dob) <= staleDomainThres {
+				if v.withinStaleThres() {
 					out = copyUniq(out, v.domains)
 				}
 			}
@@ -783,10 +821,45 @@ func (p *xdomains) rmv(tid string) (done bool) {
 			i++
 			v.ttl = time.Now() // mark as expired
 			p.pri[k] = v
+			p.relegateLocked(k, v)
 		}
 	}
-	done = i > 0
+	if done = i > 0; done {
+		p.vaccumLocked()
+	}
 	return
+}
+
+// relegateLocked moves v (expdomains) into past under key k, merging with an existing entry if still within stale threshold.
+func (p *xdomains) relegateLocked(k string, v expdomains) {
+	if existing, ok := p.past[k]; ok && existing.withinStaleThres() {
+		existing.domains = copyUniq(existing.domains, v.domains)
+		if v.dob.Before(existing.dob) {
+			existing.dob = v.dob
+		}
+		p.past[k] = existing
+	} else {
+		p.past[k] = expdomains{domains: copyUniq(nil, v.domains), ttl: v.ttl, dob: v.dob}
+	}
+}
+
+// vaccumLocked removes stale entries from past, limiting to maxVaccumIterCount.
+func (p *xdomains) vaccumLocked() {
+	last := p.lastVaccum
+	if !last.IsZero() && time.Since(last) < vaccumInterval {
+		return
+	}
+	n := 0
+	for k, v := range p.past {
+		n++
+		if !v.withinStaleThres() {
+			delete(p.past, k)
+		}
+		if n >= maxVaccumIterCount {
+			break
+		}
+	}
+	p.lastVaccum = time.Now()
 }
 
 func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
@@ -809,16 +882,8 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 		pv := p.pri[qk]
 		if _, y := pv.fresh(); !y {
 			// pv is not fresh; capture its stale domains before replacement
-			if len(pv.domains) > 0 && !pv.dob.IsZero() && time.Since(pv.dob) <= staleDomainThres {
-				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleDomainThres {
-					existing.domains = copyUniq(existing.domains, pv.domains)
-					if pv.dob.Before(existing.dob) {
-						existing.dob = pv.dob
-					}
-					p.past[qk] = existing
-				} else {
-					p.past[qk] = expdomains{domains: copyUniq(nil, pv.domains), ttl: pv.ttl, dob: pv.dob}
-				}
+			if len(pv.domains) > 0 && pv.withinStaleThres() {
+				p.relegateLocked(qk, pv)
 			}
 
 			p.pri[qk] = qv // copy v from q into p
@@ -838,16 +903,8 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 				doms = copyUniq(pv.get(xalive), qv.get(xalive))
 			}
 			// capture stale (expired) domains from qv that would otherwise be lost
-			if len(qv.domains) > 0 && !qv.dob.IsZero() && time.Since(qv.dob) <= staleDomainThres {
-				if existing, ok := p.past[qk]; ok && time.Since(existing.dob) <= staleDomainThres {
-					existing.domains = copyUniq(existing.domains, qv.domains)
-					if qv.dob.Before(existing.dob) {
-						existing.dob = qv.dob
-					}
-					p.past[qk] = existing
-				} else {
-					p.past[qk] = expdomains{domains: copyUniq(nil, qv.domains), ttl: qv.ttl, dob: qv.dob}
-				}
+			if len(qv.domains) > 0 && qv.withinStaleThres() {
+				p.relegateLocked(qk, qv)
 			}
 
 			if !pv.fresherThan(qv) {
@@ -860,6 +917,8 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 			szpri += szqpri
 		}
 	}
+
+	p.vaccumLocked()
 
 	return
 }
@@ -1270,7 +1329,9 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	smm.DO = hasdnssec
 
+	oguid := uid
 	if discarduid {
+		// forces use of a common (not per-app) ptr, nat, alg "key"
 		uid = core.UNKNOWN_UID_STR
 	}
 	if hasfixed && !usefixed {
@@ -1337,11 +1398,11 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	smm.QType = qtyp
 
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
-	ans64 := t.dns64.D64(network, t1.ID(), uid, ansin) // ans64 may be nil if no D64 or error
+	ans64 := t.dns64.D64(network, t1.ID(), oguid, ansin) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
 		if settings.Debug {
 			log.D("alg: %s<>%s:%s[%s] %d dns64; dnssec? %t; s/ans(%d)/ans64(%d)",
-				qname, smm.ID, idstr(t1), uid, qtyp, hasdnssec, xdns.Len(ansin), xdns.Len(ans64))
+				qname, smm.ID, idstr(t1), oguid, qtyp, hasdnssec, xdns.Len(ansin), xdns.Len(ans64))
 		}
 		withDNS64Summary(ans64, smm)
 		// todo: for uidself, skip dns64? see: ipmapper.go:undoAlgAndOrNat64
@@ -1411,8 +1472,8 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	if smm.UpstreamBlocks || len(secres.smm.Msg) > 0 {
 		smsg := secres.smm.Msg
 		spri := secres.pri
-		log.V("alg: q: %s<>%s[%s]:%s:%d %s upstream blocks: primary? %t / sec? %t; secres: pri? %t, msg: %s",
-			smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, spri, smsg)
+		log.V("alg: q: %s<>%s[%s]:%s:%d %s upstream blocks: primary? %t / sec? %t / per-app? %t; secres: pri? %t, msg: %s",
+			smm.ID, idstr(t1), oguid, qname, qtyp, smm.FID, secres.smm.UpstreamBlocks, smm.UpstreamBlocks, !discarduid, spri, smsg)
 	}
 
 	ansttl := time.Duration(xdns.RTtl(ansin)) * time.Second
@@ -1493,7 +1554,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	if settings.Debug {
 		log.D("alg: q: %s<>%s[%s]; %s:%d %s (split? %t, do? %t / ad? %t) a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
-			smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, !discarduid, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
+			smm.ID, idstr(t1), oguid, qname, qtyp, smm.FID, !discarduid, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
 	}
 	if !substok4 && !substok6 {
 		if mustsubst { // always true when usefixed is true
@@ -1502,7 +1563,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 			err = nil
 		}
 		logeif(err != nil)("alg: q: %s<>%s[%s] %s:%d %s: skip; err(%v); ips subst %s:%d; fixed? %t, split? %t",
-			smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, err, usefixed, !discarduid)
+			smm.ID, idstr(t1), oguid, qname, qtyp, smm.FID, err, usefixed, !discarduid)
 		return ansin, nil, err // ansin is nil if no alg ips
 	}
 
@@ -1535,12 +1596,12 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	tidToReg := smm.ID
 	if settings.Debug {
 		log.D("alg: q: ok; for %s<>%s[%s]:%s:%d %s (do? %t / ad? %t), domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t / split? %t); sec %s; ttl %s",
-			tidToReg, idstr(t1), uid, qname, qtyp, smm.FID, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, !discarduid, secres.ips, ansttl)
+			tidToReg, idstr(t1), oguid, qname, qtyp, smm.FID, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, !discarduid, secres.ips, ansttl)
 	}
 
 	// always register algips, even if mod is false, to maintain a hot cache.
 	// if client enables mod later, algips will be instantly available.
-	algok := t.registerLocked(qname, tidToReg, uid, smm.FID, algip4, algip6, realip, ansttl, targets, secres)
+	algok := t.registerLocked(qname, tidToReg, uid /* not oguid */, smm.FID, algip4, algip6, realip, ansttl, targets, secres)
 
 	if mod { // if mod is set, send modified answer and summary
 		withAlgSummary(smm, algip4, algip6)
@@ -1617,6 +1678,8 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 			q, tid, uid, fid, len(realips), realips, len(secres.ips), secres.ips)
 		return false
 	}
+
+	// uid may be UNKNOWN_UID_STR if discarduid is true (ie, split is false)
 
 	// some domain set very low ttl (ex: 1s for news.ycombinator.com) which
 	// is too short for translations; use a minimum of 8s to account
@@ -1874,6 +1937,30 @@ func (t *dnsgateway) S() string {
 	t.RLock()
 	defer t.RUnlock()
 
+	var (
+		priips, auxips, pastips uint64
+		pridoms, pastdoms       uint64
+	)
+
+	for _, a := range t.alg {
+		if a == nil || a.baseans == nil {
+			continue
+		}
+		if a.ips != nil {
+			a.ips.pmu.RLock()
+			priips += uint64(len(a.ips.pri))
+			auxips += uint64(len(a.ips.aux))
+			pastips += uint64(len(a.ips.past))
+			a.ips.pmu.RUnlock()
+		}
+		if a.domains != nil {
+			a.domains.pmu.RLock()
+			pridoms += uint64(len(a.domains.pri))
+			pastdoms += uint64(len(a.domains.past))
+			a.domains.pmu.RUnlock()
+		}
+	}
+
 	var sb strings.Builder
 	sb.WriteString("dnsgateway state:\n")
 	sb.WriteString(" mod: ")
@@ -1886,12 +1973,23 @@ func (t *dnsgateway) S() string {
 	sb.WriteString(strconv.FormatBool(t.fixedTransport()))
 	sb.WriteString(" / chash: ")
 	sb.WriteString(strconv.FormatBool(t.chash))
-	sb.WriteString(" / adv: ")
+	sb.WriteString("\n alg: ")
 	sb.WriteString(strconv.Itoa(len(t.alg)))
 	sb.WriteString(" / nat: ")
 	sb.WriteString(strconv.Itoa(len(t.nat)))
 	sb.WriteString(" / ptr: ")
 	sb.WriteString(strconv.Itoa(len(t.ptr)))
+	sb.WriteString("\n    xips(pri=")
+	sb.WriteString(strconv.FormatUint(priips, 10))
+	sb.WriteString(" aux=")
+	sb.WriteString(strconv.FormatUint(auxips, 10))
+	sb.WriteString(" past=")
+	sb.WriteString(strconv.FormatUint(pastips, 10))
+	sb.WriteString(")\n    xdoms(pri=")
+	sb.WriteString(strconv.FormatUint(pridoms, 10))
+	sb.WriteString(" past=")
+	sb.WriteString(strconv.FormatUint(pastdoms, 10))
+	sb.WriteString(")")
 	return sb.String()
 }
 
@@ -2017,7 +2115,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 		unnated = t.maybeUndoNat64Locked(realips...)
 	} // else: send realips as is
 
-	logeif(!hasrealips && (!usestale && (!undidAlg || !undidPtr)))("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) algip(%v) => realips(%v) => unnated(%v); until: %s",
+	logeif(!hasrealips && (!usestale && (!undidAlg || !undidPtr)))("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) maybealgip(%v) => realips(%v) => unnated(%v); until: %s",
 		tids, uid, didnotAlg, fresh, undidAlg, undidPtr, usestale, unmapped, realips, unnated, until)
 
 	if len(unnated) > 0 { // unnated is already de-duplicated

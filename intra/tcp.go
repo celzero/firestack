@@ -307,7 +307,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 			h.queueSummary(smm.done(synackerr))
 			return deny
 		}
-		if h.dnsOverride(gconn, uid, smm) {
+		if h.dnsOverride(gconn, uid, smm) { // uid may UNKNOWN_UID_STR
 			// SocketSummary not sent here; x.DNSSummary supercedes it.
 			// conn closed by the overriding dns resolver code
 			return allow

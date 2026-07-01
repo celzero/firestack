@@ -487,6 +487,7 @@ func (r *resolver) LookupFor2(q []byte, uid string, tids ...string) ([]byte, str
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
+	// uid may be UNKNOWN_UID_STR if set so by gateway.q()/alg.q()
 	if uid == core.UNKNOWN_UID_STR {
 		uid = protect.UidSelf
 	}
