@@ -18,7 +18,9 @@ type Hangover struct {
 }
 
 func NewHangover() *Hangover {
-	return &Hangover{}
+	h := &Hangover{}
+	h.t.Store(zerotime)
+	return h
 }
 
 func (h *Hangover) start() time.Time {

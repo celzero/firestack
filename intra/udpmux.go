@@ -74,7 +74,7 @@ type muxer struct {
 	uid    string // user id owner of mxconn
 	stats  *stats
 
-	until atomic.Value // [time.Time] deadline extension
+	until atomic.Int64 // [time.Time] as unix millis deadline extension
 
 	dxconns  chan *demuxconn // never closed
 	dxconnWG *sync.WaitGroup // wait group for demuxed conns
@@ -339,11 +339,11 @@ func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 func (x *muxer) extend(t time.Time) {
 	if t.IsZero() {
 		extend(x.mxconn, 0)
-		x.until.Store(t)
-	} else if c := x.until.Load().(time.Time); c.IsZero() || c.Before(t) {
+		x.until.Store(t.UnixMilli())
+	} else if c := x.until.Load(); c == 0 || c < t.UnixMilli() {
 		// extend if t is after existing deadline at x.until
 		extend(x.mxconn, time.Until(t))
-		x.until.Store(t)
+		x.until.Store(t.UnixMilli())
 	}
 }
 
