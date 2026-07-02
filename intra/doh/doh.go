@@ -94,18 +94,18 @@ type transport struct {
 	url            string // endpoint URL
 	hostname       string // endpoint hostname
 	port           uint16
-	skipTLSVerify  bool                        // skips tls verification
-	tlsconfig      *tls.Config                 // preset tlsconfig for the endpoint
-	echconfig      *core.Volatile[*tls.Config] // echconfig for the endpoint; may be nil
-	echrejects     atomic.Uint32               // number of running ech rejections
-	echlastattempt *core.Volatile[time.Time]   // last attempt fetching ech cfg
-	pxcmu          sync.RWMutex                // protects pxclients
-	pxclients      map[string]*proxytransport  // todo: use weak pointers for Proxy
-	lastpurge      *core.Volatile[time.Time]   // last scrubbed time for stale pxclients
-	preferGET      bool                        // saw 405 Method Not Allowed
-	proxies        ipn.ProxyProvider           // proxy provider, may be nil
-	relay          string                      // dial doh via relay, may be empty
-	relayref       *core.WeakRef[ipn.Proxy]    // preset ref to relay proxy, if any
+	skipTLSVerify  bool                       // skips tls verification
+	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
+	echconfig      atomic.Pointer[tls.Config] // echconfig for the endpoint; may be nil
+	echrejects     atomic.Uint32              // number of running ech rejections
+	echlastattempt atomic.Int64               // last attempt fetching ech cfg; unix milli
+	pxcmu          sync.RWMutex               // protects pxclients
+	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
+	lastpurge      atomic.Int64               // last scrubbed time for stale pxclients; unix milli
+	preferGET      bool                       // saw 405 Method Not Allowed
+	proxies        ipn.ProxyProvider          // proxy provider, may be nil
+	relay          string                     // dial doh via relay, may be empty
+	relayref       *core.WeakRef[ipn.Proxy]   // preset ref to relay proxy, if any
 	status         *core.Volatile[int]
 	est            core.P2QuantileEstimator
 }
@@ -155,19 +155,16 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	ctx, done := context.WithCancel(ctx)
 
 	t := &transport{
-		ctx:            ctx,
-		done:           done,
-		id:             id,
-		typ:            typ,
-		proxies:        px,       // may be nil
-		relay:          relay,    // may be empty
-		relayref:       relayref, // may be nil
-		status:         core.NewVolatile(dnsx.Start),
-		pxclients:      make(map[string]*proxytransport),
-		echconfig:      core.NewZeroVolatile[*tls.Config](),
-		echlastattempt: core.NewZeroVolatile[time.Time](),
-		lastpurge:      core.NewVolatile(time.Now()),
-		est:            core.NewP50Estimator(ctx),
+		ctx:       ctx,
+		done:      done,
+		id:        id,
+		typ:       typ,
+		proxies:   px,       // may be nil
+		relay:     relay,    // may be empty
+		relayref:  relayref, // may be nil
+		status:    core.NewVolatile(dnsx.Start),
+		pxclients: make(map[string]*proxytransport),
+		est:       core.NewP50Estimator(ctx),
 	}
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
@@ -322,10 +319,13 @@ func h2(d protect.DialFn, c *tls.Config) *http.Transport {
 // always called from a go-routine
 func (t *transport) purgeProxyClients() {
 	lastpurge := t.lastpurge.Load()
-	if time.Since(lastpurge) <= purgethreshold {
+	now := time.Now().UnixMilli()
+
+	if lastpurge > 0 && now-lastpurge <= purgethreshold.Milliseconds() {
 		return
 	}
-	if ok := t.lastpurge.Cas(lastpurge, time.Now()); !ok {
+
+	if ok := t.lastpurge.CompareAndSwap(lastpurge, now); !ok {
 		log.I("doh: purge proxy clients: race...")
 		return
 	}
@@ -395,11 +395,12 @@ func (t *transport) getOrCreateEchConfigIfNeeded() *tls.Config {
 	}
 
 	prev := t.echlastattempt.Load()
-	if time.Since(prev) < echRetryPeriod {
+	now := time.Now().UnixMilli()
+
+	if prev > 0 && now-prev < echRetryPeriod.Milliseconds() {
 		return nil
 	}
-	refetch := t.echlastattempt.Cas(prev, time.Now())
-	if !refetch {
+	if !t.echlastattempt.CompareAndSwap(prev, now) {
 		return nil
 	}
 
@@ -604,7 +605,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 					echcfg.EncryptedClientHelloConfigList = ech
 					c.Transport = h2(px.Dialer().Dial, echcfg)
 					t.echconfig.Store(echcfg) // update ech config
-					t.echlastattempt.Store(time.Now())
+					t.echlastattempt.Store(time.Now().UnixMilli())
 					t.updateHttpClientsFor(px, nil, c) // update c3
 				}
 				n := t.echrejects.Add(1)

@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -51,8 +52,8 @@ type dot struct {
 	pool    *core.MultConnPool[uint64]
 	usepool bool
 
-	echconfig      *core.Volatile[*tls.Config] // echconfig for the endpoint; may be nil
-	echlastattempt *core.Volatile[time.Time]   // last attempt fetching ech cfg
+	echconfig      atomic.Pointer[tls.Config] // echconfig for the endpoint; may be nil
+	echlastattempt atomic.Int64               // last attempt fetching ech cfg; unix milli
 
 	est    core.P2QuantileEstimator
 	status *core.Volatile[int]
@@ -100,23 +101,22 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 	tlscfg.ClientSessionCache = core.TlsSessionCache()
 	addrport, port := url2addrport(rawurl)
 	t = &dot{
-		ctx:            ctx,
-		done:           done,
-		id:             id,
-		url:            rawurl,
-		host:           hostname,
-		skipTLSVerify:  skipTLSVerify,
-		addrport:       addrport, // may or may not be ipaddr
-		port:           port,
-		status:         core.NewVolatile(x.Start),
-		proxies:        px,
-		relay:          relay,
-		relayref:       relayref,
-		pool:           core.NewMultConnPool[uint64](ctx),
-		usepool:        usepool,
-		est:            core.NewP50Estimator(ctx),
-		echconfig:      core.NewZeroVolatile[*tls.Config](),
-		echlastattempt: core.NewZeroVolatile[time.Time](),
+		ctx:           ctx,
+		done:          done,
+		id:            id,
+		url:           rawurl,
+		host:          hostname,
+		skipTLSVerify: skipTLSVerify,
+		addrport:      addrport, // may or may not be ipaddr
+		port:          port,
+		status:        core.NewVolatile(x.Start),
+		proxies:       px,
+		relay:         relay,
+		relayref:      relayref,
+		pool:          core.NewMultConnPool[uint64](ctx),
+		usepool:       usepool,
+		est:           core.NewP50Estimator(ctx),
+		// echconfig/echlastattempt: zero values (nil) are fine
 	}
 	echcfg := t.getOrCreateEchConfigIfNeeded()
 	// local dialer: protect.MakeNsDialer(id, ctl)
@@ -457,11 +457,12 @@ func (t *dot) getOrCreateEchConfigIfNeeded() *tls.Config {
 	}
 
 	prev := t.echlastattempt.Load()
-	if time.Since(prev) < echRetryPeriod {
+	now := time.Now().UnixMilli()
+
+	if prev > 0 && now-prev < echRetryPeriod.Milliseconds() {
 		return nil
 	}
-	refetch := t.echlastattempt.Cas(prev, time.Now())
-	if !refetch {
+	if !t.echlastattempt.CompareAndSwap(prev, now) {
 		return nil
 	}
 
