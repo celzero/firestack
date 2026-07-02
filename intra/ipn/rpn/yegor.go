@@ -2086,7 +2086,7 @@ func trunc8(s string) string {
 	if len(s) <= 16 {
 		return s[:2] + ".." + s[len(s)-2:]
 	}
-	return s[:4] + ".." + s[len(s)-4:]
+	return s[:5] + ".." + s[len(s)-5:]
 }
 
 func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {

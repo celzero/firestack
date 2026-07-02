@@ -120,10 +120,10 @@ public_key=%s`,
 func (rwg *RegionalWgConf) addrCsv() string {
 	var addrs []string
 	if len(rwg.ClientAddr4) > 0 {
-		addrs = append(addrs, rwg.ClientAddr4)
+		addrs = append(addrs, rwg.ServerIPPort4)
 	}
 	if len(rwg.ClientAddr6) > 0 {
-		addrs = append(addrs, rwg.ClientAddr6)
+		addrs = append(addrs, rwg.ServerIPPort6)
 	}
 	return strings.Join(addrs, ",")
 }
