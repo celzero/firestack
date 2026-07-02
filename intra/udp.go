@@ -198,7 +198,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 
 // Connect connects the proxy server; thread-safe.
 func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPort, dmx netstack.DemuxerFn) (pc net.Conn, smm *FlowSummary, err error) {
-	mux := dmx != nil
+	mux := dmx != nil // also disabled for loopback mode, for now
 
 	// flow is alg/nat-aware, do not change target or any addrs
 	res, undidAlg, realips, domains := h.onFlow(src, target)

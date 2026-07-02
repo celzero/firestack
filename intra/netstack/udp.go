@@ -59,6 +59,7 @@ type GUDPConn struct {
 
 // ref: github.com/google/gvisor/blob/e89e736f1/pkg/tcpip/adapters/gonet/gonet_test.go#L373
 func makeGUDPConn(who string, s *stack.Stack, r *udp.ForwarderRequest, src, dst netip.AddrPort) *GUDPConn {
+	looping := settings.Loopingback.Load()
 	return &GUDPConn{
 		o:     who,
 		stack: s,
@@ -66,8 +67,8 @@ func makeGUDPConn(who string, s *stack.Stack, r *udp.ForwarderRequest, src, dst 
 		src:   src,
 		dst:   dst,
 		req:   r,
-		eim:   settings.EndpointIndependentMapping.Load(),
-		eif:   settings.EndpointIndependentFiltering.Load(),
+		eim:   !looping && settings.EndpointIndependentMapping.Load(),
+		eif:   !looping && settings.EndpointIndependentFiltering.Load(),
 	}
 }
 
