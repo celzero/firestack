@@ -74,7 +74,7 @@ type muxer struct {
 	uid    string // user id owner of mxconn
 	stats  *stats
 
-	until *core.Volatile[time.Time] // deadline extension
+	until atomic.Value // [time.Time] deadline extension
 
 	dxconns  chan *demuxconn // never closed
 	dxconnWG *sync.WaitGroup // wait group for demuxed conns
@@ -130,7 +130,6 @@ func newMuxer(cid, pid, uid string, conn net.PacketConn, vnd vendor, f core.Fina
 		uid:      uid,
 		mxconn:   conn,
 		stats:    &stats{start: time.Now()},
-		until:    core.NewZeroVolatile[time.Time](),
 		routes:   make(map[netip.AddrPort]*demuxconn),
 		rmu:      sync.RWMutex{},
 		dxconns:  make(chan *demuxconn),
@@ -338,11 +337,10 @@ func (x *muxer) sendto(p []byte, addr net.Addr) (int, error) {
 }
 
 func (x *muxer) extend(t time.Time) {
-	c := x.until.Load()
 	if t.IsZero() {
 		extend(x.mxconn, 0)
 		x.until.Store(t)
-	} else if c.IsZero() || c.Before(t) {
+	} else if c := x.until.Load().(time.Time); c.IsZero() || c.Before(t) {
 		// extend if t is after existing deadline at x.until
 		extend(x.mxconn, time.Until(t))
 		x.until.Store(t)
