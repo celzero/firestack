@@ -1358,6 +1358,11 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 			return idstr(core.ChooseOne(remote))
 		}
 		return idstr(remote[0])
+	} else if len(rerecov) > 0 { // prefer Recovered, if set
+		if chooseRandom {
+			return idstr(core.ChooseOne(rerecov))
+		}
+		return idstr(rerecov[0])
 	}
 
 	if isAnyPlus(ids...) { // or, prefer Plus
