@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -58,7 +59,7 @@ type transport struct {
 	usepool bool
 
 	est      core.P2QuantileEstimator
-	lastaddr *core.Volatile[string] // last resolved addr
+	lastaddr atomic.Pointer[string] // last resolved addr
 	status   *core.Volatile[int]    // status of the transport
 }
 
@@ -109,7 +110,6 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		addrport: do.AddrPort(), // may be hostname:port or ip:port
 		port:     do.Port(),
 		status:   core.NewVolatile(dnsx.Start),
-		lastaddr: core.NewZeroVolatile[string](),
 		pool:     core.NewMultConnPool[uint64](ctx),
 		// todo: renable once we know why pooled wireguard dns conns are troublesome
 		usepool:  false,
@@ -285,7 +285,7 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 		dialers.Confirm2(t.addrport, lastaddr)
 	}
 
-	t.lastaddr.Store(lastaddr)
+	t.lastaddr.Store(&lastaddr)
 
 	return
 }
@@ -358,17 +358,20 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) getAddr() string {
 	addr := t.lastaddr.Load()
-	if len(addr) == 0 {
+	var s string
+	if addr == nil || len(*addr) == 0 {
 		// may be protect.Selfhost (for bootstrap/default) or protect.Systemhost
-		addr = t.addrport
+		s = t.addrport
+	} else {
+		s = *addr
 	}
 
 	prefix := dnsx.TransportPrefix(t.id)
 	if len(prefix) > 0 {
-		addr = prefix + addr
+		s = prefix + s
 	}
 
-	return addr
+	return s
 }
 
 func (t *transport) GetRelay() x.Proxy {
