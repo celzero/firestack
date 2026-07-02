@@ -841,10 +841,10 @@ type WsClient struct {
 	RpnMultiCountry
 
 	http *http.Client
-	ops  *core.Volatile[x.RpnOps] // current ops; retained across subsequent Conf() calls
+	ops  atomic.Value // current [x.RpnOps] ops; retained across subsequent Conf() calls
 
 	configExt           atomic.Pointer[WsWgConfig]
-	configExtUpdateTime *core.Volatile[time.Time]
+	configExtUpdateTime atomic.Int64 // in unix milliseconds
 
 	locsid atomic.Value // stores string
 	locs   atomic.Pointer[RpnMultiCountryServers]
@@ -1021,13 +1021,12 @@ func (a *WsClient) Updated() int64 {
 	if c == nil {
 		return 0
 	}
-	updatedAt := a.configExtUpdateTime.Load()
-	return updatedAt.UnixMilli()
+	return a.configExtUpdateTime.Load()
 }
 
 // Ops implements x.RpnAcc. Never returns nil.
 func (a *WsClient) Ops() *x.RpnOps {
-	ops := a.ops.Load()
+	ops := a.ops.Load().(x.RpnOps)
 	return &ops
 }
 
@@ -1163,7 +1162,7 @@ func (a *WsClient) shallowCopyConfig(b *WsClient) (copied bool, err error) {
 		return false, errWsNoConfig
 	}
 	a.configExt.Store(bc)
-	a.configExtUpdateTime.Store(time.Now())
+	a.configExtUpdateTime.Store(time.Now().UnixMilli())
 	a.ops.Store(*b.Ops())
 	return true, nil
 }
@@ -2113,11 +2112,11 @@ func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 		return nil, errWsBadGatewayArgs
 	}
 	a := &WsClient{
-		http:                h,
-		ops:                 core.NewVolatile(o),
-		configExtUpdateTime: core.NewVolatile(time.Now()),
+		http: h,
 	}
 	a.configExt.Store(c)
+	a.configExtUpdateTime.Store(time.Now().UnixMilli())
+	a.ops.Store(o)
 
 	log.I("ws: gw: for %s/%s; ops: %s; from: %s until: %s",
 		a.Who(), c.tokenState(), a.Ops(), fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
