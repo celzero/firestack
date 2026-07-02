@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -46,7 +47,7 @@ type plus struct {
 
 	ba *core.Barrier[[]Transport, string]
 
-	closed *core.Volatile[bool]
+	closed atomic.Bool
 	last   *core.Volatile[Transport]
 }
 
@@ -62,7 +63,6 @@ func NewPlusTransport(ctx context.Context, r TransportProviderInternal, ts ...Tr
 		r:          r,
 		done:       done,
 		ipports:    fakePlusIpports,
-		closed:     core.NewVolatile(false),
 		last:       core.NewZeroVolatile[Transport](),
 	}
 
@@ -144,7 +144,7 @@ func (t *plus) preferreddns() (Transport, error) {
 }
 
 func (t *plus) ordered() ([]Transport, error) {
-	_, best, preferred, recov, errored, ended := Categorize(t.all())
+	_, _, best, preferred, recov, errored, ended := Categorize(t.all())
 
 	expected := len(best) + len(preferred) + len(recov) + 1
 
