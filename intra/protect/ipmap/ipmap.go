@@ -158,8 +158,8 @@ type IPSet struct {
 	r    IPMapper // For hostname resolution, never nil
 	seed []string // Bootstrap ips or ip:ports; may be nil; is immutable.
 
-	confirmed *core.Volatile[netip.Addr] // netip.Addr confirmed to be working.
-	fails     atomic.Uint32              // Number of times the confirmed IP has failed.
+	confirmed atomic.Value  // [netip.Addr] confirmed to be working.
+	fails     atomic.Uint32 // Number of times the confirmed IP has failed.
 
 	any4 atomic.Bool // Whether this set has IPv4 addresses.
 	any6 atomic.Bool // Whether this set has IPv6 addresses.
@@ -419,7 +419,7 @@ func (m *ipmap) GetMany(n uint8, ipver string) []netip.Addr {
 		return ip.IsValid() // both
 	}
 	oneip := func(s *IPSet) (zz netip.Addr) {
-		confirmed := s.confirmed.Load()
+		confirmed := s.Confirmed()
 		if desiredfamily(confirmed) && confirmed.IsGlobalUnicast() {
 			return confirmed
 		}
@@ -504,11 +504,10 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, ogtyp IPSetType) *IPSe
 	logeif(typ != ogtyp)("ipmap: makeIPSet: %s, seed: %v, typ: %s, ogtyp: %s", hostname, ipps, typ, ogtyp)
 
 	s := &IPSet{
-		confirmed: core.NewZeroVolatile[netip.Addr](),
-		typ:       typ,
-		r:         m, // m stays constant, but m.r may change
-		seed:      core.CopyUniq(ipps),
-		fails:     atomic.Uint32{},
+		typ:   typ,
+		r:     m, // m stays constant, but m.r may change
+		seed:  core.CopyUniq(ipps),
+		fails: atomic.Uint32{},
 	}
 	if typ == IPAddr {
 		log.D("ipmap: makeIPSet: %s for %s, confirmed addr %s", hostname, typ, ip)
@@ -717,7 +716,7 @@ func (s *IPSet) has4() bool {
 		return false
 	}
 	if s.typ == IPAddr { // ipaddr always has one ip
-		return s.confirmed.Load().Is4()
+		return s.Confirmed().Is4()
 	}
 	return s.any4.Load()
 }
@@ -727,7 +726,7 @@ func (s *IPSet) has6() bool {
 		return false
 	}
 	if s.typ == IPAddr { // ipaddr always has one ip
-		return s.confirmed.Load().Is6()
+		return s.Confirmed().Is6()
 	}
 	return s.any6.Load()
 }
@@ -759,7 +758,7 @@ func (s *IPSet) Addrs() []netip.Addr {
 	}
 
 	if s.typ == IPAddr { // fast path for ipaddrs
-		return []netip.Addr{s.confirmed.Load()}
+		return []netip.Addr{s.Confirmed()}
 	}
 
 	s.mu.RLock()
@@ -785,7 +784,7 @@ func (s *IPSet) OneIPOnly() bool {
 
 // Confirmed returns the confirmed IP address, or zeroaddr if there is no such address.
 func (s *IPSet) Confirmed() netip.Addr {
-	return s.confirmed.Load()
+	return s.confirmed.Load().(netip.Addr)
 }
 
 // Confirm marks ip as the confirmed address.
@@ -796,6 +795,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	if s.typ == IPAddr { // ipaddr fast path, no-op
 		return
 	}
+	c := s.Confirmed()
 
 	// do not reset fails, as confirmed ipaddrs may be repeatedly
 	// disconfirmed by upstream clients (for example; dialers may
@@ -804,7 +804,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 	// We'd want to keep incrementing failures, so an eventual
 	// reset can happen once a generous maxFailLimit is exhausted.
 	// s.fails.Store(0)
-	if ip.Compare(s.confirmed.Load()) == 0 {
+	if ip.Compare(c) == 0 {
 		return // no-op
 	}
 
@@ -865,7 +865,7 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (done bool) {
 		return false
 	}
 
-	c := s.confirmed.Load()
+	c := s.Confirmed()
 	if ip.Compare(c) == 0 {
 		s.confirmed.Store(zeroaddr)
 		done = true
