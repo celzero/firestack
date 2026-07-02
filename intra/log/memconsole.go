@@ -276,6 +276,24 @@ rollover:
 		goto rollover
 	}
 
+	// STACKTRACE: flush immediately and synchronously so the caller sees the
+	// message before any subsequent crash/exit.
+	if lvl == STACKTRACE && mc.slotIdx > 0 {
+		other := mc.active ^ 1
+		// retry a few times if the other buffer is still draining
+		for retries := 100; retries > 0 && mc.draining[other].Load(); retries-- {
+			time.Sleep(waitPeriodOnFull)
+		}
+		if !mc.draining[other].Load() {
+			idx, start, end := mc.swapBuffersLocked()
+			r := mc.reader
+			mc.mu.Unlock()
+			mc.consume(r, idx, start, end)
+			return
+		}
+		// other buffer still draining after retries; fall through to the ticker path
+	}
+
 	// start the lazy ticker while the buffer has unflushed slots but isn't full yet.
 	needTicker := mc.slotIdx > 0 && mc.slotIdx < memNumSlots && !mc.closed.Load() && mc.ticking.CompareAndSwap(false, true)
 	mc.mu.Unlock()
