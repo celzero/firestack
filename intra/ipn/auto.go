@@ -575,6 +575,14 @@ func changeBufferSizes(c core.MinConn) (int, error) {
 	return core.ChangeBufferSizes(c, rsz, wsz)
 }
 
+// laddr returns the local address of conn c as a string, or false if c is nil.
+func laddr(c net.Conn) (string, bool) {
+	if c == nil || core.IsNil(c) {
+		return "", false
+	}
+	return c.LocalAddr().String(), true
+}
+
 func maybeKeepAlive(c net.Conn) (keepingalive bool) {
 	keepingalive, _ = maybeKeepAlive2(c)
 	return

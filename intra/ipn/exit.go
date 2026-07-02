@@ -13,6 +13,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"strconv"
+	"sync/atomic"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -38,6 +39,7 @@ type exit struct {
 	addr     string
 	outbound *protect.RDial // outbound dialer
 	status   *core.Volatile[int]
+	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
 }
 
@@ -98,6 +100,9 @@ func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
 
 	kaenabled := maybeKeepAlive(c)
 	n, berr := changeBufferSizes(c)
+	if a, ok := laddr(c); ok {
+		h.lastaddr.Store(&a)
+	}
 	log.I("proxy: %s: dial(%s) %s => %s, ka? %t, sz? %d (%v); err? %v",
 		h.id, network, local, remote, kaenabled, n, berr, err)
 	return c, err
@@ -160,6 +165,9 @@ func (h *exit) Reaches(hostportOrIPPortCsv string) bool {
 
 // GetAddr implements x.Proxy.
 func (h *exit) GetAddr() string {
+	if a := h.lastaddr.Load(); a != nil {
+		return *a
+	}
 	return h.addr
 }
 

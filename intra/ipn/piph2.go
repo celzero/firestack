@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -55,6 +56,7 @@ type piph2 struct {
 	// mutable fields
 	lastdial *core.Volatile[time.Time] // last dial time
 	status   *core.Volatile[int]       // proxy status: TOK, TKO, END
+	lastaddr atomic.Pointer[string]
 }
 
 // github.com/posener/h2conn/blob/13e7df33ed1/conn.go
@@ -271,6 +273,9 @@ func (t *piph2) Type() string {
 
 // GetAddr implements Proxy.
 func (t *piph2) GetAddr() string {
+	if a := t.lastaddr.Load(); a != nil {
+		return *a
+	}
 	return t.hostname + ":" + strconv.Itoa(t.port)
 }
 
@@ -442,6 +447,9 @@ func (t *piph2) forward(network, addr string) (protect.Conn, error) {
 			}
 			oconn.laddr = info.Conn.LocalAddr()
 			oconn.raddr = info.Conn.RemoteAddr()
+			if a, ok := laddr(info.Conn); ok {
+				t.lastaddr.Store(&a)
+			}
 			log.D("piph2: GotConn([%v -> %v] (via %v))", oconn.laddr, addr, oconn.raddr)
 		},
 		PutIdleConn: func(err error) {

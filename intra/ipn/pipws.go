@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -55,8 +56,9 @@ type pipws struct {
 
 	done context.CancelFunc // cancel func
 
-	status *core.Volatile[int] // proxy status: TOK, TKO, END
-	opts   *settings.ProxyOptions
+	status   *core.Volatile[int] // proxy status: TOK, TKO, END
+	lastaddr atomic.Pointer[string]
+	opts     *settings.ProxyOptions
 }
 
 var _ core.TCPConn = (*pipwsconn)(nil)
@@ -269,6 +271,9 @@ func (t *pipws) Type() string {
 
 // GetAddr implements x.Proxy.
 func (t *pipws) GetAddr() string {
+	if a := t.lastaddr.Load(); a != nil {
+		return *a
+	}
 	return t.hostname + ":" + strconv.Itoa(t.port)
 }
 
@@ -427,6 +432,9 @@ func (t *pipws) forward(network, addr string) (protect.Conn, error) {
 	log.D("pipws: duplex %s", rurl)
 
 	t.status.Store(TOK)
+	if a, ok := laddr(c); ok {
+		t.lastaddr.Store(&a)
+	}
 	return c, nil
 }
 

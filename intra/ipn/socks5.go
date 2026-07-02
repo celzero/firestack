@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -39,7 +40,8 @@ type socks5 struct {
 	via      *core.Volatile[*core.WeakRef[Proxy]] // hop proxy
 	lastdial time.Time                            // last time this transport attempted a connection
 	status   *core.Volatile[int]                  // status of this transport
-	done     context.CancelFunc                   // cancel func
+	lastaddr atomic.Pointer[string]
+	done     context.CancelFunc // cancel func
 }
 
 type socks5tcpconn struct {
@@ -227,6 +229,9 @@ func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
 		log.W("proxy: socks5: %s dial(%s) failed %s => %s: %v",
 			h.ID(), network, h.GetAddr(), remote, err)
 	}
+	if a, ok := laddr(c); ok {
+		h.lastaddr.Store(&a)
+	}
 	defer localDialStatus(h.status, err)
 	return
 }
@@ -277,6 +282,9 @@ func (h *socks5) Via() (x.Proxy, error) {
 
 // GetAddr implements x.Proxy.
 func (h *socks5) GetAddr() string {
+	if a := h.lastaddr.Load(); a != nil {
+		return *a
+	}
 	return h.opts.IPPort
 }
 

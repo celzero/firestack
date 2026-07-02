@@ -10,6 +10,7 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -42,6 +43,7 @@ type exit64 struct {
 	addr     string
 	since    time.Time
 	status   *core.Volatile[int]
+	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
 }
 
@@ -98,6 +100,9 @@ func (h *exit64) dial(network, local, remote string) (protect.Conn, error) {
 
 	kaenabled := maybeKeepAlive(c)
 	n, berr := changeBufferSizes(c)
+	if a, ok := laddr(c); ok {
+		h.lastaddr.Store(&a)
+	}
 	logei(err)("proxy: exit64: dial(%s) %s via %s to %s, ka? %t, sz? %d (%v); err? %v",
 		network, local64, addr64, remote, kaenabled, n, berr, err)
 
@@ -203,6 +208,9 @@ func (h *exit64) Reaches(hostportOrIPPortCsv string) bool {
 
 // GetAddr implements Proxy.
 func (h *exit64) GetAddr() string {
+	if a := h.lastaddr.Load(); a != nil {
+		return *a
+	}
 	return h.addr
 }
 

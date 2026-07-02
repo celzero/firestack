@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"context"
+	"sync/atomic"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -33,6 +34,7 @@ type base struct {
 	via      *core.Volatile[*core.WeakRef[Proxy]] // via dialer
 	px       ProxyProvider
 	status   *core.Volatile[int]
+	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
 }
 
@@ -106,6 +108,9 @@ func (h *base) dial(network, local, remote string) (c protect.Conn, err error) {
 	}
 	defer localDialStatus(h.status, err)
 
+	if a, ok := laddr(c); ok {
+		h.lastaddr.Store(&a)
+	}
 	kaenabled := maybeKeepAlive(c)
 	n, berr := changeBufferSizes(c)
 	log.I("proxy: base: dial(%s) to %s=>%s (via %s), ka? %t, sz? %d (%v); err? %v",

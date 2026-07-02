@@ -64,7 +64,8 @@ const (
 )
 
 type ipmeta struct {
-	id uint64
+	id   uint64
+	addr string
 	*x.IPMetadata
 }
 
@@ -82,7 +83,7 @@ func getCachedIPMeta(p Proxy, network string) *x.IPMetadata {
 	if !fresh || e == nil {
 		return nil
 	}
-	if e.id != handle {
+	if e.id != handle || e.addr != p.GetAddr() {
 		ipm.Delete(key)
 		return nil
 	}
@@ -98,7 +99,7 @@ func setCachedIPMeta(p Proxy, network string, meta *x.IPMetadata) {
 		// and so, we are aggressive for how long we'll cache their responses
 		until = minIpmetaLifetime
 	}
-	ipm.K(key, &ipmeta{p.DialerHandle(), meta}, until)
+	ipm.K(key, &ipmeta{p.DialerHandle(), p.GetAddr(), meta}, until)
 }
 
 type proxyClient struct {

@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -35,6 +36,7 @@ type http1 struct {
 	opts     *settings.ProxyOptions
 	lastdial time.Time
 	status   *core.Volatile[int]
+	lastaddr atomic.Pointer[string]
 }
 
 func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px ProxyProvider, po *settings.ProxyOptions) (*http1, error) {
@@ -121,6 +123,9 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 	}
 	defer localDialStatus(h.status, err)
 
+	if a, ok := laddr(c); ok {
+		h.lastaddr.Store(&a)
+	}
 	log.I("proxy: http1: dial(%s) from %s => %s (via %s); err? %v", network, h.GetAddr(), addr, who, err)
 	return
 }
@@ -178,6 +183,9 @@ func (h *http1) Via() (x.Proxy, error) {
 
 // GetAddr implements Proxy.
 func (h *http1) GetAddr() string {
+	if a := h.lastaddr.Load(); a != nil {
+		return *a
+	}
 	return h.opts.IPPort
 }
 
