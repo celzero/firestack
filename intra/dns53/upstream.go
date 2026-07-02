@@ -174,7 +174,7 @@ func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uint64, erro
 		return c, rpid, who, nil
 	}
 
-	if log.Debug {
+	if log.Verbose {
 		log.V("dns53: pxdial: (%s) using %s relay/proxy %s at %s",
 			t.id, network, px.ID(), px.GetAddr())
 	}
@@ -394,8 +394,8 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 
 func (t *transport) Status() int {
 	if px := t.GetRelay(); px != nil {
-		if px.Status() == ipn.TPU {
-			return dnsx.Paused
+		if y, to := dnsx.OverrideStatusFrom(px); y {
+			return to
 		}
 	}
 

@@ -2503,6 +2503,21 @@ func ChooseHealthyProxyHostPort(who, proto string, host string, port uint16, pid
 	return ChooseHealthyProxy(who+" : "+host, proto, ipps, pids, px)
 }
 
+func OverrideStatusFrom(p x.Proxy) (bool, int) {
+	if p == nil {
+		return false, Unknown
+	}
+	if s := p.Status(); s == ipn.TPU {
+		// relay paused => transport paused
+		return true, Paused
+	} else if s == ipn.TKO {
+		return true, TransportError
+	} else if s == ipn.TUP {
+		return true, Start
+	}
+	return false, Unknown
+}
+
 func proxyID(p ipn.Proxy) string {
 	if p == nil {
 		return NetNoProxy

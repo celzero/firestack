@@ -944,8 +944,8 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 
 func (t *transport) Status() int {
 	if px := t.GetRelay(); px != nil {
-		if px.Status() == ipn.TPU { // relay paused => transport paused
-			return dnsx.Paused
+		if y, to := dnsx.OverrideStatusFrom(px); y {
+			return to
 		}
 	}
 	s := t.status.Load()

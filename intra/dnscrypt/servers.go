@@ -449,8 +449,8 @@ func (s *server) IPPorts() []netip.AddrPort {
 
 func (s *server) Status() int {
 	if px := s.getRelay(); px != nil {
-		if px.Status() == ipn.TPU {
-			return dnsx.Paused
+		if y, to := dnsx.OverrideStatusFrom(px); y {
+			return to
 		}
 	}
 	st := s.status.Load()

@@ -1344,7 +1344,7 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 	r.RUnlock()
 
 	// TODO: prefer proxy DNS (wg) when available
-	remote, best, preferred, recoverables, errored, ended := Categorize(trs)
+	remote, rerecov, best, preferred, recoverables, errored, ended := Categorize(trs)
 	if settings.Debug {
 		defer func() {
 			loged(len(theone) <= 0)("dns: pref: chose: %s from remote(%v) best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
@@ -1354,6 +1354,7 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 
 	if len(remote) > 0 { // prefer Remote, if set
 		if chooseRandom {
+			// TODO: choose with ProxyTo, which checks for proxy health
 			return idstr(core.ChooseOne(remote))
 		}
 		return idstr(remote[0])
@@ -1388,26 +1389,36 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 	return ""
 }
 
-func Categorize(ts []Transport) (remote, best, preferred, recoverables, errored, ended []Transport) {
+func Categorize(ts []Transport) (remote, rerecov, best, preferred, recoverables, errored, ended []Transport) {
 	for _, t := range ts {
 		st := t.Status()
 		// TODO: implement t.HasRelay instead
-		if isActiveStatus(st) && t.Relaying() {
-			remote = append(remote, t)
-		}
-		switch st {
-		case Complete:
-			best = append(best, t)
-		case Start, Unpaused, NoResponse, BadQuery:
-			preferred = append(preferred, t)
-		case BadResponse:
-			preferred = append(preferred, t)
-		case InternalError, TransportError:
-			recoverables = append(recoverables, t)
-		case DEnd, Paused, Unknown: // discard non-active transports
-			ended = append(ended, t)
-		default: // ClientError, SendFailed
-			errored = append(errored, t)
+		if t.Relaying() {
+			switch st {
+			case Complete, Start, Unpaused:
+				remote = append(remote, t)
+			case NoResponse, BadQuery, BadResponse, InternalError, TransportError:
+				rerecov = append(rerecov, t)
+			case DEnd, Paused, Unknown: // discard non-active transports
+				ended = append(ended, t)
+			default: // ClientError, SendFailed
+				errored = append(errored, t)
+			}
+		} else {
+			switch st {
+			case Complete:
+				best = append(best, t)
+			case Start, Unpaused, NoResponse, BadQuery:
+				preferred = append(preferred, t)
+			case BadResponse:
+				preferred = append(preferred, t)
+			case InternalError, TransportError:
+				recoverables = append(recoverables, t)
+			case DEnd, Paused, Unknown: // discard non-active transports
+				ended = append(ended, t)
+			default: // ClientError, SendFailed
+				errored = append(errored, t)
+			}
 		}
 	}
 	best = core.Sort(best, Fastest)
