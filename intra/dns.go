@@ -60,12 +60,12 @@ func SetSystemDNS(t Tunnel, ipcsvx string) error {
 	ipcsv := ipcsvx
 	n := len(ipcsv)
 	if r == nil || p == nil {
-		log.W("dns: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
+		log.W("dns: sys: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
 		return core.JoinErr(dnsx.ErrAddFailed, rerr, perr)
 	}
 
 	if n <= 0 {
-		log.W("dns: no system dns IPs to set; fallback to Goos")
+		log.W("dns: sys: no system dns IPs to set; fallback to Goos")
 		r.Remove(dnsx.System)
 		return nil
 	}
@@ -75,7 +75,7 @@ func SetSystemDNS(t Tunnel, ipcsvx string) error {
 	// DNS servers. This is equivalent to using x.Goos Transport.
 	if strings.HasPrefix(ipcsv, "localhost") {
 		if settings.Debug {
-			log.D("dns: system dns is localhost, using loopback")
+			log.D("dns: sys: system dns is localhost, using loopback")
 		}
 		ipcsv = localip4 + "," + localip6
 	}
@@ -87,7 +87,7 @@ func SetSystemDNS(t Tunnel, ipcsvx string) error {
 		return err
 	}
 
-	log.I("dns: new system dns from %s; ok? %t", ipcsv, ok)
+	log.I("dns: sys: new system dns from %s; ok? %t", ipcsv, ok)
 	return nil
 }
 
@@ -149,12 +149,12 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	// uses updated DNS addresses if p.DNS() has changed/updated
 	ipOrHostCsv := p.DNS() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
 	if len(ipOrHostCsv) == 0 {
-		log.W("dns: no proxy dns for %s @ %s", pid, p.GetAddr())
+		log.W("dns: px: no proxy dns for %s @ %s", pid, p.GetAddr())
 		return dnsx.ErrNoProxyDNS
 	}
 	ipsOrHost := strings.Split(ipOrHostCsv, ",")
 	if len(ipsOrHost) == 0 {
-		log.W("dns: no dns for %s @ %s", pid, p.GetAddr())
+		log.W("dns: px: no dns for %s @ %s", pid, p.GetAddr())
 		return dnsx.ErrNoProxyDNS
 	}
 	first := ipsOrHost[0]
