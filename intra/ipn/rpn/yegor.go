@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -842,8 +843,11 @@ type WsClient struct {
 	http *http.Client
 	ops  *core.Volatile[x.RpnOps] // current ops; retained across subsequent Conf() calls
 
-	configExt           *core.Volatile[*WsWgConfig]
+	configExt           atomic.Pointer[WsWgConfig]
 	configExtUpdateTime *core.Volatile[time.Time]
+
+	locsid atomic.Value // stores string
+	locs   atomic.Pointer[RpnMultiCountryServers]
 }
 
 type WsWgConfig struct {
@@ -1057,6 +1061,14 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 	if len(c.Configs) <= 0 {
 		return nil, errWsNoCcConfig
 	}
+
+	// Return cached locations if the session's loc_hash hasn't changed.
+	if c.Session != nil && a.locsid.Load() == c.Session.LocHash {
+		if cur := a.locs.Load(); cur != nil {
+			return cur, nil
+		}
+	}
+
 	excl := ccCsvAsSet(a.Ops().ExcludeCCs())
 	visited := make(map[string]bool, len(c.Configs))
 	s := make([]x.RpnServer, 0, len(c.Configs)/maxPerRegionWgConfs)
@@ -1093,7 +1105,14 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 		}
 		visited[rc.Name] = true
 	}
-	return &RpnMultiCountryServers{s}, nil
+
+	// Cache the result keyed by the session's loc_hash.
+	mcs := &RpnMultiCountryServers{s}
+	if c.Session != nil {
+		a.locsid.Store(c.Session.LocHash)
+		a.locs.Store(mcs)
+	}
+	return mcs, nil
 }
 
 // Update implements x.RpnAcc.
@@ -2096,9 +2115,9 @@ func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 	a := &WsClient{
 		http:                h,
 		ops:                 core.NewVolatile(o),
-		configExt:           core.NewVolatile(c),
 		configExtUpdateTime: core.NewVolatile(time.Now()),
 	}
+	a.configExt.Store(c)
 
 	log.I("ws: gw: for %s/%s; ops: %s; from: %s until: %s",
 		a.Who(), c.tokenState(), a.Ops(), fmtUnixMillis(a.Created()), fmtUnixMillis(a.Expires()))
