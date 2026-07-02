@@ -70,7 +70,7 @@ type gtunnel struct {
 	done   context.CancelFunc
 	stack  *stack.Stack              // a tcpip stack
 	ep     netstack.SeamlessEndpoint // endpoint for the stack
-	sid    *core.Volatile[int]       // session id (almost always tunnel fd)
+	sid    atomic.Int64              // session id (almost always tunnel fd)
 	hdl    netstack.GConnHandler     // tcp, udp, and icmp handlers
 	pcapio *pcapsink                 // pcap output, if any
 	closed atomic.Bool               // open/close?
@@ -208,12 +208,12 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		done:   done,
 		stack:  stack,
 		ep:     ep,
-		sid:    core.NewVolatile(fd), // fd is the og tun device
 		hdl:    hdl,
 		pcapio: sink,
 		closed: atomic.Bool{},
 		once:   sync.Once{},
 	}
+	t.sid.Store(int64(fd)) // fd is the og tun device
 
 	core.Go("tun.awaiter", t.waitForEndpoint)
 
@@ -264,7 +264,7 @@ func (t *gtunnel) setLink(fd, mtu int) (err error) {
 		if err != nil {
 			t.sid.Store(-1) // reset sid
 		} else {
-			t.sid.Store(fd) // set sid to fd
+			t.sid.Store(int64(fd)) // set sid to fd
 		}
 	}()
 

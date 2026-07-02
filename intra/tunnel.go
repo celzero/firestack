@@ -130,7 +130,7 @@ type rtunnel struct {
 	resolver dnsx.Resolver
 	services rnet.Services
 
-	linkmtu *core.Volatile[int]
+	linkmtu atomic.Int32
 
 	closed atomic.Bool
 	once   sync.Once
@@ -256,7 +256,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 	// TODO: err on reverser errors too?
 	rerr := proxies.Reverser(revhdl)
 
-	t = &rtunnel{
+	rt := &rtunnel{
 		t:        core.NewVolatile[tunnel.Tunnel](gt),
 		bar:      core.NewKeyedBarrier[*x.NetStat, string](ctx, "t.stat.bar", statttl),
 		ctx:      ctx,
@@ -265,15 +265,15 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 		proxies:  proxies,
 		resolver: resolver,
 		services: services,
-		linkmtu:  core.NewVolatile(linkmtu),
 	}
+	rt.linkmtu.Store(int32(linkmtu))
 
 	context.AfterFunc(ctx, wire.Pool.Clear)
 	context.AfterFunc(ctx, dialers.Clear)
 	context.AfterFunc(ctx, ipn.ClearIPMeta)
 
 	log.I("tun: <<< new >>>; tunnel ok; reverser? %v", rerr)
-	return t, nil
+	return rt, nil
 }
 
 func (t *rtunnel) Disconnect() {
@@ -291,8 +291,9 @@ func (t *rtunnel) Disconnect() {
 }
 
 func (t *rtunnel) SetLinkMtu(linkmtu int) (didchange bool) {
-	prev := t.linkmtu.Swap(linkmtu)
-	mtudiff := prev != linkmtu
+	mtu32 := int32(linkmtu)
+	prev := t.linkmtu.Swap(mtu32)
+	mtudiff := prev != mtu32
 	logiif(mtudiff)("tun: set link mtu; set(%d) <= prev(%d); refresh protos? %t", linkmtu, prev, mtudiff)
 	if mtudiff {
 		core.Gx("i.setLinkMtuRefresh", func() {
@@ -312,9 +313,10 @@ func (t *rtunnel) SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error {
 		return errClosed
 	}
 
+	mtu32 := int32(linkmtu)
 	tunnel := t.t.Load()
 
-	mtudiff := t.linkmtu.Swap(linkmtu) != linkmtu
+	mtudiff := t.linkmtu.Swap(mtu32) != mtu32
 	l3 := settings.L3(engine)
 	l3diff := dialers.IPProtos(l3)
 
