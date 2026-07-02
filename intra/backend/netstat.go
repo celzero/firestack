@@ -32,7 +32,7 @@ type TUNStat struct {
 	Open     bool
 	Up       bool
 	Mtu      int32
-	Sid      int
+	Sid      int64
 	EpStats  string
 	PcapMode string
 }
