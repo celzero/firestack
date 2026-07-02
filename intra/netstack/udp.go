@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -43,7 +44,7 @@ type GUDPConn struct {
 	stack *stack.Stack
 
 	// conn exposes UDP semantics atop endpoint
-	c *core.Volatile[*gonet.UDPConn]
+	c atomic.Pointer[gonet.UDPConn]
 	// local addr (remote addr in netstack)
 	// ex: 10.111.222.1:20716; same as endpoint.GetRemoteAddress
 	src netip.AddrPort
@@ -63,7 +64,6 @@ func makeGUDPConn(who string, s *stack.Stack, r *udp.ForwarderRequest, src, dst 
 	return &GUDPConn{
 		o:     who,
 		stack: s,
-		c:     core.NewZeroVolatile[*gonet.UDPConn](),
 		src:   src,
 		dst:   dst,
 		req:   r,

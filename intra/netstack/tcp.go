@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -52,7 +53,7 @@ var _ core.TCPConn = (*GTCPConn)(nil)
 type GTCPConn struct {
 	o     string // owner
 	stack *stack.Stack
-	c     *core.Volatile[*gonet.TCPConn] // conn exposes TCP semantics atop endpoint
+	c     atomic.Pointer[gonet.TCPConn] // conn exposes TCP semantics atop endpoint
 	src   netip.AddrPort                 // local addr (remote addr in netstack)
 	dst   netip.AddrPort                 // remote addr (local addr in netstack)
 	req   *tcp.ForwarderRequest          // egress request as a TCP state machine
@@ -151,7 +152,6 @@ func makeGTCPConn(who string, s *stack.Stack, req *tcp.ForwarderRequest, src, ds
 	return &GTCPConn{
 		o:     who,
 		stack: s,
-		c:     core.NewZeroVolatile[*gonet.TCPConn](),
 		src:   src,
 		dst:   dst,
 		req:   req, // may be nil

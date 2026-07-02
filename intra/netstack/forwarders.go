@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -189,7 +190,7 @@ type supervisor struct {
 	icmp       *icmpResponder
 	seed       uint32
 	wg         sync.WaitGroup
-	sid        *core.Volatile[int] // tun fd for diagnostics
+	sid        atomic.Int64 // tun fd for diagnostics
 	ready      []bool
 }
 
@@ -199,12 +200,12 @@ func newSupervisor(e stack.InjectableLinkEndpoint, sid int) *supervisor {
 
 	m := &supervisor{
 		seed:       rand.Uint32(),
-		sid:        core.NewVolatile(sid),
 		ready:      make([]bool, maxForwarders),
 		processors: make([]processor, maxForwarders),
 		icmp:       &icmp,
 		wg:         sync.WaitGroup{},
 	}
+	m.note(sid)
 
 	m.wg.Add(maxForwarders)
 	for i := range m.processors {
@@ -219,13 +220,13 @@ func newSupervisor(e stack.InjectableLinkEndpoint, sid int) *supervisor {
 }
 
 // tunid returns a unique identifier (usually current tun fd); used for diagnostics only.
-func (m *supervisor) tunid() int {
+func (m *supervisor) tunid() int64 {
 	return m.sid.Load()
 }
 
 // note notes the new tun fd (used for diagnostics only).
 func (m *supervisor) note(sid int) {
-	m.sid.Store(sid)
+	m.sid.Store(int64(sid))
 }
 
 // start starts the processor goroutines if the processor manager is configured

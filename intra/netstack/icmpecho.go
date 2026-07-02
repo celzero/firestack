@@ -24,7 +24,7 @@ const minICMPPacketSize = header.ICMPv4MinimumSize + header.IPv4MinimumSize
 // TODO: get rid of the global in favor of passing the handler via the responder.
 // hdlEcho stores the ICMP handler used by the dispatcher-level ICMP
 // interception path.
-var hdlEcho = core.NewZeroVolatile[*icmpForwarder]()
+var hdlEcho atomic.Pointer[icmpForwarder]
 
 func setICMPEchoHandler(h *icmpForwarder) {
 	hdlEcho.Store(h)
