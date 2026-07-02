@@ -9,6 +9,7 @@ package ipn
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -34,7 +35,7 @@ type auto struct {
 	pxr  ProxyProvider
 	addr string
 
-	via *core.Volatile[*core.WeakRef[Proxy]] // via dialer
+	via atomic.Pointer[core.WeakRef[Proxy]] // via dialer
 
 	exp    *core.Sieve[string, int]
 	ba     *core.Barrier[bool, string]
@@ -49,7 +50,6 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 		exp:    core.NewSieve[string, int](ctx, "ipn.a.exp", ttl30s),
 		ba:     core.NewBarrier[bool](ctx, "ipn.a.bar", ttl30s),
 		status: core.NewVolatile(TUP),
-		via:    core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 	return h
 }
@@ -464,7 +464,7 @@ func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
 func (h *auto) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	var winerr error
 	if !dryrun {
-		old := h.via.Tango(via)
+		old := h.via.Swap(via)
 		log.I("proxy: auto: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	if win, _ := h.pxr.mainRpnProxyOf(RpnWin); win != nil {

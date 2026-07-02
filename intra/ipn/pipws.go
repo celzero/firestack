@@ -51,8 +51,8 @@ type pipws struct {
 	client3    *http.Client   // ws client for ech
 	outbound   *protect.RDial // ws dialer
 	px         ProxyProvider
-	via        *core.Volatile[*core.WeakRef[Proxy]] // hop dialer
-	lastdial   time.Time                            // last dial time
+	via        atomic.Pointer[core.WeakRef[Proxy]] // hop dialer
+	lastdial   time.Time                           // last dial time
 
 	done context.CancelFunc // cancel func
 
@@ -217,7 +217,6 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider
 		status:     core.NewVolatile(TUP),
 		done:       done,
 		opts:       po,
-		via:        core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 	if err != nil {
 		return nil, err
@@ -290,7 +289,7 @@ func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
 // Hop implements Proxy.
 func (h *pipws) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	if !dryrun {
-		old := h.via.Tango(via)
+		old := h.via.Swap(via)
 		log.I("pipws: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil

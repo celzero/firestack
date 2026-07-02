@@ -31,7 +31,7 @@ type http1 struct {
 
 	id       string
 	outbound proxy.Dialer
-	via      *core.Volatile[*core.WeakRef[Proxy]]
+	via      atomic.Pointer[core.WeakRef[Proxy]]
 	px       ProxyProvider
 	opts     *settings.ProxyOptions
 	lastdial time.Time
@@ -77,7 +77,6 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px Proxy
 		status:   core.NewVolatile(TUP),
 		id:       id,
 		opts:     po,
-		via:      core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 
 	logeif(err != nil)("proxy: http1: created %s with opts(%s); err? %v",
@@ -165,7 +164,7 @@ func (h *http1) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	}
 
 	if !dryrun {
-		old := h.via.Tango(via)
+		old := h.via.Swap(via)
 		log.I("http1: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil

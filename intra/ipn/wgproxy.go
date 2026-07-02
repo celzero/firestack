@@ -123,7 +123,7 @@ type wgtun struct {
 
 	// mutable fields
 
-	via    *core.Volatile[*core.WeakRef[Proxy]]
+	via    atomic.Pointer[core.WeakRef[Proxy]]
 	viaUp  atomic.Bool // using via?
 	direct protect.RDialer
 
@@ -933,18 +933,18 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	netstack.SetNetstackOpts(s)
 
 	t := &wgtun{
-		ctx:           ctx,
-		done:          done,
-		id:            id2,
-		addrs:         ifopts.ifaddrs,
-		ep:            ep,
-		stack:         s,
-		events:        make(chan tun.Event, eventssize),
-		ingress:       make(chan *buffer.View, epsize),
-		finalize:      make(chan struct{}), // always unbuffered
-		direct:        protect.MakeNsRDial(id, ctx, ctl),
-		px:            px,
-		via:           core.NewZeroVolatile[*core.WeakRef[Proxy]](),
+		ctx:      ctx,
+		done:     done,
+		id:       id2,
+		addrs:    ifopts.ifaddrs,
+		ep:       ep,
+		stack:    s,
+		events:   make(chan tun.Event, eventssize),
+		ingress:  make(chan *buffer.View, epsize),
+		finalize: make(chan struct{}), // always unbuffered
+		direct:   protect.MakeNsRDial(id, ctx, ctl),
+		px:       px,
+
 		rev:           core.NewVolatile(lp.rev),
 		rt:            x.NewIpTree(), // must be set to allowedaddrs
 		status:        core.NewVolatile(TUP),
@@ -1457,7 +1457,7 @@ func (h *wgproxy) Hop(via *core.WeakRef[Proxy], dryrun bool) (err error) {
 
 	if via == nil {
 		if !dryrun {
-			old = h.via.Tango(nil)
+			old = h.via.Swap(nil)
 			// undo MTU enforced due to any prior hops
 			if rerr := h.resetMtu(nil); rerr != nil {
 				log.W("wg: %s hop: mtu reset err: %v", h.id, rerr)
@@ -1498,7 +1498,7 @@ func (h *wgproxy) Hop(via *core.WeakRef[Proxy], dryrun bool) (err error) {
 	}
 
 	if !dryrun {
-		old = h.via.Tango(via)
+		old = h.via.Swap(via)
 		log.I("wg: %s hop: %s => %s", h.id, refhandle(old), refhandle(via))
 	}
 	return nil

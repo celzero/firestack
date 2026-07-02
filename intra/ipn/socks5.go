@@ -32,14 +32,14 @@ type socks5 struct {
 	SkipRefresh // no refresh
 	GW          // dual stack gateway
 
-	id       string                               // unique identifier
-	opts     *settings.ProxyOptions               // connect options
-	d        protect.RDialer                      // dialer to this upstream proxy
-	outbound []proxy.Dialer                       // outbound dialers via this upstream proxy
-	px       ProxyProvider                        // proxy provider
-	via      *core.Volatile[*core.WeakRef[Proxy]] // hop proxy
-	lastdial time.Time                            // last time this transport attempted a connection
-	status   *core.Volatile[int]                  // status of this transport
+	id       string                              // unique identifier
+	opts     *settings.ProxyOptions              // connect options
+	d        protect.RDialer                     // dialer to this upstream proxy
+	outbound []proxy.Dialer                      // outbound dialers via this upstream proxy
+	px       ProxyProvider                       // proxy provider
+	via      atomic.Pointer[core.WeakRef[Proxy]] // hop proxy
+	lastdial time.Time                           // last time this transport attempted a connection
+	status   *core.Volatile[int]                 // status of this transport
 	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc // cancel func
 }
@@ -141,7 +141,6 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 		outbound: clients,
 		opts:     po,
 		done:     done,
-		via:      core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 
 	tx.DialTCP = h.txdial // h.outbound uses this
@@ -264,7 +263,7 @@ func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
 // Hop implements Proxy.
 func (h *socks5) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	if !dryrun {
-		old := h.via.Tango(via)
+		old := h.via.Swap(via)
 		log.I("socks5: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil

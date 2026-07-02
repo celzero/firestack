@@ -30,8 +30,8 @@ type base struct {
 	GW
 	id       string
 	addr     string
-	outbound *protect.RDial                       // outbound dialer
-	via      *core.Volatile[*core.WeakRef[Proxy]] // via dialer
+	outbound *protect.RDial                      // outbound dialer
+	via      atomic.Pointer[core.WeakRef[Proxy]] // via dialer
 	px       ProxyProvider
 	status   *core.Volatile[int]
 	lastaddr atomic.Pointer[string]
@@ -52,7 +52,6 @@ func newBasicProxy(id, addr string, ctx context.Context, c protect.Controller, p
 		outbound: protect.MakeNsRDial(Base, ctx, c),
 		status:   core.NewVolatile(TUP),
 		done:     done,
-		via:      core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 	return h
 }
@@ -175,7 +174,7 @@ func (h *base) Reaches(hostportOrIPPortCsv string) bool {
 func (h *base) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	if via == nil {
 		if !dryrun {
-			old := h.via.Tango(nil)
+			old := h.via.Swap(nil)
 			log.I("proxy: base: hop removed; was %s", refhandle(old))
 		}
 		return nil
@@ -187,7 +186,7 @@ func (h *base) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	}
 
 	if !dryrun {
-		old := h.via.Tango(via)
+		old := h.via.Swap(via)
 		log.I("proxy: base: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil

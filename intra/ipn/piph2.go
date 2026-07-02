@@ -48,7 +48,7 @@ type piph2 struct {
 	client   http.Client    // h2 client, see trType
 	outbound *protect.RDial // h2 dialer
 	px       ProxyProvider
-	via      *core.Volatile[*core.WeakRef[Proxy]] // hop dialer
+	via      atomic.Pointer[core.WeakRef[Proxy]] // hop dialer
 	opts     *settings.ProxyOptions
 
 	done context.CancelFunc
@@ -226,7 +226,6 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 		done:     done,
 		lastdial: core.NewVolatile(time.Time{}),
 		opts:     po,
-		via:      core.NewZeroVolatile[*core.WeakRef[Proxy]](),
 	}
 	if err != nil {
 		return nil, err
@@ -292,7 +291,7 @@ func (t *piph2) Reaches(hostportOrIPPortCsv string) bool {
 // Hop implements Proxy.
 func (t *piph2) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	if !dryrun {
-		old := t.via.Tango(via)
+		old := t.via.Swap(via)
 		log.I("piph2: hop %s => %s", refhandle(old), refhandle(via))
 	}
 	return nil
