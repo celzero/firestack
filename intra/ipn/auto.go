@@ -580,7 +580,10 @@ func laddr(c net.Conn) (string, bool) {
 	if c == nil || core.IsNil(c) {
 		return "", false
 	}
-	return c.LocalAddr().String(), true
+	if addr := c.LocalAddr(); addr != nil {
+		return addr.String(), true
+	}
+	return "", false
 }
 
 func maybeKeepAlive(c net.Conn) (keepingalive bool) {

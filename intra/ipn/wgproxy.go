@@ -123,6 +123,7 @@ type wgtun struct {
 
 	// mutable fields
 
+	// atomic.Pointer over different Proxy impls will work go.dev/play/p/2ovWbpkWO1f
 	via    atomic.Pointer[core.WeakRef[Proxy]]
 	viaUp  atomic.Bool // using via?
 	direct protect.RDialer
