@@ -18,9 +18,10 @@ type Console interface {
 	// LogMemFD hands off the shared-memory and that back the double-buffered log data.
 	// fd1 and fd2 can be mapped; but must be dup(2)'d before use.
 	// size is the max length (in bytes) of each region the receiver should mmap.
+	// slotsize is the size of each slot/line within the shared-memory region.
 	// Return a LogConsumer if the implementation will consume the data from these regions.
 	// nil causes fallback to LogFD or the synchronous Console adapter.
-	LogMemFD(fd1, fd2, size int) LogConsumer
+	LogMemFD(fd1, fd2, size, slotsize int) LogConsumer
 }
 
 type LogConsumer interface {

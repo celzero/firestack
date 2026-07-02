@@ -108,7 +108,7 @@ func SetupConsole(console Console) error {
 		// memfd double-buffer (shared memory, zero kernel copy).
 		if mc, merr := log.NewMemoryBased(); merr == nil {
 			mfd1, mfd2 := mc.FDs()
-			if cons = console.LogMemFD(mfd1, mfd2, mc.BufSize()); cons != nil {
+			if cons = console.LogMemFD(mfd1, mfd2, mc.BufSize(), mc.SlotSize()); cons != nil {
 				log.SetConsole(ctx, mc)
 				mc.SetReader(log.MemReader(cons))
 				context.AfterFunc(ctx, func() { core.Close(mc) })

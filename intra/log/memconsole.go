@@ -411,6 +411,8 @@ func (mc *Memconsole) SetReader(r MemReader) {
 // large an mmap to perform.
 func (mc *Memconsole) BufSize() int { return memBufSize }
 
+func (mc *Memconsole) SlotSize() int { return memSlotSize }
+
 // Close drains any pending data, waits for any concurrent Drain call to
 // return, calls Close(), then unmaps the shared-memory regions and closes
 // the memfds.
