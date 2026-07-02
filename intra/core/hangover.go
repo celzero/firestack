@@ -7,35 +7,38 @@
 package core
 
 import (
+	"sync/atomic"
 	"time"
 )
 
 var zerotime = time.Time{}
 
 type Hangover struct {
-	start *Volatile[time.Time]
+	t atomic.Value // [time.Time]
 }
 
 func NewHangover() *Hangover {
-	return &Hangover{start: NewVolatile(zerotime)}
+	return &Hangover{}
+}
+
+func (h *Hangover) start() time.Time {
+	return h.t.Load().(time.Time)
 }
 
 func (h *Hangover) Note() {
-	s := h.start.Load()
-	if s.IsZero() {
-		h.start.Cas(s, time.Now())
+	if s := h.start(); s.IsZero() {
+		h.t.CompareAndSwap(s, time.Now())
 	} // else: already started
 }
 
 func (h *Hangover) Break() {
-	s := h.start.Load()
-	if !s.IsZero() {
-		h.start.Cas(s, zerotime)
+	if s := h.start(); !s.IsZero() {
+		h.t.CompareAndSwap(s, zerotime)
 	} // else: already stopped
 }
 
 func (h *Hangover) Within(d time.Duration) bool {
-	s := h.start.Load()
+	s := h.start()
 	if s.IsZero() {
 		return true
 	}
