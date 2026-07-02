@@ -46,7 +46,7 @@ type transport struct {
 
 	id string
 
-	addrport string // hostname, ip:port, protect.UidSelf:53, protect.System:53, protect.HostlessXYZ:53
+	addrport string // hostname, ip:port, protect.Selfhost:53, protect.Systemhost:53, protect.HostlessXYZ:53
 	port     uint16
 
 	client   *dns.Client
@@ -121,7 +121,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
 	ips := strings.Split(ipcsv, ",")               // may be nil or empty or ip:port
-	ok := dnsx.RegisterAddrs(id, tx.addrport, ips) // addrport may be protect.UidSelf or protect.System
+	ok := dnsx.RegisterAddrs(id, tx.addrport, ips) // addrport may be protect.Selfhost or protect.Systemhost
 	log.I("dns53: (%s) pre-resolved %s to %s; ok? %t", id, tx.addrport, ipcsv, ok)
 	tx.client = &dns.Client{
 		Net:     "udp", // default transport type
@@ -359,7 +359,7 @@ func (t *transport) GetAddr() string {
 func (t *transport) getAddr() string {
 	addr := t.lastaddr.Load()
 	if len(addr) == 0 {
-		// may be protect.UidSelf (for bootstrap/default) or protect.System
+		// may be protect.Selfhost (for bootstrap/default) or protect.Systemhost
 		addr = t.addrport
 	}
 

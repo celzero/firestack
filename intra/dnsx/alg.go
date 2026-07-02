@@ -1297,10 +1297,10 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
-	usepreset := len(preset) > 0      // preset may be nil
-	mod := t.mod.Load()               // allow alg?
-	discarduid := !t.split.Load()     // do not split tunnel?
-	uidself := uid == protect.UidSelf // us?
+	usepreset := len(preset) > 0    // preset may be nil
+	mod := t.mod.Load()             // allow alg?
+	discarduid := !t.split.Load()   // do not split tunnel?
+	uidself := uid == protect.MyUid // us?
 	hasblock := isAnyBlockAll(idstr(t2), idstr(t2))
 	hasfixed := isAnyFixed(idstr(t1))         // fixed transport?
 	usefixed := !usepreset && mod && hasfixed // use preset fixed realips?
@@ -1314,7 +1314,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// by subsequent OnQuery()s as the rules are dynamic (for instance, a uid+qname
 	// may be blocked because device is in keyguard/locked state but allowed
 	// when the user is present (device is unlocked). In the cases where the
-	// uid is protect.UidSelf (that is, requests sent by dns64.go or ipmapper.go)
+	// uid is protect.MyUid (that is, requests sent by dns64.go or ipmapper.go)
 	// should not be alg'd as the alg'd ips will end up as "realips" in xips caches.
 	// nb: setting mod = false will achieve the same effect but it goes through
 	// the effort of setting up alg/ptr/nat caches which is wasteful in this case.
@@ -1339,9 +1339,9 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		t1 = t2 // assert t2 != nil?
 	} else if usefixed {
 		// fixed ip responses must always be alg'd unlike preset / blockall
-		// even when uid == protect.UidSelf as dnsx.Fixed overrides all other
+		// even when uid == protect.MyUid as dnsx.Fixed overrides all other
 		// settings & must respond with modded (alg'd) ips. It is another thing
-		// that protect.UidSelf requests should never need dnsx.Fixed.
+		// that protect.MyUid requests should never need dnsx.Fixed.
 		dontalg = false
 		preset = fixedRealIPs
 		mod = true // assert mod == true?
@@ -2035,10 +2035,10 @@ func (t *dnsgateway) RESOLV(domain, uid, tid string) []netip.Addr {
 		uid = core.UNKNOWN_UID_STR
 	}
 	// TODO: handle Preset IPs which aren't alg'd
-	// TODO: for some skipInternalCache(tid) and uid == protect.UidSelf
+	// TODO: for some skipInternalCache(tid) and uid == protect.MyUid
 	// alg caches (nat/ptr) won't have any entries
 	// See: dontalg var in dnsgateway.q() and dnsgateway.xLocked()
-	if uid == protect.UidSelf {
+	if uid == protect.MyUid {
 		uid = core.UNKNOWN_UID_STR // wildcard, so xips searches across all UIDs
 		tid = notransport          // wildcard, so xips searches across all TIDs
 	}
@@ -2071,7 +2071,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 
 	// see: dontalg var in dnsgateway.q()
 	// TODO: handle preset IPs that won't be in the ptr/nat caches
-	uidself := uid == protect.UidSelf
+	uidself := uid == protect.MyUid
 	skippedcache := skipInternalCache(tids...)
 	didnotAlg := skippedcache || uidself
 
@@ -2468,7 +2468,7 @@ func ChooseHealthyProxy(who, proto string, ipps []netip.AddrPort, pids []string,
 		if !ipp.IsValid() {
 			continue
 		}
-		if p, err := px.ProxyTo(ipp, proto, protect.UidSelf, pids); err == nil {
+		if p, err := px.ProxyTo(ipp, proto, protect.MyUid, pids); err == nil {
 			pid = proxyID(p)
 			foundProxy = pid != NetNoProxy
 			cipp = ipp

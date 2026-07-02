@@ -507,8 +507,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 				px.delpin(uid, ipp)
 				return nil, e(core.JoinErr(err, errProxyRoute))
 			} // there is only one pid to route to
-			if uid != protect.UidSelf && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
-				// allow h3 like traffic from uidself, which could actually be rpn/wg on 443
+			if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+				// allow h3 like traffic from myuid, which could actually be rpn/wg on 443
 				err = errProxyProtoH3
 				px.delpin(uid, ipp)
 				return nil, e(core.JoinErr(err, errProxyProtoH3))
@@ -544,8 +544,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 
 		hasp := core.IsNotNil(p)
 		if hasp && p != nil && err != nil {
-			// allow h3 like egress from uidself, which could actually be rpn/wg on 443
-			if uid != protect.UidSelf && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+			// allow h3 like egress from myuid, which could actually be rpn/wg on 443
+			if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
 				err = core.JoinErr(err, errProxyProtoH3)
 			} else if hasroute(p, ippstr) {
 				return p, nil
@@ -558,7 +558,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 		px.delpin(uid, ipp)
 	}
 
-	var notok []Proxy
+	var notok, noh3 []Proxy
 	notokproxies := make([]string, 0)
 	endproxies := make([]string, 0)
 	pausedproxies := make([]string, 0)
@@ -601,19 +601,20 @@ retrySearch:
 			continue
 		}
 
-		// TODO: uidself check only required for loopback mode?
-		// allow h3 like egress from uidself, which could actually be rpn/wg on 443
-		if uid != protect.UidSelf && maybeH3(proto, ipp) && cantProxyH3(pid) {
-			noh3proxies = append(noh3proxies, pid)
-			continue
-		}
-
 		if noop(typstr(p)) {
 			loproxies = append(loproxies, pid)
 			continue
 		}
 
 		if hasroute(p, ippstr) {
+			// TODO: myuid check only required for loopback mode?
+			// allow h3 like egress from myuid, which could actually be rpn/wg on 443
+			if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pid) {
+				noh3proxies = append(noh3proxies, pid)
+				noh3 = append(noh3, p)
+				continue
+			}
+
 			err := px.pin(uid, ipp, p) // repin & ping if needed
 			if err == nil {
 				log.VV("proxy: pin: %s: %s+%s; pinned: %s; from pids: %v",
@@ -628,10 +629,26 @@ retrySearch:
 	}
 
 	// can route but not healthy; choose any one on random
-	if len(notok) > 0 {
+	if len(notok) > 0 || len(noh3) > 0 {
 		// stall to allow a non-healthy proxy to recover
 		stalledSec = px.stall(uid + ippstr)
-		return core.ChooseOne(notok), nil
+		if one := core.ChooseOne(notok); one != nil {
+			if log.Verbose {
+				log.V("proxy: pin: %s: %s+%s; pinned: %s; from notok: %v",
+					proto, uid, ippstr, idstr(one), notokproxies)
+			}
+			return one, nil
+		}
+		for i, one := range noh3 {
+			err := px.pin(uid, ipp, one) // repin & ping if needed
+			if err != nil || log.Verbose {
+				logev(err)("proxy: pin: %s: %s+%s; pinned: %s #%d; from noh3: %v; err? %v",
+					proto, uid, ippstr, idstr(one), i, noh3proxies, err)
+			}
+			if err == nil {
+				return one, nil
+			}
+		}
 	}
 
 	// lopinned is always the first element, if any.

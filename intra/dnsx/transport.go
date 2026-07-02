@@ -88,8 +88,8 @@ const (
 )
 
 var (
-	selfprefix    = protect.UidSelf + "."
-	systemprefix  = protect.UidSystem + "."
+	selfprefix    = protect.Selfhost + "."
+	systemprefix  = protect.Systemhost + "."
 	algprefix     = "alg."
 	cacheprefix   = "cached."
 	plusprefix    = "plus."
@@ -489,7 +489,7 @@ func (r *resolver) LookupFor2(q []byte, uid string, tids ...string) ([]byte, str
 	}
 	// uid may be UNKNOWN_UID_STR if set so by gateway.q()/alg.q()
 	if uid == core.UNKNOWN_UID_STR {
-		uid = protect.UidSelf
+		uid = protect.MyUid
 	}
 	// if len(tids) == 0, use transport from preferences
 	return r.forward(q, OriginInternal, core.Rand64(), uid, tids...)
@@ -523,7 +523,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	defaultIsSystemDNS := r.isDefaultSystemDNS()
 
 	// including dns64 and/or alg
-	ans, tid, err := r.forward(q, OriginInternal, core.Rand64(), protect.UidSelf, Default)
+	ans, tid, err := r.forward(q, OriginInternal, core.Rand64(), protect.MyUid, Default)
 	if !defaultIsSystemDNS || goosWillLoopback {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
@@ -531,7 +531,7 @@ func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	// msg may be nil
 	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
 		log.I("dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(msg))
-		ans, tid, err = r.forward(q, OriginInternal, core.Rand64(), protect.UidSelf, Goos) // Goos is System; see: determineTransport
+		ans, tid, err = r.forward(q, OriginInternal, core.Rand64(), protect.MyUid, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
 	return ans, tid, err
@@ -1458,7 +1458,7 @@ func IsAutoProxy(pid string) bool {
 
 // RegisterAddrs registers IP ports with all dialers for a given hostname.
 // If id is dnsx.Bootstrap, the hostname is "protected" from re-resolutions.
-// hostname is a domain name, and as a special case, can be protect.UidSelf or protect.UidSystem.
+// hostname is a domain name, and as a special case, can be protect.Selfhost or protect.Systemhost.
 func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	var ipset *ipmap.IPSet
 	var addrs []netip.Addr

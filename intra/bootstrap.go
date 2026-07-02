@@ -33,7 +33,7 @@ const (
 	// hostname to ip cache (in ipmap.go via dnsx.RegisterAddrs)
 	bootid = dnsx.Bootstrap
 	// protected hostnames are only used by dnsx.DNS53 transport.
-	protectedHostname = protect.UidSelf // or protect.UidSystem
+	protectedHostname = protect.Selfhost // or protect.Systemhost
 	// special hostname is used only by dnsx.Goos transport.
 	builtinHostname = protect.Localhost
 )
@@ -267,7 +267,7 @@ func (b *bootstrap) Type() string {
 func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, error) {
 	smm.ID = dnsx.Default
 	smm.Type = b.typ
-	smm.UID = protect.UidSelf
+	smm.UID = protect.MyUid
 	if tr := b.tr; tr != nil {
 		if settings.Debug {
 			log.V("dns: default: %s query? %t", network, q != nil)

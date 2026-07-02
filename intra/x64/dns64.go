@@ -294,7 +294,7 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r, uid string) (*dns.Msg,
 
 	q4 := xdns.QName(msg4)
 
-	// uid may be UNKNOWN_UID_STR if alg has split disabled.
+	// uid may be UNKNOWN_UID_STR if alg has "split" disabled.
 	res, err := dialers.QueryFor(msg4, uid, r)
 
 	hasAns := xdns.HasAnyAnswer(res)

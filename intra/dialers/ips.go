@@ -33,10 +33,10 @@ var ipm ipmap.IPMap = ipmap.NewIPMap()
 // Resolves hostOrIP, and re-seeds it if existing is non-empty.
 // hostOrIP may be host:port, or ip:port, or host, or ip.
 func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
-	// will never be able to resolve protected hosts (UidSelf, UidRethink),
+	// will never be able to resolve protected hosts (Selfhost, Systemhost),
 	// and so, keep existing as-is (we do not want to use NewProtected and
-	// race against dnsx.RegisterAddrs or other clients updating UidSelf or
-	// UidRethink as changes come in from kotlinland intra.Bridge)
+	// race against dnsx.RegisterAddrs or other clients updating Selfhost or
+	// Systemhost as changes come in from kotlinland intra.Bridge)
 	if protect.NeverResolve(hostOrIP) {
 		cur = existing.Reset()
 	} else if existing.Protected() {
@@ -122,7 +122,7 @@ func Mapper(m ipmap.IPMapper) {
 
 func Clear() {
 	// do not need to handle panics w/ core.Recover
-	ipm.Clear()      // does not clear UidSelf, UidSystem (protected)
+	ipm.Clear()      // does not clear Selfhost, Systemhost (protected)
 	ippPins.Clear()  // clear dialer-id pins
 	ttlcache.Clear() // clear desync TTL cache
 }

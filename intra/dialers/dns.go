@@ -101,7 +101,7 @@ func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
 		return nil, err
 	}
 
-	r, err := ipm.Lookup(q, protect.UidSelf, tids...)
+	r, err := ipm.Lookup(q, protect.MyUid, tids...)
 	if err != nil {
 		return nil, err
 	}

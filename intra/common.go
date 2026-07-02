@@ -36,9 +36,10 @@ const (
 	UNKNOWN_UID_STR = core.UNKNOWN_UID_STR
 	// ANDROID_UID         = core.ANDROID_UID
 	ANDROID_UID_STR     = core.ANDROID_UID_STR
-	SELF_UID            = protect.UidSelf
 	UNSUPPORTED_NETWORK = core.UNSUPPORTED_NETWORK
 )
+
+var SELF_UID = protect.MyUid
 
 const (
 	HDLOK = iota

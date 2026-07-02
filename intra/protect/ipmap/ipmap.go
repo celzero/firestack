@@ -80,14 +80,14 @@ func newUndelegatedDomainTrie() x.RadixTree {
 // IPMapper is an interface for resolving hostnames to IP addresses.
 // For internal used by firestack.
 type IPMapper interface {
-	// Shorthand for Lookup(q, protect.UidSelf, dnsx.Default)
+	// Shorthand for Lookup(q, protect.MySelf, dnsx.Default)
 	LocalLookup(q []byte) ([]byte, error)
 	// Lookup resolves q over one of the tids. If tids is empty, either
 	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
 	Lookup(q []byte, uid string, tids ...string) ([]byte, error)
 	// LookupFor resolves q over client-code preferred tid conveyed via
 	// DNSOpts returned from DNSListener.OnQuery. As a special case, UID
-	// may be protect.UidSelf ("rethink") or core.UNKNOWN_UID_STR ("-1")
+	// may be protect.MyUid or core.UNKNOWN_UID_STR ("-1")
 	// but otherwise it is usually a Linux user-id assigned to a process
 	// which presumably is requesting this lookup.
 	LookupFor(q []byte, uid string) ([]byte, error)
@@ -96,7 +96,7 @@ type IPMapper interface {
 	// LookupNetIPFor is like LookupFor
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
 	// LookupNetIPOn is like Lookup but with tids set to some preset IDs
-	// on behalf of protect.UidSelf (rethink).
+	// on behalf of protect.MyUid.
 	LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
 }
 
@@ -236,7 +236,7 @@ func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.
 
 // Implements IPMapper.
 func (m *ipmap) LocalLookup(q []byte) ([]byte, error) {
-	return m.Lookup(q, protect.UidSelf, x.Default)
+	return m.Lookup(q, protect.MyUid, x.Default)
 }
 
 // Implements IPMapper.
@@ -818,8 +818,8 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		// and must not add or confirm unseeded IPs. This happens in cases
 		// where an IP from a previous Protected IPSet may be confirmed at
 		// a time after the IPSet has been updated to a new one. For example,
-		// if UidSelf / UidSystem has been changed to new System DNS IPs,
-		// a goroutine using the previous UidSelf / UidSystem IPSet may
+		// if Selfhost / Systemhost has been changed to new System DNS IPs,
+		// a goroutine using the previous Selfhost / Systemhost IPSet may
 		// end up confirming IP address in the new one.
 		if s.typ == Protected && newIP {
 			s.confirmed.Store(zeroaddr) // reset instead

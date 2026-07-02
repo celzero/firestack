@@ -27,6 +27,8 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -36,11 +38,11 @@ import (
 	"github.com/celzero/firestack/intra/log"
 )
 
-// See: ipmap.LookupNetIP; UidSelf -> dnsx.Default; UidSystem -> dnsx.System
+// See: ipmap.LookupNetIP; Selfhost -> dnsx.Default; Systemhost -> dnsx.System
 const (
-	UidSelf   = b.UidSelf
-	UidSystem = b.UidSystem
-	Localhost = b.Localhost
+	Selfhost   = b.Selfhost
+	Systemhost = b.Systemhost
+	Localhost  = b.Localhost
 
 	// hostless is a special placeholder prefix for dns53 transport that
 	// has multiple IP:port addresses and is "protected" (never resolved nor
@@ -55,9 +57,11 @@ const (
 	onlyProtectWildcardAddrs = false
 )
 
+var MyUid = strconv.Itoa(os.Getuid())
+
 // never resolve system/default/"hostless" resolver; expected to have seeded ips
 func NeverResolve(hostname string) bool {
-	return hostname == UidSelf || hostname == UidSystem || strings.HasPrefix(hostname, HostlessPrefix)
+	return hostname == Selfhost || hostname == Systemhost || strings.HasPrefix(hostname, HostlessPrefix)
 }
 
 type Controller = b.Controller

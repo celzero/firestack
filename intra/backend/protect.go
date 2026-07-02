@@ -7,9 +7,9 @@
 package backend
 
 const ( // see protect/protect.go
-	UidSelf   = "rethink"
-	UidSystem = "system"
-	Localhost = "localhost"
+	Selfhost   = "rethink"
+	Systemhost = "system"
+	Localhost  = "localhost"
 )
 
 type Console interface {

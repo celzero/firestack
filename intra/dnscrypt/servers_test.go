@@ -51,7 +51,7 @@ type fakeBdg struct {
 
 var (
 	baseNsOpts = &dnsx.NsOpts{PID: ipn.Base, IPCSV: "", TIDCSV: ""}
-	baseMark   = &intra.Mark{PID: ipn.Base, CID: "testcid", UID: protect.UidSelf}
+	baseMark   = &intra.Mark{PID: ipn.Base, CID: "testcid", UID: protect.MyUid}
 	baseTab    = &rnet.Tab{CID: "testcid", Block: false}
 )
 

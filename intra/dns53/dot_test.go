@@ -42,7 +42,7 @@ type fakeResolver struct {
 }
 
 func (r fakeResolver) LocalLookup(q []byte) ([]byte, error) {
-	return r.Lookup(q, protect.UidSelf)
+	return r.Lookup(q, protect.MyUid)
 }
 
 func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {

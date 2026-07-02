@@ -64,11 +64,11 @@ func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
 }
 
 func (r fakeResolver) LocalLookup(q []byte) ([]byte, error) {
-	return r.Lookup(q, protect.UidSelf)
+	return r.Lookup(q, protect.MyUid)
 }
 
 func (r fakeResolver) LookupFor(q []byte, _ string) ([]byte, error) {
-	return r.Lookup(q, protect.UidSelf)
+	return r.Lookup(q, protect.MyUid)
 }
 
 func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {

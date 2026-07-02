@@ -48,7 +48,7 @@ func AddDNSProxy(t Tunnel, id, ippcsv string) error {
 }
 
 func newSystemDNSProxy(ctx context.Context, p ipn.ProxyProvider, ipcsv string) (d dnsx.Transport, err error) {
-	specialHostname := protect.UidSystem // never resolved by ipmap:LookupNetIP
+	specialHostname := protect.Systemhost // never resolved by ipmap:LookupNetIP
 	return dns53.NewTransportFromHostname(ctx, dnsx.System, specialHostname, ipcsv, p)
 }
 

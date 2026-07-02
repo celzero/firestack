@@ -75,7 +75,7 @@ func str2ip(host string) (netip.Addr, error) {
 
 // Implements IPMapper.
 func (m *ipmapper) LocalLookup(q []byte) ([]byte, error) {
-	return m.Lookup(q, protect.UidSelf, dnsx.Default)
+	return m.Lookup(q, protect.MyUid, dnsx.Default)
 }
 
 // Implements IPMapper.
@@ -100,7 +100,7 @@ func (m *ipmapper) LookupNetIPFor(ctx context.Context, network, host, uid string
 
 // Implements IPMapper.
 func (m *ipmapper) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
-	return m.queryIP2(ctx, network, host, protect.UidSelf, tid...)
+	return m.queryIP2(ctx, network, host, protect.MyUid, tid...)
 }
 
 func (m *ipmapper) queryIP(ctx context.Context, network, host string, uid string) ([]netip.Addr, error) {
@@ -258,7 +258,7 @@ func (m *ipmapper) lookupfor(q []byte, uid string) func() (answer, error) {
 // lookupon always resolves on one of the chosen tids
 // (if empty, it may or may not use dnsx.Default;
 // see: dnsx.transport.go:determineTransport)
-// uid may be protect.UidSelf or unknown
+// uid may be protect.MyUid or unknown
 func (m *ipmapper) lookupon(q []byte, uid string, tids ...string) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.LookupFor2(q, uid, tids...)
@@ -271,7 +271,7 @@ func (m *ipmapper) lookupon(q []byte, uid string, tids ...string) func() (answer
 func (m *ipmapper) locallookup(q []byte) func() (answer, error) {
 	return func() (answer, error) {
 		a, tid, err := m.r.LocalLookup(q)
-		return answer{a, tid, protect.UidSelf}, err
+		return answer{a, tid, protect.MyUid}, err
 	}
 }
 
