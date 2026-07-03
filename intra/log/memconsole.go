@@ -49,7 +49,7 @@ const waitPeriodOnFull = 3 * time.Millisecond
 // memBufSize is the total region passed to Ftruncate/Mmap.
 var (
 	nofpages    = 16
-	memSlotSize = charsPerLine                                // 800 bytes per slot
+	memSlotSize = charsPerLine + 1                            // 801 bytes per slot
 	memNumSlots = nofpages * unix.Getpagesize() / memSlotSize // slots that fit in one page
 	memBufSize  = memHdrSize + memNumSlots*memSlotSize        // ~1 page
 )
@@ -189,7 +189,7 @@ func (mc *Memconsole) FDs() (mfd1, mfd2 int) {
 // Log implements log.Console.  It writes lvl-prefixed msg + '\n' into the
 // active memfd buffer, flushing and flipping when the buffer is full.
 func (mc *Memconsole) Log(lvl LogLevel, msg Logmsg) {
-	if mc == nil || mc.closed.Load() {
+	if mc == nil {
 		return
 	}
 	mc.write(lvl, msg)
@@ -212,8 +212,9 @@ func (mc *Memconsole) write(lvl LogLevel, msg Logmsg) {
 		return
 	}
 
+	stacktracing := lvl == STACKTRACE
 	waited := false
-	lpfx := lvl.s()
+	lpfx := []byte(lvl.s())
 	p := unsafe.StringData(msg)
 	all := unsafe.Slice(p, len(msg))
 	yank := len(all)
@@ -227,7 +228,11 @@ rollover:
 		if !mc.draining[other].Load() {
 			idx, start, end = mc.swapBuffersLocked()
 			r := mc.reader
-			go mc.consume(r, idx, start, end)
+			if stacktracing { // flush synchronously if emitting crash traces
+				mc.consume(r, idx, start, end)
+			} else {
+				go mc.consume(r, idx, start, end)
+			}
 		} else { // the other buffer's consume is wip; cannot swap in
 			if !waited && waitOnFull {
 				waited = true
@@ -253,16 +258,19 @@ rollover:
 	b := mc.bufs[mc.active]
 
 	for i < yank && mc.slotIdx < memNumSlots {
+		slotSize := memSlotSize - 1 // 1 char for '\n'
 		// the slot at header + slotIdx * slotSize
-		slot := b.data[memHdrSize+mc.slotIdx*memSlotSize : memHdrSize+(mc.slotIdx+1)*memSlotSize]
+		begin := memHdrSize + mc.slotIdx*slotSize
+		end := memHdrSize + (mc.slotIdx+1)*slotSize
+		slot := b.data[begin:end]
 
-		raw := all[i:min(yank, i+memSlotSize)]
+		raw := all[i:min(yank, i+slotSize)]
 		n := 0
-		if !bytes.HasPrefix(raw, []byte(lpfx)) {
+		if !bytes.HasPrefix(raw, lpfx) {
 			n = copy(slot, lpfx)
 		}
-		// reserve the last byte for newline
-		m := copy(slot[n:memSlotSize-1], raw)
+		// the last byte is reserved for newline
+		m := copy(slot[n:slotSize], raw)
 		slot[n+m] = '\n'
 		// zero-fill the tail so the reader sees no stale data
 		clear(slot[n+m+1:])
@@ -271,6 +279,7 @@ rollover:
 		mc.slotIdx++
 	}
 
+	// more data to write than fit mc.bufs[mc.active]; try next buffer
 	if i < yank {
 		// mc.drops.Add(uint64((yank - i + memSlotSize - 1) / memSlotSize)) // count the number of dropped slots
 		goto rollover
@@ -278,7 +287,7 @@ rollover:
 
 	// STACKTRACE: flush immediately and synchronously so the caller sees the
 	// message before any subsequent crash/exit.
-	if lvl == STACKTRACE && mc.slotIdx > 0 {
+	if stacktracing && mc.slotIdx > 0 {
 		other := mc.active ^ 1
 		// retry a few times if the other buffer is still draining
 		for retries := 100; retries > 0 && mc.draining[other].Load(); retries-- {
