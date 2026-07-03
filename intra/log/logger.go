@@ -67,6 +67,7 @@ type Logger interface {
 	Fatalf(at int, msg string, args ...any)
 	Trace(c bool, t string)
 	Stack(at int, msg string, scratch []byte)
+	StackOutput(w io.Writer) bool
 	Hist(w io.Writer) int
 	Metrics() *LogStat
 }
@@ -88,8 +89,9 @@ type simpleLogger struct {
 
 	o *golog.Logger
 	e *golog.Logger
-	x *xlog          // may be used instead of golog o/e
-	q *ring[*[]byte] // ring buffer of pooled []byte slabs
+	s atom[io.Writer] // stack trace output
+	x *xlog           // may be used instead of golog o/e
+	q *ring[*[]byte]  // ring buffer of pooled []byte slabs
 
 	clock
 	skips
@@ -494,6 +496,8 @@ func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
 func (l *simpleLogger) emitStack(at int, msgs ...string) {
 	sendtoconsole := at <= callerat
 	c := l.c.get()
+	s := l.s.get()
+	hass := s != nil && !isNil(s)
 	hasc := c != nil && !isNil(c)
 
 	for _, msg := range msgs {
@@ -502,6 +506,12 @@ func (l *simpleLogger) emitStack(at int, msgs ...string) {
 		}
 		if !sendtoconsole {
 			l.err(at+nextframe, msg)
+		} else if hass {
+			// send stacktrace to stackoutput if set
+			// some Console impls, like MemConsole struggle
+			// with handling stacktraces (due to bugs / timing)
+			b := unsafe.Slice(unsafe.StringData(msg), len(msg))
+			s.Write(b)
 		} else if hasc {
 			// c.Stack() on the same go routine, since
 			// the caller (ex: core.Recover) may exit
@@ -1089,6 +1099,10 @@ func typeEq(a, b any) bool {
 func (l *simpleLogger) Metrics() *LogStat {
 	s := l.logstat()
 	return &s
+}
+
+func (l *simpleLogger) StackOutput(w io.Writer) bool {
+	return l.s.set(w)
 }
 
 // Hist writes items from recents q to w, one per line.

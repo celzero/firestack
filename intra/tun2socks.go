@@ -430,16 +430,23 @@ func setCrashFd(f *os.File) (ok bool) {
 	return err == nil
 }
 
-// SetCrashOutput sets the crash output file at fp and starts a goroutine
-// that captures crash output and the logger ring buffer into that file.
-// Returns true if successful, false on error (the file cannot be opened).
-func SetCrashOutput(fp string) bool {
+var panicfd *os.File
+
+func setPanicFd(f *os.File) bool {
+	panicfd = f // keepalive
+	return log.StackOutput(f)
+}
+
+// SetCrashOutput sets the crash output file at fp1 and caught panics in fp2.
+// Returns true if successful, false on error (the files cannot be opened).
+func SetCrashOutput(fp1, fp2 string) bool {
 	return sync.OnceValue(func() (ok bool) {
-		fout, err := os.OpenFile(filepath.Clean(fp), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-		if err == nil {
-			ok = setCrashFd(fout)
+		fout1, err := os.OpenFile(filepath.Clean(fp1), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		fout2, err2 := os.OpenFile(filepath.Clean(fp2), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		if err == nil && err2 == nil {
+			ok = setCrashFd(fout1) && setPanicFd(fout2)
 		}
-		logei(err)("tun: crashout: open %s; err? %v", fp, err)
+		logei(err)("tun: crashout: open: %s + %s; err? %v", fp1, fp2, err)
 		return ok
 	})()
 }

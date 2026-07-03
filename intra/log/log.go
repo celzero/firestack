@@ -101,6 +101,10 @@ func ConsoleReady(ctx context.Context) {
 	Glogger.ConsoleReady(ctx)
 }
 
+func StackOutput(w io.Writer) bool {
+	return Glogger.StackOutput(w)
+}
+
 // SetConsole sets external console to redirect log output to.
 func SetConsole(consoleCtx context.Context, c Console) {
 	Glogger.SetConsole(c)
