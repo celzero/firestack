@@ -403,11 +403,17 @@ func PrintStack(where int32) []byte {
 }
 
 // Crash causes a crash by panicking on an out-of-bounds slice access. For testing only.
-// Setting typ to 0 must send the crash output to stderr and abort, and 1 to console and not quit.
+// Setting typ to 0 must send the crash output to stderr and abort, and 1 to console and not quit,
+// while 2 must send the crash output to console and abort.
+// afterMs is the number of milliseconds to wait before crashing.
 func Crash(typ, afterMs int64) {
 	go func() {
-		if typ == 1 {
-			defer core.Recover(core.DontExit, "tun: debugging... not a crash")
+		if typ > 0 {
+			exitcode := core.DontExit
+			if typ == 2 {
+				exitcode = core.Exit11
+			}
+			defer core.Recover(exitcode, "tun: debugging... not a crash")
 		}
 		log.I("tun: debug: crashing in %s", core.FmtMillis(afterMs))
 		time.Sleep(time.Duration(afterMs) * time.Millisecond)
