@@ -258,19 +258,18 @@ rollover:
 	b := mc.bufs[mc.active]
 
 	for i < yank && mc.slotIdx < memNumSlots {
-		slotSize := memSlotSize - 1 // 1 char for '\n'
 		// the slot at header + slotIdx * slotSize
-		begin := memHdrSize + mc.slotIdx*slotSize
-		end := memHdrSize + (mc.slotIdx+1)*slotSize
+		begin := memHdrSize + mc.slotIdx*memSlotSize
+		end := memHdrSize + (mc.slotIdx+1)*memSlotSize
 		slot := b.data[begin:end]
 
-		raw := all[i:min(yank, i+slotSize)]
+		raw := all[i:min(yank, i+memSlotSize-1)]
 		n := 0
 		if !bytes.HasPrefix(raw, lpfx) {
 			n = copy(slot, lpfx)
 		}
 		// the last byte is reserved for newline
-		m := copy(slot[n:slotSize], raw)
+		m := copy(slot[n:memSlotSize-1], raw)
 		slot[n+m] = '\n'
 		// zero-fill the tail so the reader sees no stale data
 		clear(slot[n+m+1:])
