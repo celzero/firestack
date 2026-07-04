@@ -2167,6 +2167,10 @@ func (t *dnsgateway) maybeUndoNat64Locked(realips ...netip.Addr) (unnateds []net
 }
 
 func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool) (domains []string) {
+	alivedoms := true
+	hasnatdoms := false
+	hasdoms := false
+
 	// alg ips are always unmapped; see take4Locked
 	unmapped := maybeAlg.Unmap()
 	if len(uid) <= 0 {
@@ -2177,13 +2181,25 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 	}
 	if ans, ok := t.nat[unmapped]; ok {
 		domains = domainsFor(ans, tid, uid, unmapped, xalive)
-	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
-		// translate from realip only if not in mod mode
-		// for useptr, s/xalive/xall/
-		domains = domainsFor(ans, tid, uid, unmapped, xalive /*prefer fresh mapping */)
-		if len(domains) <= 0 {
-			domains = domainsFor(ans, tid, uid, unmapped, xall /*useptr == true */)
+		hasnatdoms = len(domains) > 0
+		hasdoms = hasnatdoms
+	}
+	if useptr && !hasnatdoms {
+		if ans, ok := t.ptr[unmapped]; ok {
+			// translate from realip only if not in mod mode
+			// for useptr, s/xalive/xall/
+			domains = domainsFor(ans, tid, uid, unmapped, xalive /*prefer fresh mapping */)
+			hasdoms = len(domains) > 0
+			if !hasdoms {
+				domains = domainsFor(ans, tid, uid, unmapped, xall /*useptr == true */)
+				alivedoms = false
+			}
 		}
+		hasdoms = len(domains) > 0
+	}
+	if log.Debug || !hasdoms {
+		loged(!hasdoms)("alg: ptr: in nat? (natdoms? %t / doms? %t) for %v[%s@%s] => in ptr? (useptr? %t / gotalive? %t)? (%v)",
+			hasnatdoms, hasdoms, unmapped, tid, uid, useptr, alivedoms, domains)
 	}
 	return copyUniq(domains)
 }
