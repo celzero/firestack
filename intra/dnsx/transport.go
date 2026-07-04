@@ -325,6 +325,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 	}
 	t, ok := dt.(Transport)
 	if !ok { // unlikely
+		log.E("dns: not expected type %T; cannot add %s @ %s", dt, dt.ID(), dt.GetAddr())
 		return false
 	}
 	tid := idstr(t)
