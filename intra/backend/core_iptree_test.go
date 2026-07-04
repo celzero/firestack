@@ -21,6 +21,7 @@ func Test192(tst *testing.T) {
 	t.Add("192.1.1.1/32", "app192111:0")
 	t.Add("0.0.0.0/0", "test0000")
 	t.Add("192.0.0.0/8", "app192:443")
+	t.Add("1.1.0.0/16", "app1100:0")
 
 	g8, err := t.Get("192.0.0.0/8")
 	ko(tst, err)
@@ -50,6 +51,12 @@ func Test192(tst *testing.T) {
 	log("route", route)
 	log("vlike", vlike, "vlike(1app):", vlike2)
 	log("rlike", rlike)
+
+	ov1 := t.Values("1.1.1.1")
+	o1, err := t.Get("1.1.1.1")
+	ko(tst, err)
+	log("o1", o1)   // empty
+	log("ov1", ov1) // test0000, app1100:0, *:80
 }
 
 func TestUn(tst *testing.T) {
@@ -130,6 +137,87 @@ func TestGateway(tst *testing.T) {
 		}
 	}
 	tst.Log("gateway test passed")
+}
+
+func TestEscLike(tst *testing.T) {
+	log := tst.Log
+	t := NewIpTree()
+
+	// a. one CIDR with one value
+	ko(tst, t.Add("10.1.0.0/16", "one:val"))
+
+	// b. another CIDR with 2 distinct values
+	ko(tst, t.Add("10.2.0.0/16", "a:two"))
+	ko(tst, t.Add("10.2.0.0/16", "b:two"))
+
+	// c. another CIDR with 3 values with matching prefixes
+	ko(tst, t.Add("10.3.0.0/16", "tri:alpha"))
+	ko(tst, t.Add("10.3.0.0/16", "tri:beta"))
+	ko(tst, t.Add("10.3.0.0/16", "tri:gamma"))
+
+	// ---- (a) EscLike with non-matching value ----
+	n := t.EscLike("10.1.0.0/16", "wrong:val")
+	if n != 0 {
+		tst.Errorf("(a) EscLike with wrong prefix: got %d, want 0", n)
+	}
+	// entry (a) should still exist
+	if ok, _ := t.Has("10.1.0.0/16"); !ok {
+		tst.Error("(a) should still exist after EscLike with wrong prefix")
+	}
+
+	// ---- (a) EscLike with correct value ----
+	n = t.EscLike("10.1.0.0/16", "one:val")
+	if n != 1 {
+		tst.Errorf("(a) EscLike with correct prefix: got %d, want 1", n)
+	}
+	// entry (a) should be removed completely
+	if ok, _ := t.Has("10.1.0.0/16"); ok {
+		tst.Error("(a) should be removed after EscLike with correct prefix")
+	}
+	log("(a) removed as expected")
+
+	// ---- (b) EscLike one correct value ----
+	n = t.EscLike("10.2.0.0/16", "a:two")
+	if n != 1 {
+		tst.Errorf("(b) EscLike a:two: got %d, want 1", n)
+	}
+	// the other value should still exist
+	val, err := t.Get("10.2.0.0/16")
+	ko(tst, err)
+	if val != "b:two" {
+		tst.Errorf("(b) Get after removing a:two: got %q, want %q", val, "b:two")
+	}
+	// add a new distinct value
+	ko(tst, t.Add("10.2.0.0/16", "c:two"))
+	// Get should now return 2 values
+	val, err = t.Get("10.2.0.0/16")
+	ko(tst, err)
+	if val != "b:two,c:two" {
+		tst.Errorf("(b) Get after adding c:two: got %q, want %q", val, "b:two,c:two")
+	}
+	log("(b) now has 2 values:", val)
+
+	// ---- (c) ValuesLike returns 3 values, then EscLike removes all ----
+	vals := t.ValuesLike("10.3.0.0/16", "tri")
+	if vals != "tri:alpha,tri:beta,tri:gamma" {
+		tst.Errorf("(c) ValuesLike: got %q, want %q", vals, "tri:alpha,tri:beta,tri:gamma")
+	}
+
+	// EscLike the common prefix for (c) should remove all 3
+	n = t.EscLike("10.3.0.0/16", "tri")
+	if n != 3 {
+		tst.Errorf("(c) EscLike tri: got %d, want 3", n)
+	}
+	// ValuesLike should now be empty
+	vals = t.ValuesLike("10.3.0.0/16", "tri")
+	if vals != "" {
+		tst.Errorf("(c) ValuesLike after EscLike: got %q, want empty", vals)
+	}
+	// Has should return false
+	if ok, _ := t.Has("10.3.0.0/16"); ok {
+		tst.Error("(c) should be removed after EscLike with common prefix")
+	}
+	log("(c) removed as expected")
 }
 
 func ko(tst *testing.T, err error) {
