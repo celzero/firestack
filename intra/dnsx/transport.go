@@ -893,6 +893,7 @@ func (r *resolver) determineTransport(id string) Transport {
 		return tf // todo: assert tf != nil?
 	}
 
+	log.W("dns: fwd: %s & %s missing or inactive; no default", id0, id1)
 	return nil
 }
 
@@ -915,17 +916,17 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid, fid string) (written 
 }
 
 // dnsudp queries the transport and writes answers to w.
-func (r *resolver) dnsudp(q []byte, w io.WriteCloser, uid, fid string) (written int, err error) {
+func (r *resolver) dnsudp(q []byte, w io.Writer, uid, fid string) (written int, err error) {
 	ans, _, err := r.forward(q, OriginTunnel, fid, uid)
 
 	rlen := len(ans)
 	if rlen <= 0 && err != nil {
-		clos(w) // close on client err
+		// clos(w) // close on client err
 		return
 	}
 
 	if written, err = w.Write(ans); err != nil {
-		clos(w) // close on write back err
+		// clos(w) // close on write back err
 	} else if written != rlen {
 		// do not close on incomplete writes
 		err = fmt.Errorf("dns: udp: for %s (fid: %s) incomplete write: n(%d) != r(%d)", uid, fid, written, rlen)
