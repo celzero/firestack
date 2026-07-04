@@ -246,7 +246,9 @@ func LogLevel(gologLevel, consolelogLevel, callerDepth int32) {
 // setting maximum memory limit, if limit > 0.
 // github.com/golang/proposal/blob/master/design/48409-soft-memory-limit.md
 func LowMem(limitBytes int64) {
-	limitBytes = max(limitBytes, minMemLimit)
+	if limitBytes > 0 {
+		limitBytes = max(limitBytes, minMemLimit)
+	}
 	prevLimit := debug.SetMemoryLimit(limitBytes)
 	go debug.FreeOSMemory()
 	log.I("tun: lowmem; limits => new: %d, prev: %d", limitBytes, prevLimit)
