@@ -432,10 +432,10 @@ func setCrashFd(f *os.File) (ok bool) {
 	return err == nil
 }
 
-var panicfd *os.File
+var panicfd atomic.Pointer[os.File]
 
 func setPanicFd(f *os.File) bool {
-	panicfd = f // keepalive
+	panicfd.Store(f) // keepalive
 	return log.StackOutput(f)
 }
 
@@ -448,7 +448,7 @@ func SetCrashOutput(fp1, fp2 string) bool {
 		if err == nil && err2 == nil {
 			ok = setCrashFd(fout1) && setPanicFd(fout2)
 		}
-		logei(err)("tun: crashout: open: %s + %s; err? %v", fp1, fp2, err)
+		logei(err)("tun: crashout: open: %s (%s) + %s (%s); err? %v", fp1, fname(fout2), fp2, fname(panicfd.Load()), err)
 		return ok
 	})()
 }
