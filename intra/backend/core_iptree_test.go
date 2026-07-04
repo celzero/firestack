@@ -151,9 +151,13 @@ func TestEscLike(tst *testing.T) {
 	ko(tst, t.Add("10.2.0.0/16", "b:two"))
 
 	// c. another CIDR with 3 values with matching prefixes
-	ko(tst, t.Add("10.3.0.0/16", "tri:alpha"))
-	ko(tst, t.Add("10.3.0.0/16", "tri:beta"))
-	ko(tst, t.Add("10.3.0.0/16", "tri:gamma"))
+	ko(tst, t.Add("10.0.0.0/8", "quad:val8"))
+	ko(tst, t.Add("10.3.1.0/24", "quad:val24"))
+	ko(tst, t.Add("10.3.1.2", "quad:val32"))
+
+	ko(tst, t.Add("10.3.0.0/16", "tri:alpha16"))
+	ko(tst, t.Add("10.3.0.0/16", "tri:beta16"))
+	ko(tst, t.Add("10.3.0.0/16", "tri:gamma16"))
 
 	// ---- (a) EscLike with non-matching value ----
 	n := t.EscLike("10.1.0.0/16", "wrong:val")
@@ -197,10 +201,14 @@ func TestEscLike(tst *testing.T) {
 	}
 	log("(b) now has 2 values:", val)
 
+	// iterates from most generic rule to most specific
+	log("(c) all 10.3.1.1: ", t.Values("10.3.1.1")) // quad:val8,tri:alpha16,tri:beta16,tri:gamma16,quad:val24
+	log("(c) all 10.3.1.2: ", t.Values("10.3.1.2")) // quad:val8,tri:alpha16,tri:beta16,tri:gamma16,quad:val24,quad:val32
+
 	// ---- (c) ValuesLike returns 3 values, then EscLike removes all ----
 	vals := t.ValuesLike("10.3.0.0/16", "tri")
-	if vals != "tri:alpha,tri:beta,tri:gamma" {
-		tst.Errorf("(c) ValuesLike: got %q, want %q", vals, "tri:alpha,tri:beta,tri:gamma")
+	if vals != "tri:alpha16,tri:beta16,tri:gamma16" {
+		tst.Errorf("(c) ValuesLike: got %q, want %q", vals, "tri:alpha16,tri:beta16,tri:gamma16")
 	}
 
 	// EscLike the common prefix for (c) should remove all 3
@@ -209,7 +217,7 @@ func TestEscLike(tst *testing.T) {
 		tst.Errorf("(c) EscLike tri: got %d, want 3", n)
 	}
 	// ValuesLike should now be empty
-	vals = t.ValuesLike("10.3.0.0/16", "tri")
+	vals = t.ValuesLike("10.3.1.1", "tri")
 	if vals != "" {
 		tst.Errorf("(c) ValuesLike after EscLike: got %q, want empty", vals)
 	}
@@ -218,6 +226,12 @@ func TestEscLike(tst *testing.T) {
 		tst.Error("(c) should be removed after EscLike with common prefix")
 	}
 	log("(c) removed as expected")
+
+	vals = t.ValuesLike("10.3.1.1", "quad")
+	if vals != "quad:val8,quad:val24" {
+		tst.Errorf("(d) ValuesLike for quad: got %q, want %q", vals, "quad:val8,quad:val24")
+	}
+	log("(d) ValuesLike for 10.0.0.0/8 untouched:", vals)
 }
 
 func ko(tst *testing.T, err error) {
