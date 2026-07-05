@@ -695,7 +695,7 @@ runagain:
 	netid := xdns.NetAndProxyID(NetTypeUDP, pids)
 
 	// with t2 as the secondary transport, which could be nil
-	nonalg, ans1, err = r.gateway.q(t, t2, presetIPs, netid, uid, msg, smm)
+	nonalg, ans1, err = r.gateway.q(t, t2, presetIPs, who, netid, uid, msg, smm)
 
 	if smm.Latency <= 0 {
 		smm.Latency = time.Since(starttime).Seconds()

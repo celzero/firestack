@@ -105,7 +105,7 @@ type Gateway interface {
 	// fixedTransport returns true if split tunneling is enforced via dnsx.Fixed
 	fixedTransport() bool
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1, t2 Transport, preset []netip.Addr, network, uid string, q *dns.Msg, s *x.DNSSummary) (og *dns.Msg, algd *dns.Msg, err error)
+	q(t1, t2 Transport, preset []netip.Addr, origin, network, uid string, q *dns.Msg, s *x.DNSSummary) (og *dns.Msg, algd *dns.Msg, err error)
 	// onStopped is called when a transport tid is stopped. Gateway invalidates its local caches, if any.
 	onStopped(tid string)
 	// S reveals internal state for debugging
@@ -392,7 +392,7 @@ func (p *xips) ipsFor(tid, uid string, t xaddrtyp, s xaddrstatus) (out []netip.A
 
 	if t == xpri && (tid == notransport || tid == NoDNS || len(tid) <= 0) {
 		out = p.allips(xpri, s)
-		if settings.Debug {
+		if log.Verbose {
 			log.VV("alg: xips: xof(%s,%s): no tid? %s[%s]; returning all %v", t, s, tid, uid, out)
 		}
 		return
@@ -417,7 +417,7 @@ func (p *xips) ipsFor(tid, uid string, t xaddrtyp, s xaddrstatus) (out []netip.A
 		out = p.pri[tid].all()
 	}
 
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("alg: xips: xof(%s,%s): tid %s + uid %s; %v", t, s, tid, uid, out)
 	}
 	return
@@ -455,7 +455,7 @@ func (p *xips) rmv(tid string) (done bool) {
 	if done {
 		p.vaccumLocked()
 	}
-	if done && settings.Debug {
+	if done && log.Debug {
 		log.D("alg: xips: rmv(%s): pri(%d), sec(%d); ok? %t", tid, i, j, done)
 	}
 	return
@@ -795,7 +795,7 @@ func (p *xdomains) domainsFor(tid, uid string, forIP netip.Addr, s xaddrstatus) 
 		}
 	}
 
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("alg: xdomains: [%s%s] xof(%s/%s): %s => %v [%v]", tid, uid, s, forIP, key, out, core.Map(ttls, core.FmtTimeAsPeriod))
 	}
 	return
@@ -1293,14 +1293,15 @@ func (t *dnsgateway) querySecondary(t2 Transport, uid, fid, network string, msg 
 
 // Implements Gateway
 // preset may be nil
-func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid string, q *dns.Msg, smm *x.DNSSummary) (ogmsg *dns.Msg, outmsg *dns.Msg, outerr error) {
+func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, origin, network, uid string, q *dns.Msg, smm *x.DNSSummary) (ogmsg *dns.Msg, outmsg *dns.Msg, outerr error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
-	usepreset := len(preset) > 0    // preset may be nil
-	mod := t.mod.Load()             // allow alg?
-	discarduid := !t.split.Load()   // do not split tunnel?
-	uidself := uid == protect.MyUid // us?
+	fromtun := origin == x.OriginTunnel        // from tun? not an internal query
+	uidself := uid == protect.MyUid            // us?
+	usepreset := len(preset) > 0               // preset may be nil
+	mod := !uidself && fromtun && t.mod.Load() // allow alg?
+	discarduid := !t.split.Load()              // do not split tunnel?
 	hasblock := isAnyBlockAll(idstr(t2), idstr(t2))
 	hasfixed := isAnyFixed(idstr(t1))         // fixed transport?
 	usefixed := !usepreset && mod && hasfixed // use preset fixed realips?
@@ -1313,13 +1314,16 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// it isn't necessary that if a qname is blocked right now, it will be blocked
 	// by subsequent OnQuery()s as the rules are dynamic (for instance, a uid+qname
 	// may be blocked because device is in keyguard/locked state but allowed
-	// when the user is present (device is unlocked). In the cases where the
-	// uid is protect.MyUid (that is, requests sent by dns64.go or ipmapper.go)
-	// should not be alg'd as the alg'd ips will end up as "realips" in xips caches.
-	// nb: setting mod = false will achieve the same effect but it goes through
-	// the effort of setting up alg/ptr/nat caches which is wasteful in this case.
-	// TODO: handle Loopback scenario for uidself (which probably should be alg'd?)
-	dontalg := usepreset || skipcache || uidself || hasblock
+	// when the user is present (device is unlocked).
+	//
+	// In the cases where the uid is protect.MyUid (that is, requests sent by dns64.go
+	// or ipmapper.go) should not be alg'd as the alg'd ips will end up as "realips"
+	// in xips caches. nb: setting mod = false will achieve the same effect but it goes
+	// through the effort of setting up alg/ptr/nat caches which is wasteful but usefult:
+	// Since in Loopback scenario for uidself (which probably should be alg'd to make
+	// sure the ptr/nat mapping (ips=>doms) are up-to-date for firewall decisions
+	// like "block when dns is bypassed")
+	dontalg := usepreset || skipcache || hasblock /*|| uidself */
 	// usefixed generates fake but static answers for A/AAAA queries and no
 	// actual resolution request is sent (not even to the cache). It is expected
 	// that during PreFlow, the proxy layer will again attempt to resolve when
@@ -1383,7 +1387,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		if !xdns.HasRcodeSuccess(ansin) {
 			return ansin, nil, err
 		}
-		if settings.Debug {
+		if log.Debug {
 			log.D("alg: q: for %s:%s (fid: %s) err but ans ok: %d; do? %t, self? %t synth? %t; qerr %v",
 				qname(ansin), qtype(ansin), smm.FID, xdns.Len(ansin), hasdnssec, uidself, synthAns, err)
 		}
@@ -1400,7 +1404,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// if usefixed is true, then d64 is no-op, as preset fixed ip does have ipv6
 	ans64 := t.dns64.D64(network, t1.ID(), oguid, ansin) // ans64 may be nil if no D64 or error
 	if ans64 != nil {
-		if settings.Debug {
+		if log.Debug {
 			log.D("alg: %s<>%s:%s[%s] %d dns64; dnssec? %t; s/ans(%d)/ans64(%d)",
 				qname, smm.ID, idstr(t1), oguid, qtyp, hasdnssec, xdns.Len(ansin), xdns.Len(ans64))
 		}
@@ -1434,7 +1438,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		xdns.BustAndroidCacheIfNeeded(outmsg)
 
 		if isAlgErr(outerr) && !mod {
-			if settings.Debug {
+			if log.Debug {
 				log.D("alg: q: %s<>%s[%s]:%s:%d %s no mod; suppress err %v",
 					smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, outerr)
 			}
@@ -1444,7 +1448,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 
 	// todo: skip alg for undelegated domains like ipv4only.arpa?
 	if !hasq || !hasans || !rgood || ans0000 || dontalg {
-		if settings.Debug {
+		if log.Debug {
 			log.D("alg: q: skip; query %s<>%s[%s]:%s:%d %s / a:%d + rdata: %s + status: %d, dnssec(do? %t /ad? %t) self(%t) dontalg(%t) hasq(%t) hasans(%t) rgood(%t), ans0000(%t)",
 				smm.ID, idstr(t1), uid, qname, qtyp, smm.FID, xdns.Len(ansin), smm.RData, smm.Status, smm.DO, smm.AD, uidself, dontalg, hasq, hasans, rgood, ans0000)
 		}
@@ -1552,7 +1556,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 		mustsubst = true
 	}
 
-	if settings.Debug {
+	if log.Debug {
 		log.D("alg: q: %s<>%s[%s]; %s:%d %s (split? %t, do? %t / ad? %t) a6(a %d / h %d / s %t) : a4(a %d / h %d / s %t); ttl: %s",
 			smm.ID, idstr(t1), oguid, qname, qtyp, smm.FID, !discarduid, smm.DO, smm.AD, len(a6), len(ip6hints), substok6, len(a4), len(ip4hints), substok4, ansttl)
 	}
@@ -1594,7 +1598,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, network, uid strin
 	// the answer, whose ID != to t1 (cacher) itself. OTOH, dnsx.Resolver
 	// uses DNSSummary.ID when returning ans to the caller (ex: ipmapper)
 	tidToReg := smm.ID
-	if settings.Debug {
+	if log.Debug {
 		log.D("alg: q: ok; for %s<>%s[%s]:%s:%d %s (do? %t / ad? %t), domains %s real: %s / fix: %s => subst %s | %s; (mod? %t / fix? %t / synth? %t / split? %t); sec %s; ttl %s",
 			tidToReg, idstr(t1), oguid, qname, qtyp, smm.FID, smm.DO, smm.AD, targets, realip, fixedips, algip4, algip6, mod, usefixed, synthAns, !discarduid, secres.ips, ansttl)
 	}
@@ -2199,7 +2203,7 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 	}
 	if log.Debug || !hasdoms {
 		loged(!hasdoms)("alg: ptr: in nat? (natdoms? %t / doms? %t) for %v[%s@%s] => in ptr? (useptr? %t / gotalive? %t)? (%v)",
-			hasnatdoms, hasdoms, unmapped, tid, uid, useptr, alivedoms, domains)
+			hasnatdoms, hasdoms, unmapped, tid, uid, useptr, hasdoms && alivedoms, domains)
 	}
 	return copyUniq(domains)
 }
@@ -2250,7 +2254,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			}
 		}
-		if settings.Debug {
+		if log.Verbose {
 			log.V("alg: resolv: %s:%s[%s] => alg ip4 %d, ip6 %d (until: %s); stale %v",
 				domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
 		}
@@ -2285,7 +2289,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			} // continue
 		}
-		if settings.Debug {
+		if log.Verbose {
 			log.V("alg: resolv: %s:%s[%s] => real(ip4 %d, ip6 %d) until: %s; stale %v",
 				domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
 		}
@@ -2321,7 +2325,7 @@ func (t *dnsgateway) resolvLocked(domain string, typ iptype, tid, uid string) (i
 				break
 			} // continue
 		}
-		if settings.Debug {
+		if log.Verbose {
 			log.V("alg: resolv: %s:%s[%s] => secondary ip4 %d, ip6 %d (until: %s); stale %v",
 				domain, tid, uid, len(ip4s), len(ip6s), until, staleips)
 		}
@@ -2455,7 +2459,7 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 	r, err := t.Query(network, q, smm)
 
 	if r == nil {
-		if settings.Debug {
+		if log.Verbose {
 			log.V("alg: Req: %s:%d no answer; by: %s, fid: %s, rdata: %s, status: %d; err? %v",
 				qname, qtyp, smm.ID, smm.FID, smm.RData, smm.Status, err)
 		}
@@ -2465,7 +2469,7 @@ func Req(t Transport, network string, q *dns.Msg, smm *x.DNSSummary) (*dns.Msg, 
 		return r, nil
 	}
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("alg: Req: %s:%d servfail; by: %s, fid: %s, rdata: %s, status: %d, rcode %d",
 			qname, qtyp, smm.ID, smm.FID, smm.RData, smm.Status, xdns.Rcode(r))
 	}
