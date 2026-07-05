@@ -349,7 +349,20 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 
 	caching := false
 	switch t.Type() {
-	case DNS53, DNSCrypt, DOH, DOT, ODOH:
+	case DNSCrypt:
+		// DNSCrypt transports must not be explicitly stopped here
+		// as the stop/start for it is handled DcMulti
+		r.Lock()
+		r.transports[tid] = t
+		if ct := NewCachingTransport(r.ctx, t, ttl10m); ct != nil {
+			ctid := idstr(ct)
+			r.transports[ctid] = ct
+			caching = true
+		}
+		r.Unlock()
+		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
+		ok = true
+	case DNS53, DOH, DOT, ODOH:
 		r.Lock()
 		// stop existing transport if different
 		if oldt := r.transports[tid]; !core.PtrEq(t, oldt) {
@@ -375,14 +388,13 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		}
 
 		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
-		log.I("dns: add transport %s@%s; caching? %t",
-			t.ID(), t.GetAddr(), caching)
-
-		return true
+		ok = true
 	default:
 		log.E("dns: unknown transport(%s) type: %s", t.ID(), t.Type())
 	}
-	return false
+	log.I("dns: add transport %s@%s; caching? %t",
+		t.ID(), t.GetAddr(), caching)
+	return ok
 }
 
 func (r *resolver) GetMult(id string) (x.DNSTransportMult, error) {
