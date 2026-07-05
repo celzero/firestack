@@ -108,6 +108,16 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 	mh := multihost.New(id)
 	mh.Add([]string{po.Host, po.IP}) // resolves if ip is name
 
+	// always with a network namespace aware dialer
+	dialer := protect.MakeNsRDial(id, ctx, ctl)
+	h := &socks5{
+		id:   id,
+		d:    dialer,
+		px:   px,
+		opts: po,
+		done: done,
+	}
+
 	var clients []proxy.Dialer
 	// x.net.proxy doesn't yet support udp
 	// github.com/golang/net/blob/62affa334/internal/socks/socks.go#L233
@@ -121,6 +131,8 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 		if cerr != nil {
 			err = errors.Join(err, cerr)
 		} else {
+			c.DialTCP = h.txdial // h.outbound uses this
+			c.DialUDP = h.txdial // h.outbound uses this
 			clients = append(clients, c)
 		}
 	}
@@ -132,19 +144,7 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 		return nil, err
 	}
 
-	// always with a network namespace aware dialer
-	dialer := protect.MakeNsRDial(id, ctx, ctl)
-	h := &socks5{
-		id:       id,
-		d:        dialer,
-		px:       px,
-		outbound: clients,
-		opts:     po,
-		done:     done,
-	}
-
-	tx.DialTCP = h.txdial // h.outbound uses this
-	tx.DialUDP = h.txdial // h.outbound uses this
+	h.outbound = clients
 
 	log.D("proxy: socks5: created %s with clients(%d), opts(%s)",
 		h.id, len(clients), po)

@@ -19,7 +19,7 @@ require (
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
 	github.com/showwin/speedtest-go v1.7.10
 	github.com/tailscale/depaware v0.0.0-20251001183927-9c2ad255ef3f
-	github.com/txthinking/socks5 v0.0.0-20230325130024-4230056ae301
+	github.com/txthinking/socks5 v0.0.0-20260601051520-339b044ab0eb
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
 	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
 	golang.org/x/net v0.55.0
