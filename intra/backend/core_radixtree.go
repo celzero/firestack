@@ -176,11 +176,15 @@ func (c *radix) getMatch(str string) *string {
 		// test: log.VV("radix: get: four: %s: %s [%d %d] %t", str, s, len(rev), len(match), ok)
 		// partial match (ipvonly.arpa) but not a subdomain/wildcard, discard
 	} else { // no match
-		// log.V("radix: get: no prefix match for %s", str)
+		if log.Verbose {
+			log.V("radix: get: no prefix match for %s", str)
+		}
 		return nil
 	}
 
-	log.V("radix: get: partial or full %s => %s; rev %s; match %s; ok? %t", str, s, rev, match, ok)
+	if log.Verbose {
+		log.V("radix: get: partial or full %s => %s; rev %s; match %s; ok? %t", str, s, rev, match, ok)
+	}
 
 	if !ok {
 		return nil

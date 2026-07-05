@@ -61,14 +61,15 @@ func Test192(tst *testing.T) {
 
 func TestUn(tst *testing.T) {
 	ll.SetLevel(ll.VVERBOSE)
+	ll.SetCallerDepth(0)
 	settings.Debug = true
 
 	trie := NewRadixTree()
-	trie.Add("fritz.box") // exact domain
-	trie.Add(".lan")      // subdomain ending with .lan
-	trie.Add(".sub.tld")  // subdomain ending with .sub.tld
+	trie.Add(".fritz.box") // exact domain
+	trie.Add(".lan")       // subdomain ending with .lan
+	trie.Add(".sub.tld")   // subdomain ending with .sub.tld
 
-	noma1 := trie.HasAny("test.fritz.box") // no subdomain matches
+	noma1 := trie.HasAny("test.fritz.box") // subdomain matches
 	yma1 := trie.HasAny("fritz.box")       // exact match for fritz.box
 	yma2 := trie.HasAny("test.lan")        // subdomain match for .lan
 	yma3 := trie.HasAny("mu.st.sub.tld")   // subdomain match for sub.tld
