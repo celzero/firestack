@@ -343,11 +343,18 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 	defer px.Unlock()
 
 	defer func() {
-		if ok {
-			core.Go2("pxr.add: "+id, px.obs.OnProxyAdded, id, hdl)
+		if ok { // added
+			core.Go2("pxr.add."+id, px.obs.OnProxyAdded, id, hdl)
 			// new proxy, invoke Stop on old proxy
 			if old != nil && !Same(old, p) {
-				// holding px.lock, so exec stop in a goroutine
+				// change status with px lock held, so we know no other
+				// conflicting id is being added/got at the same time
+				st := old.Status()
+				if st == TPU {
+					didpause := p.Pause()
+					log.I("proxy: add: %s (%s => %s); new proxy paused? %t", id, idhandle(old), idhandle(p), didpause)
+				}
+				// do not hold px.lock, exec stop in a goroutine
 				core.Go("pxr.add.stop: "+id, func() {
 					if oldVia, _ := old.Router().Via(); oldVia != nil {
 						px.Hop(oldVia.ID(), id)

@@ -356,6 +356,7 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 
 	log.I("proxy: rpn: fork: %s[%s]", provider, cc)
 
+	// forked proxy must start paused if existing is paused
 	// re-adds + updates if the proxy already exists
 	kid, srv, err := r.pxr.addRpnProxy(acc, cc)
 

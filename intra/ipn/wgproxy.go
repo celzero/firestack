@@ -514,6 +514,7 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 	}
 
 	if opts.willreplacepeers {
+		// Must remove current remote endpoint and add new ones
 		log.W("proxy: wg: update(%s<>%s): peers will be replaced", id, w.who())
 	}
 
@@ -553,6 +554,7 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		log.W("proxy: updating wg(%s<>%s) ipcset; err %v", id, w.who(), ipcerr)
 		return anew
 	}
+	// wgconn, if paused, must remain paused
 	// w.Device is assumed to be Up? Send an EventDown first?
 	w.events <- tun.EventUp // re-apply interface config to wg device
 	w.uapicfg.Store(txt)    // persist the updated UAPI peer config
@@ -1765,6 +1767,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 			h.latestWrite.Store(now)
 		}
 	} else { // ok
+		// if s is TNT, ignore zero len reads / writes as TOK?
 		s = TOK
 		why = "TOK: ok"
 		if op == wg.Rcv { // read ok
