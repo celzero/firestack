@@ -1769,7 +1769,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 		didRegister = true
 	}
 	logeif(!didRegister)("alg: reg: algips (reg? %t / new? %t) (alg: %s+%s => real: %s) for %s@%s[%s] %s; real? %d, sec? %d; until (ans: %s / xips: %s)",
-		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, fid, len(realips), len(secres.ips), time.Until(algttl), time.Until(xipsttl))
+		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, fid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
 
 	return didRegister
 }
