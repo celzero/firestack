@@ -1791,7 +1791,7 @@ func activeTransport(t Transport) bool {
 	return isActiveStatus(t.Status())
 }
 
-func isActiveStatus(st int) bool {
+func isActiveStatus(st int32) bool {
 	return st != DEnd && st != Paused && st != Unknown
 }
 

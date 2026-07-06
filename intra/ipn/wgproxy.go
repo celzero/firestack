@@ -149,7 +149,7 @@ type wgtun struct {
 	refreshBa *core.Barrier[bool, string] // 1min refresh barrier
 
 	// TODO: move status to a state-machine for all proxies
-	status          *core.Volatile[int]   // status of this interface
+	status          atomic.Int32          // status of this interface
 	statusReason    core.Volatile[string] // last state transition reason
 	latestOpen      atomic.Int64          // last open time in unix millis
 	latestRefresh   atomic.Int64          // last refresh time in unix millis
@@ -950,12 +950,12 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 
 		rev:           core.NewVolatile(lp.rev),
 		rt:            x.NewIpTree(), // must be set to allowedaddrs
-		status:        core.NewVolatile(TUP),
 		preferOffload: preferOffload(id),
 		refreshBa:     core.NewBarrier[bool](ctx, "wg.r.bar."+id, refreshInterval),
 		uapicfg:       core.NewVolatile(cfg),
 		since:         now(),
 	}
+	t.status.Store(TUP)
 	t.dns.Store(ifopts.dns)
 	t.remote.Store(ifopts.eps) // may be nil
 	t.allowed.Store(&ifopts.allowed)
@@ -1325,7 +1325,7 @@ func (tun *wgtun) BatchSize() int {
 // Dial implements proxy.Dialer and protect.RDialer
 func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 	// wgproxy.Dial => dialers.ProxyDial => wgtun.Dial
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -1342,7 +1342,7 @@ func (h *wgtun) Dial(network, address string) (c net.Conn, err error) {
 // DialBind implements proxy.Dialer and protect.RDialer
 func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) {
 	// wgproxy.DialBind => wgtun.Dial
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -1359,7 +1359,7 @@ func (h *wgtun) DialBind(network, local, remote string) (c net.Conn, err error) 
 // Announce implements protect.RDialer
 func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
 	// wgproxy.Dial => dialers.ProxyListenPacket => protect.AnnounceUDP => wgtun.Announce
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -1378,7 +1378,7 @@ func (h *wgtun) Announce(network, local string) (pc net.PacketConn, err error) {
 // Accept implements protect.RDialer
 func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 	// wgproxy.Dial => dialers.ProxyListen => protect.AcceptTCP => wgtun.Accept
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -1397,7 +1397,7 @@ func (h *wgtun) Accept(network, local string) (ln net.Listener, err error) {
 // Probe implements protect.RDialer
 func (h *wgtun) Probe(network, local string) (pc net.PacketConn, err error) {
 	// wgproxy.Dial => dialers.ProxyListen => protect.AcceptTCP => wgtun.Accept
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -1519,7 +1519,7 @@ func (h *wgproxy) Via() (x.Proxy, error) {
 }
 
 // Stats implements Proxy.
-func (h *wgtun) Status() int {
+func (h *wgtun) Status() int32 {
 	return h.status.Load()
 }
 
@@ -1537,7 +1537,7 @@ func (h *wgproxy) Pause() (paused bool) {
 		return false
 	}
 
-	paused = h.status.Cas(st, TPU)
+	paused = h.status.CompareAndSwap(st, TPU)
 	log.I("wg: %s listener: paused? %t", h.tag(), paused)
 
 	return
@@ -1551,7 +1551,7 @@ func (h *wgproxy) Resume() (resumed bool) {
 		return false
 	}
 
-	resumed = h.status.Cas(st, TUP)
+	resumed = h.status.CompareAndSwap(st, TUP)
 	if resumed {
 		h.wgep.Resume()
 	}
@@ -1632,7 +1632,7 @@ func (h *wgtun) Contains(ippOrCidr string) bool {
 }
 
 func (h *wgtun) serve(network, local string) (pc net.PacketConn, err error) {
-	if err := canserve(h.status); err != nil {
+	if err := canserve(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -1715,7 +1715,7 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 		updatedlatest := cur == s // cur is same as s, so h.status is already updated to latest
 		ended = s == END
 		if !updatedlatest {
-			updatedlatest = h.status.Cas(cur, s)
+			updatedlatest = h.status.CompareAndSwap(cur, s)
 		}
 		if log.Debug || !updatedlatest {
 			logeif(!updatedlatest)("wg: %s listener: %s; status %s => %s; transition? %t, statusupdated? %t, why: %s",

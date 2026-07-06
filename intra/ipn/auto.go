@@ -39,18 +39,18 @@ type auto struct {
 
 	exp    *core.Sieve[string, int]
 	ba     *core.Barrier[bool, string]
-	status *core.Volatile[int]
+	status atomic.Int32
 }
 
 // NewAutoProxy returns a new exit proxy.
 func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 	h := &auto{
-		pxr:    pxr,
-		addr:   "127.5.51.52:5321",
-		exp:    core.NewSieve[string, int](ctx, "ipn.a.exp", ttl30s),
-		ba:     core.NewBarrier[bool](ctx, "ipn.a.bar", ttl30s),
-		status: core.NewVolatile(TUP),
+		pxr:  pxr,
+		addr: "127.5.51.52:5321",
+		exp:  core.NewSieve[string, int](ctx, "ipn.a.exp", ttl30s),
+		ba:   core.NewBarrier[bool](ctx, "ipn.a.bar", ttl30s),
 	}
+	h.status.Store(TUP)
 	return h
 }
 
@@ -88,7 +88,7 @@ func (h *auto) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -251,7 +251,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 		}
 	}
 
-	defer localDialStatus(h.status, err)
+	defer localDialStatus(&h.status, err)
 
 	kaenabled := maybeKeepAlive(c)
 	n, berr := changeBufferSizes(c)
@@ -263,7 +263,7 @@ func (h *auto) dial(network, laddr, raddr string) (protect.Conn, error) {
 
 // Announce implements Proxy.
 func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -317,7 +317,7 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 			return h.announceIfHealthy(win, network, local)
 		},
 	)
-	defer localDialStatus(h.status, err)
+	defer localDialStatus(&h.status, err)
 
 	n, berr := changeBufferSizes(c)
 	log.I("proxy: auto: w(%d) listen(%s) to %s; err? %v; sz? %d (%v)", who, network, local, err, n, berr)
@@ -326,7 +326,7 @@ func (h *auto) Announce(network, local string) (protect.PacketConn, error) {
 
 // Accept implements Proxy.
 func (h *auto) Accept(network, local string) (protect.Listener, error) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -378,7 +378,7 @@ func (h *auto) Accept(network, local string) (protect.Listener, error) {
 			return h.acceptIfHealthy(win, network, local)
 		},
 	)
-	defer localDialStatus(h.status, err)
+	defer localDialStatus(&h.status, err)
 
 	log.I("proxy: auto: w(%d) accept(%s) on %s; err? %v", who, network, local, err)
 	return l, err
@@ -386,7 +386,7 @@ func (h *auto) Accept(network, local string) (protect.Listener, error) {
 
 // Probe implements Proxy.
 func (h *auto) Probe(network, local string) (protect.PacketConn, error) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -429,7 +429,7 @@ func (h *auto) Probe(network, local string) (protect.PacketConn, error) {
 			return h.probeIfHealthy(win, network, local)
 		},
 	)
-	defer localDialStatus(h.status, err)
+	defer localDialStatus(&h.status, err)
 
 	log.I("proxy: auto: w(%d) probe(%s) on %s; err? %v", who, network, local, err)
 	return pc, err
@@ -491,7 +491,7 @@ func (h *auto) GetAddr() string {
 }
 
 // Status implements x.Proxy.
-func (h *auto) Status() int {
+func (h *auto) Status() int32 {
 	return h.status.Load()
 }
 

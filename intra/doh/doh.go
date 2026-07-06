@@ -106,7 +106,7 @@ type transport struct {
 	proxies        ipn.ProxyProvider          // proxy provider, may be nil
 	relay          string                     // dial doh via relay, may be empty
 	relayref       *core.WeakRef[ipn.Proxy]   // preset ref to relay proxy, if any
-	status         *core.Volatile[int]
+	status         atomic.Int32
 	est            core.P2QuantileEstimator
 }
 
@@ -162,10 +162,10 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		proxies:   px,       // may be nil
 		relay:     relay,    // may be empty
 		relayref:  relayref, // may be nil
-		status:    core.NewVolatile(dnsx.Start),
 		pxclients: make(map[string]*proxytransport),
 		est:       core.NewP50Estimator(ctx),
 	}
+	t.status.Store(dnsx.Start) // 0
 	if !isodoh {
 		parsedurl, err := url.Parse(rawurl)
 		if err != nil {
@@ -943,7 +943,7 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 	return // may be nil
 }
 
-func (t *transport) Status() int {
+func (t *transport) Status() int32 {
 	if px := t.GetRelay(); px != nil {
 		if y, to := dnsx.OverrideStatusFrom(px); y {
 			return to
@@ -953,7 +953,7 @@ func (t *transport) Status() int {
 	if s == dnsx.Paused {
 		// paused status is a pseudo state dependent on underlying relay
 		// or requested pid, not a permanent state of this transport.
-		t.status.Cas(s, dnsx.Unpaused)
+		t.status.CompareAndSwap(s, dnsx.Unpaused)
 		return dnsx.Unpaused
 	}
 	return s

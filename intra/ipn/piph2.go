@@ -55,7 +55,7 @@ type piph2 struct {
 
 	// mutable fields
 	lastdial *core.Volatile[time.Time] // last dial time
-	status   *core.Volatile[int]       // proxy status: TOK, TKO, END
+	status   atomic.Int32       // proxy status: TOK, TKO, END
 	lastaddr atomic.Pointer[string]
 }
 
@@ -170,7 +170,7 @@ func (t *piph2) dial(network, addr string) (c net.Conn, err error) {
 			c, err = dialers.SplitDial(t.outbound, network, addr)
 		}
 	}
-	defer localDialStatus(t.status, err)
+	defer localDialStatus(&t.status, err)
 	logei(err)("piph2: dial(%s) %s (via %s); err? %v", network, addr, who, err)
 	return
 }
@@ -222,11 +222,11 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 		token:    po.Auth.User,
 		toksig:   po.Auth.Password,
 		rsasig:   rsasig,
-		status:   core.NewVolatile(TUP),
 		done:     done,
 		lastdial: core.NewVolatile(time.Time{}),
 		opts:     po,
 	}
+	t.status.Store(TUP)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func (t *piph2) Stop() error {
 }
 
 // Status implements Proxy.
-func (t *piph2) Status() int {
+func (t *piph2) Status() int32 {
 	st := t.status.Load()
 	if st != END && idling(t.lastdial.Load()) {
 		return TZZ
@@ -331,7 +331,7 @@ func (h *piph2) Pause() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TPU)
+	ok := h.status.CompareAndSwap(st, TPU)
 	log.I("proxy: piph2: paused? %t", ok)
 	return ok
 }
@@ -344,7 +344,7 @@ func (h *piph2) Resume() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TUP)
+	ok := h.status.CompareAndSwap(st, TUP)
 	go h.Refresh() // no-op since SkipRefresh
 	log.I("proxy: piph2: resumed? %t", ok)
 	return ok
@@ -383,7 +383,7 @@ func (t *piph2) DialBind(network, local, remote string) (protect.Conn, error) {
 }
 
 func (t *piph2) forward(network, addr string) (protect.Conn, error) {
-	if err := candial(t.status); err != nil {
+	if err := candial(&t.status); err != nil {
 		return nil, errProxyStopped
 	}
 	if network != "tcp" {

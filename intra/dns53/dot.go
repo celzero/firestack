@@ -56,7 +56,7 @@ type dot struct {
 	echlastattempt atomic.Int64               // last attempt fetching ech cfg; unix milli
 
 	est    core.P2QuantileEstimator
-	status *core.Volatile[int]
+	status atomic.Int32
 }
 
 var _ dnsx.Transport = (*dot)(nil)
@@ -109,7 +109,6 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		skipTLSVerify: skipTLSVerify,
 		addrport:      addrport, // may or may not be ipaddr
 		port:          port,
-		status:        core.NewVolatile(x.Start),
 		proxies:       px,
 		relay:         relay,
 		relayref:      relayref,
@@ -118,6 +117,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		est:           core.NewP50Estimator(ctx),
 		// echconfig/echlastattempt: zero values (nil) are fine
 	}
+	t.status.Store(dnsx.Start)
 	echcfg := t.getOrCreateEchConfigIfNeeded()
 	// local dialer: protect.MakeNsDialer(id, ctl)
 	t.c = dnsclient(tlscfg)
@@ -407,7 +407,7 @@ func (t *dot) IPPorts() (ipps []netip.AddrPort) {
 	return
 }
 
-func (t *dot) Status() int {
+func (t *dot) Status() int32 {
 	if px := t.GetRelay(); px != nil {
 		if y, to := dnsx.OverrideStatusFrom(px); y {
 			return to
@@ -417,7 +417,7 @@ func (t *dot) Status() int {
 	if s == dnsx.Paused {
 		// paused status is a pseudo state dependent on underlying relay
 		// or requested pid, not a permanent state of this transport.
-		t.status.Cas(s, dnsx.Unpaused)
+		t.status.CompareAndSwap(s, dnsx.Unpaused)
 		return dnsx.Unpaused
 	}
 	return s

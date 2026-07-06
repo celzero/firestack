@@ -25,6 +25,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -54,7 +55,7 @@ type DcMulti struct {
 	proxies             ipn.ProxyProvider
 	ctx                 context.Context
 	sigterm             context.CancelFunc
-	lastStatus          *core.Volatile[int]
+	lastStatus          atomic.Int32
 	lastAddr            string
 	ctl                 protect.Controller
 	exit                ipn.Proxy // may be nil
@@ -722,7 +723,7 @@ func (p *DcMulti) IPPorts() []netip.AddrPort {
 }
 
 // Status implements dnsx.TransportMult
-func (p *DcMulti) Status() int {
+func (p *DcMulti) Status() int32 {
 	// TODO? Does it transition out of dnsx.Paused correctly?
 	return p.lastStatus.Load()
 }
@@ -746,13 +747,13 @@ func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controlle
 		certIgnoreTimestamp: false,
 		serversInfo:         newServersInfo(),
 		liveServers:         nil,
-		lastStatus:          core.NewVolatile(dnsx.Start),
 		proxies:             px,
 		lastAddr:            "",
 		ctl:                 ctl,
 		exit:                exit, // may be nil
 		est:                 core.NewP50Estimator(ctx),
 	}
+	dc.lastStatus.Store(dnsx.Start)
 	err = dc.start()
 	if err != nil {
 		log.E("dnscrypt: start failed: %v", err)

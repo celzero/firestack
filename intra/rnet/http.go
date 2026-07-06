@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -38,7 +39,7 @@ type httpx struct {
 	sync.Mutex          // protects tx.ProxyHttpServer
 	*tx.ProxyHttpServer // changed by Hop()
 
-	status *core.Volatile[int] // status of the server
+	status atomic.Int32 // status of the server
 }
 
 type httpxhandle struct {
@@ -97,8 +98,8 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 		hdl:             hdl,
 		svc:             svc,
 		listener:        listener,
-		status:          core.NewVolatile(SOK),
 	}
+	hx.status.Store(SOK)
 	hproxy.OnRequest().HandleConnectFunc(hx.routeConnect)
 	hproxy.OnRequest().DoFunc(hx.route)
 	hproxy.OnResponse().DoFunc(hx.summarize)
@@ -352,7 +353,7 @@ func (h *httpx) GetAddr() string {
 	return h.host
 }
 
-func (h *httpx) Status() int {
+func (h *httpx) Status() int32 {
 	return h.status.Load()
 }
 

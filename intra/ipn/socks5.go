@@ -39,7 +39,7 @@ type socks5 struct {
 	px       ProxyProvider                       // proxy provider
 	via      atomic.Pointer[core.WeakRef[Proxy]] // hop proxy
 	lastdial time.Time                           // last time this transport attempted a connection
-	status   *core.Volatile[int]                 // status of this transport
+	status   atomic.Int32                 // status of this transport
 	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc // cancel func
 }
@@ -196,7 +196,7 @@ func (h *socks5) DialBind(network, local, remote string) (c protect.Conn, err er
 
 // todo: bind to local
 func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -231,7 +231,7 @@ func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
 	if a, ok := laddr(c); ok {
 		h.lastaddr.Store(&a)
 	}
-	defer localDialStatus(h.status, err)
+	defer localDialStatus(&h.status, err)
 	return
 }
 
@@ -288,7 +288,7 @@ func (h *socks5) GetAddr() string {
 }
 
 // Status implements Proxy.
-func (h *socks5) Status() int {
+func (h *socks5) Status() int32 {
 	s := h.status.Load()
 	if s != END && idling(h.lastdial) {
 		return TZZ
@@ -304,7 +304,7 @@ func (h *socks5) Pause() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TPU)
+	ok := h.status.CompareAndSwap(st, TPU)
 	log.I("proxy: socks5: paused? %t", ok)
 	return ok
 }
@@ -317,7 +317,7 @@ func (h *socks5) Resume() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TUP)
+	ok := h.status.CompareAndSwap(st, TUP)
 	go h.Refresh() // no-op since SkipRefresh
 	log.I("proxy: socks5: resumed? %t", ok)
 	return ok
@@ -333,7 +333,7 @@ func (h *socks5) Stop() error {
 
 // OnProtoChange implements Proxy.
 func (h *socks5) OnProtoChange(_ LinkProps) (string, bool) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return "", false
 	}
 	return h.opts.FullUrl(), true

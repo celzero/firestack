@@ -35,7 +35,7 @@ type http1 struct {
 	px       ProxyProvider
 	opts     *settings.ProxyOptions
 	lastdial time.Time
-	status   *core.Volatile[int]
+	status   atomic.Int32
 	lastaddr atomic.Pointer[string]
 }
 
@@ -74,10 +74,10 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px Proxy
 	h := &http1{
 		outbound: hp, // does not support udp
 		px:       px,
-		status:   core.NewVolatile(TUP),
 		id:       id,
 		opts:     po,
 	}
+	h.status.Store(TUP)
 
 	logeif(err != nil)("proxy: http1: created %s with opts(%s); err? %v",
 		h.ID(), po, err)
@@ -97,7 +97,7 @@ func (h *http1) DialerHandle() uint64 {
 
 // Dial implements Proxy.
 func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return nil, err
 	}
 
@@ -120,7 +120,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 		// tx.HttpTunnel.Dial() supports dialing into hostnames
 		c, err = dialers.ProxyDial(h.outbound, network, addr)
 	}
-	defer localDialStatus(h.status, err)
+	defer localDialStatus(&h.status, err)
 
 	if a, ok := laddr(c); ok {
 		h.lastaddr.Store(&a)
@@ -189,7 +189,7 @@ func (h *http1) GetAddr() string {
 }
 
 // Status implements Proxy.
-func (h *http1) Status() int {
+func (h *http1) Status() int32 {
 	s := h.status.Load()
 	if s != END && idling(h.lastdial) {
 		return TZZ
@@ -205,7 +205,7 @@ func (h *http1) Pause() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TPU)
+	ok := h.status.CompareAndSwap(st, TPU)
 	log.I("proxy: http1: paused? %t", ok)
 	return ok
 }
@@ -218,7 +218,7 @@ func (h *http1) Resume() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TUP)
+	ok := h.status.CompareAndSwap(st, TUP)
 	go h.Refresh() // no-op since SkipRefresh
 	log.I("proxy: http1: resumed? %t", ok)
 	return ok
@@ -233,7 +233,7 @@ func (h *http1) Stop() error {
 
 // OnProtoChange implements Proxy.
 func (h *http1) OnProtoChange(_ LinkProps) (string, bool) {
-	if err := candial(h.status); err != nil {
+	if err := candial(&h.status); err != nil {
 		return "", false
 	}
 	return h.opts.FullUrl(), true

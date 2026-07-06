@@ -66,7 +66,7 @@ func (f *fakeProxy) Client() x.Client                       { return newProxyCli
 func (f *fakeProxy) onNotOK() (bool, bool)                  { return false, true }
 func (f *fakeProxy) OnProtoChange(LinkProps) (string, bool) { return "", false }
 func (f *fakeProxy) Hop(*core.WeakRef[Proxy], bool) error   { return nil }
-func (f *fakeProxy) Status() int                            { return TOK }
+func (f *fakeProxy) Status() int32                            { return TOK }
 func (f *fakeProxy) GetAddr() string                        { return "" }
 func (f *fakeProxy) DNS() string                            { return "" }
 func (f *fakeProxy) Ping() bool                             { return true }

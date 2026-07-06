@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -778,7 +779,7 @@ func ViaID(p Proxy) string {
 	return vid
 }
 
-func candial2(st int) error {
+func candial2(st int32) error {
 	if st == END {
 		return errProxyStopped
 	}
@@ -788,18 +789,18 @@ func candial2(st int) error {
 	return nil
 }
 
-func candial(state *core.Volatile[int]) error {
-	return candial2(state.Load())
+func candial(state *atomic.Int32) error {
+	return candial2((*state).Load())
 }
 
-func canserve2(st int) error {
+func canserve2(st int32) error {
 	if st == END {
 		return errProxyStopped
 	}
 	return nil
 }
 
-func canserve(state *core.Volatile[int]) error {
+func canserve(state *atomic.Int32) error {
 	return canserve2(state.Load())
 }
 

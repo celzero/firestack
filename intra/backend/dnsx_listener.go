@@ -50,7 +50,7 @@ type DNSSummary struct {
 	// Relay server PID hops over, if any.
 	RPID string
 	// Transport status (Start, Complete, SendFailed, NoResponse, BadQuery, BadResponse, etc).
-	Status int
+	Status int32
 	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
 	Blocklists string
 	// Actual target (domain name) that was blocked (could be a CNAME or HTTPS/SVCB alias) by Blocklists.

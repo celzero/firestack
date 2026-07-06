@@ -161,7 +161,7 @@ func (NoProxy) Reaches(string) bool                                   { return f
 func (NoProxy) Dial(string, string) (protect.Conn, error)             { return nil, errNop }
 func (NoProxy) DialBind(string, string, string) (protect.Conn, error) { return nil, errNop }
 func (NoProxy) Dialer() protect.RDialer                               { return nil }
-func (NoProxy) Status() int                                           { return 0 }
+func (NoProxy) Status() int32                                           { return 0 }
 func (NoProxy) GetAddr() string                                       { return "" }
 func (NoProxy) Stop() error                                           { return nil }
 func (NoProxy) Client() x.Client                                      { return nil }

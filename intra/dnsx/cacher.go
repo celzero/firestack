@@ -527,7 +527,7 @@ func (t *ctransport) IPPorts() []netip.AddrPort {
 	return t.Transport.IPPorts()
 }
 
-func (t *ctransport) Status() int {
+func (t *ctransport) Status() int32 {
 	return t.Transport.Status()
 }
 

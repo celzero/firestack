@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"slices"
@@ -97,7 +98,7 @@ type baseHandler struct {
 
 	// fields below are mutable
 
-	status *core.Volatile[int] // status of this handler
+	status atomic.Int32 // status of this handler
 }
 
 var _ netstack.GBaseConnHandler = (*baseHandler)(nil)
@@ -112,8 +113,8 @@ func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.
 		listener:    l,
 		fwtracker:   core.NewExpiringMap[string, string](pctx, proto+".fwtrack"),
 		conntracker: core.NewConnMap(proto + ".conntrack"),
-		status:      core.NewVolatile(HDLOK),
 	}
+	h.status.Store(HDLOK)
 	context.AfterFunc(pctx, h.End)
 	return h
 }

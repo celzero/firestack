@@ -60,7 +60,7 @@ type transport struct {
 
 	est      core.P2QuantileEstimator
 	lastaddr atomic.Pointer[string] // last resolved addr
-	status   *core.Volatile[int]    // status of the transport
+	status   atomic.Int32           // status of the transport
 }
 
 var _ dnsx.Transport = (*transport)(nil)
@@ -109,7 +109,6 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		id:       id,
 		addrport: do.AddrPort(), // may be hostname:port or ip:port
 		port:     do.Port(),
-		status:   core.NewVolatile(dnsx.Start),
 		pool:     core.NewMultConnPool[uint64](ctx),
 		// todo: renable once we know why pooled wireguard dns conns are troublesome
 		usepool:  false,
@@ -118,6 +117,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		relayref: relayref, // may be nil
 		est:      core.NewP50Estimator(ctx),
 	}
+	tx.status.Store(dnsx.Start)
 	ipcsv := do.ResolvedAddrs()
 	hasips := len(ipcsv) > 0
 	ips := strings.Split(ipcsv, ",")               // may be nil or empty or ip:port
@@ -395,7 +395,7 @@ func (t *transport) IPPorts() (ipps []netip.AddrPort) {
 	return
 }
 
-func (t *transport) Status() int {
+func (t *transport) Status() int32 {
 	if px := t.GetRelay(); px != nil {
 		if y, to := dnsx.OverrideStatusFrom(px); y {
 			return to
@@ -406,7 +406,7 @@ func (t *transport) Status() int {
 	if s == dnsx.Paused {
 		// paused status is a pseudo state dependent on underlying relay
 		// or requested pid, not a permanent state of this transport.
-		t.status.Cas(s, dnsx.Unpaused)
+		t.status.CompareAndSwap(s, dnsx.Unpaused)
 		return dnsx.Unpaused
 	}
 	return s

@@ -56,7 +56,7 @@ type pipws struct {
 
 	done context.CancelFunc // cancel func
 
-	status   *core.Volatile[int] // proxy status: TOK, TKO, END
+	status   atomic.Int32 // proxy status: TOK, TKO, END
 	lastaddr atomic.Pointer[string]
 	opts     *settings.ProxyOptions
 }
@@ -93,7 +93,7 @@ func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 			c, err = dialers.SplitDial(t.outbound, network, addr)
 		}
 	}
-	defer localDialStatus(t.status, err)
+	defer localDialStatus(&t.status, err)
 	logei(err)("pipws: dial(%s) to %s (via: %s); err? %v", network, addr, who, err)
 	return
 }
@@ -214,13 +214,10 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider
 		token:      po.Auth.User,
 		toksig:     po.Auth.Password,
 		rsasighash: splitpath[2],
-		status:     core.NewVolatile(TUP),
 		done:       done,
 		opts:       po,
 	}
-	if err != nil {
-		return nil, err
-	}
+	t.status.Store(TUP)
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -314,7 +311,7 @@ func (t *pipws) Stop() error {
 }
 
 // Status implements Proxy.
-func (t *pipws) Status() int {
+func (t *pipws) Status() int32 {
 	s := t.status.Load()
 	if s != END && idling(t.lastdial) {
 		return TZZ
@@ -330,7 +327,7 @@ func (h *pipws) Pause() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TPU)
+	ok := h.status.CompareAndSwap(st, TPU)
 	log.I("proxy: pipws: paused? %t", ok)
 	return ok
 }
@@ -343,7 +340,7 @@ func (h *pipws) Resume() bool {
 		return false
 	}
 
-	ok := h.status.Cas(st, TUP)
+	ok := h.status.CompareAndSwap(st, TUP)
 	go h.Refresh()
 
 	log.I("proxy: pipws: resumed? %t", ok)

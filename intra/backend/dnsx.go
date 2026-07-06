@@ -61,7 +61,7 @@ const ( // see dnsx/transport.go
 
 const ( // from dnsx/queryerror.go
 	// Start: Transaction started
-	Start = iota
+	Start int32 = iota
 	// Complete : Transaction completed successfully
 	Complete
 	// SendFailed : Failed to send query
@@ -84,6 +84,8 @@ const ( // from dnsx/queryerror.go
 	Unpaused
 	// DEnd: Transport stopped
 	DEnd
+	// Unknown: Transport status is unknown
+	Unknown int32 = 100
 )
 
 const ( // from: dnsx/rethinkdns.go
@@ -105,7 +107,7 @@ type DNSTransport interface {
 	// Returns nil if there isn't any.
 	GetRelay() Proxy
 	// State of the transport after previous query (see: queryerror.go)
-	Status() int
+	Status() int32
 }
 
 type DNSTransportMult interface {

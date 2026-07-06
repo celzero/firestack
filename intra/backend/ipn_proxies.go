@@ -231,7 +231,7 @@ type Proxy interface {
 	// DNS returns the ip:port or doh/dot url or dnscrypt stamp for this proxy.
 	DNS() string
 	// Status returns the status of this proxy.
-	Status() int
+	Status() int32
 	// Ping pings this proxy.
 	Ping() bool
 	// Pause pauses this proxy.

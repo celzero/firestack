@@ -54,7 +54,7 @@ func (s *severbyid) Query(network string, q *dns.Msg, summary *x.DNSSummary) (*d
 }
 
 // Status implements [dnsx.Transport].
-func (s *severbyid) Status() int {
+func (s *severbyid) Status() int32 {
 	return s.t().Status()
 }
 

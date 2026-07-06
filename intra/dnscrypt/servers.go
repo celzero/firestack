@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -68,7 +69,7 @@ type server struct {
 
 	RelayUDPAddrs *core.Volatile[[]*net.UDPAddr] // anonymous relays, if any
 	RelayTCPAddrs *core.Volatile[[]*net.TCPAddr] // anonymous relays, if any
-	status        *core.Volatile[int]            // status of the last query
+	status        atomic.Int32                   // status of the last query
 }
 
 var _ dnsx.Transport = (*server)(nil)
@@ -215,26 +216,26 @@ func (serversInfo *ServersInfo) refreshServer(proxy *DcMulti, name string, stamp
 	if si, ok := serversInfo.inner[name]; ok {
 		go si.Stop()
 	}
-	serversInfo.inner[name] = &newServer
+	serversInfo.inner[name] = newServer
 	serversInfo.registeredServers[name] = registeredserver{name: name, stamp: stamp}
-	return &newServer, nil
+	return newServer, nil
 }
 
-func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (server, error) {
+func fetchServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (*server, error) {
 	switch stamp.Proto {
 	case stamps.StampProtoTypeDNSCrypt:
 		return fetchDNSCryptServerInfo(proxy, name, stamp)
 	case stamps.StampProtoTypeDoH:
 		return fetchDoHServerInfo(proxy, name, stamp)
 	}
-	return server{}, log.EE("unsupported protocol for %s", stamp.ServerAddrStr)
+	return nil, log.EE("unsupported protocol for %s", stamp.ServerAddrStr)
 }
 
-func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (server, error) {
+func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerStamp) (*server, error) {
 	if len(stamp.ServerPk) != ed25519.PublicKeySize {
 		serverPk, err := hex.DecodeString(strings.ReplaceAll(string(stamp.ServerPk), ":", ""))
 		if err != nil || len(serverPk) != ed25519.PublicKeySize {
-			return server{}, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
+			return nil, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
 		}
 		log.W("dnscrypt: public key [%s] shouldn't be hex-encoded any more", string(stamp.ServerPk))
 		stamp.ServerPk = serverPk
@@ -243,7 +244,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	// note: relays are not used to fetch certs due to multiple issues reported by users
 	certInfo, err := fetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName)
 	if err != nil {
-		return server{}, err
+		return nil, err
 	}
 	var tcpaddr *net.TCPAddr
 	var udpaddr *net.UDPAddr
@@ -253,10 +254,10 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		tcpaddr = net.TCPAddrFromAddrPort(ipp)
 		udpaddr = net.UDPAddrFromAddrPort(ipp)
 	} else {
-		return server{}, fmt.Errorf("dnscrypt: no ips for [%s]: %v", s, err)
+		return nil, fmt.Errorf("dnscrypt: no ips for [%s]: %v", s, err)
 	}
 	if udpaddr == nil || tcpaddr == nil {
-		return server{}, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
+		return nil, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
 	}
 	px := proxy.proxies
 	var relay string
@@ -291,15 +292,15 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		relay:              relay,
 		relayref:           relayref,
 		est:                core.NewP50Estimator(ctx),
-		status:             core.NewVolatile(dnsx.Start),
 	}
+	si.status.Store(dnsx.Start)
 	log.I("dnscrypt: (%s) setup: %s; anonrelay? %t, proxy? %t", name, si.HostName, len(relay) > 0, px != nil)
-	return si, nil
+	return &si, nil
 }
 
-func fetchDoHServerInfo(_ *DcMulti, _ string, _ stamps.ServerStamp) (server, error) {
+func fetchDoHServerInfo(_ *DcMulti, _ string, _ stamps.ServerStamp) (*server, error) {
 	// FIXME: custom ip-address, user-certs, and cert-pinning not supported
-	return server{}, errors.New("unsupported protocol")
+	return nil, errors.ErrUnsupported
 }
 
 func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
@@ -447,7 +448,7 @@ func (s *server) IPPorts() []netip.AddrPort {
 	return addr2ipp(s.UDPAddr)
 }
 
-func (s *server) Status() int {
+func (s *server) Status() int32 {
 	if px := s.getRelay(); px != nil {
 		if y, to := dnsx.OverrideStatusFrom(px); y {
 			return to
@@ -457,7 +458,7 @@ func (s *server) Status() int {
 	if st == dnsx.Paused {
 		// paused status is a pseudo state dependent on underlying relay
 		// or requested pid, not a permanent state of this transport.
-		s.status.Cas(st, dnsx.Unpaused)
+		s.status.CompareAndSwap(st, dnsx.Unpaused)
 		return dnsx.Unpaused
 	}
 	return st

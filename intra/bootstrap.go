@@ -314,7 +314,7 @@ func (b *bootstrap) IPPorts() []netip.AddrPort {
 	return dnsx.NoIPPort
 }
 
-func (b *bootstrap) Status() int {
+func (b *bootstrap) Status() int32 {
 	if tr := b.tr; tr != nil {
 		return tr.Status()
 	}

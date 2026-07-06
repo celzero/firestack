@@ -21,7 +21,7 @@ import (
 type grounded struct {
 	id     string
 	ipport string
-	status int
+	status int32
 }
 
 var _ dnsx.Transport = (*grounded)(nil)
@@ -86,7 +86,7 @@ func (t *grounded) IPPorts() []netip.AddrPort {
 	return dnsx.NoIPPort
 }
 
-func (t *grounded) Status() int {
+func (t *grounded) Status() int32 {
 	return t.status
 }
 

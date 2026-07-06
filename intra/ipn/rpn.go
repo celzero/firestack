@@ -141,7 +141,7 @@ func (r *rpnp) DNS() string {
 }
 
 // Status implements x.Proxy.
-func (r *rpnp) Status() int {
+func (r *rpnp) Status() int32 {
 	return r.ensureProxy().Status()
 }
 

@@ -68,7 +68,7 @@ const (
 	AUTOMTU2 = "(auto)"
 )
 
-type pxstatus int
+type pxstatus int32
 
 func (s pxstatus) String() string {
 	switch s {

@@ -10,10 +10,10 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
-	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
@@ -31,7 +31,7 @@ type goosr struct {
 	// dialer *protect.RDial
 	exit ipn.Proxy // the only supported proxy is ipn.Exit
 
-	status *core.Volatile[int]
+	status atomic.Int32
 }
 
 var _ dnsx.Transport = (*goosr)(nil)
@@ -55,12 +55,12 @@ func NewGoosTransport(pctx context.Context, pxs ipn.ProxyProvider) (t *goosr, er
 	}
 	ctx, cancel := context.WithCancel(pctx)
 	tx := &goosr{
-		ctx:    ctx,
-		done:   cancel,
-		status: core.NewVolatile(x.Start),
+		ctx:  ctx,
+		done: cancel,
 		// dialer: d,
 		exit: px,
 	}
+	tx.status.Store(dnsx.Start)
 	tx.r = &net.Resolver{
 		PreferGo: true,
 		Dial:     tx.pxdial, // dials in to ipn.Exit, always
@@ -208,7 +208,7 @@ func (t *goosr) IPPorts() []netip.AddrPort {
 	return []netip.AddrPort{netip.AddrPortFrom(netip.IPv6Loopback(), uint16(53))}
 }
 
-func (t *goosr) Status() int {
+func (t *goosr) Status() int32 {
 	return t.status.Load()
 }
 

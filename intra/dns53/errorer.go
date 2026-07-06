@@ -77,7 +77,7 @@ func (t *errorer) IPPorts() []netip.AddrPort {
 	return dnsx.NoIPPort
 }
 
-func (*errorer) Status() int {
+func (*errorer) Status() int32 {
 	return x.ClientError
 }
 

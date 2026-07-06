@@ -46,11 +46,11 @@ type dnssd struct {
 	ctx    context.Context
 	done   context.CancelFunc
 	dialer ipn.Proxy
-	id     string              // ID of this transport
-	ipport string              // IP:Port queries are sent to (v4)
-	use4   atomic.Bool         // Use IPv4
-	use6   atomic.Bool         // Use IPv6
-	status *core.Volatile[int] // Status of this transport
+	id     string       // ID of this transport
+	ipport string       // IP:Port queries are sent to (v4)
+	use4   atomic.Bool  // Use IPv4
+	use6   atomic.Bool  // Use IPv6
+	status atomic.Int32 // Status of this transport
 	est    core.P2QuantileEstimator
 }
 
@@ -74,9 +74,9 @@ func NewMDNSTransport(pctx context.Context, protos string, pxr ipn.ProxyProvider
 		id:     dnsx.Local,
 		dialer: exit,
 		ipport: xdns.MDNSAddr4.String(), // ip6: ff02::fb:5353
-		status: core.NewVolatile(dnsx.Start),
 		est:    core.NewP50Estimator(ctx),
 	}
+	t.status.Store(dnsx.Start)
 	t.use4.Store(use4(protos))
 	t.use6.Store(use6(protos))
 	log.I("mdns: setup: %s", protos)
@@ -227,7 +227,7 @@ func (t *dnssd) IPPorts() []netip.AddrPort {
 	}
 }
 
-func (t *dnssd) Status() int {
+func (t *dnssd) Status() int32 {
 	return t.status.Load()
 }
 

@@ -89,7 +89,7 @@ func (h *ground) GetAddr() string {
 	return h.addr
 }
 
-func (h *ground) Status() int {
+func (h *ground) Status() int32 {
 	return TKO
 }
 

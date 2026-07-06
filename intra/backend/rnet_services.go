@@ -42,7 +42,7 @@ type Server interface {
 	// Addr returns the address of the server.
 	GetAddr() string
 	// Status returns the status of the server.
-	Status() int
+	Status() int32
 	// Stop stops the server.
 	Stop() error
 	// Refresh re-registers the server.

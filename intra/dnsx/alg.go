@@ -2523,7 +2523,7 @@ func ChooseHealthyProxyHostPort(who, proto string, host string, port uint16, pid
 	return ChooseHealthyProxy(who+" : "+host, proto, ipps, pids, px)
 }
 
-func OverrideStatusFrom(p x.Proxy) (bool, int) {
+func OverrideStatusFrom(p x.Proxy) (bool, int32) {
 	if p == nil {
 		return false, Unknown
 	}

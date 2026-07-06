@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
@@ -42,7 +43,7 @@ type socks5 struct {
 
 	// mutable fields below
 
-	status *core.Volatile[int] // SOK, SKO, END
+	status atomic.Int32 // SOK, SKO, END
 }
 
 type socks5handler struct {
@@ -88,7 +89,7 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 
 	hasauth := len(usr) > 0 || len(pwd) > 0
 	log.I("svcsocks5: new %s listening at %s; auth?", id, host, hasauth)
-	return &socks5{
+	s := &socks5{
 		Server:    server,
 		id:        id,
 		url:       host,
@@ -96,9 +97,10 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 		hdl:       hdl,
 		listener:  listener,
 		summaries: make(map[*tx.UDPExchange]*ServerSummary),
-		status:    core.NewVolatile(SOK),
 		done:      done,
-	}, nil
+	}
+	s.status.Store(SOK)
+	return s, nil
 }
 
 func (h *socks5) Hop(p x.Proxy) error {
@@ -184,7 +186,7 @@ func (h *socks5) GetAddr() string {
 	return h.url
 }
 
-func (h *socks5) Status() int {
+func (h *socks5) Status() int32 {
 	return h.status.Load()
 }
 
