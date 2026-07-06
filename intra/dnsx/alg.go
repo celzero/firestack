@@ -447,11 +447,11 @@ func (p *xips) rmv(tid string) (done bool) {
 		}
 		if strings.HasPrefix(k, tid) {
 			j++
-			done = done || true
 			v.ttl = time.Now() // mark as expired
 			p.aux[k] = v
 		}
 	}
+	done = (i + j) > 0
 	if done {
 		p.vaccumLocked()
 	}
@@ -465,7 +465,8 @@ func (p *xips) rmv(tid string) (done bool) {
 func (p *xips) relegateLocked(k string, v expaddr) {
 	if cur, ok := p.past[k]; ok && cur.withinStaleThres() {
 		cur.ips = copyUniq(cur.ips, v.ips)
-		if v.dob.Before(cur.dob) {
+		// extend lifetime: keep it younger
+		if cur.dob.Before(v.dob) {
 			cur.dob = v.dob
 		}
 		p.past[k] = cur
@@ -908,7 +909,7 @@ func (p *xdomains) merge(q *xdomains) (szprialiv, szpri int) {
 			}
 
 			if !pv.fresherThan(qv) {
-				pv.ttl = qv.ttl
+				ttl = qv.ttl
 			}
 			v := expdomains{domains: doms, ttl: ttl, dob: dob}
 			p.pri[qk] = v
@@ -961,7 +962,11 @@ func (a *algans) String() string {
 }
 
 func (a *algans) extend(by time.Duration) {
-	a.ttl = time.Now().Add(by)
+	if a == nil || a.ttl.IsZero() || time.Since(a.ttl) > 0 {
+		a.ttl = time.Now().Add(by)
+	} else {
+		a.ttl = a.ttl.Add(by)
+	}
 }
 
 func (a *algans) after(b *algans) bool {
@@ -1044,10 +1049,12 @@ func NewDNSGateway(pctx context.Context, fakeaddrs []netip.AddrPort, outer RdnsR
 		fake:   fakeaddrs,
 		rdns:   outer,
 		dns64:  dns64,
-		octets: rfc6598,
-		hexes:  rfc8215a,
+		octets: make([]uint8, len(rfc6598)),
+		hexes:  make([]uint16, len(rfc8215a)),
 		chash:  true,
 	}
+	copy(t.octets, rfc6598)
+	copy(t.hexes, rfc8215a)
 
 	context.AfterFunc(pctx, t.stop)
 	log.I("alg: setup done")
@@ -1117,8 +1124,9 @@ func (t *dnsgateway) stop() {
 	clear(t.alg)
 	clear(t.nat)
 	clear(t.ptr)
-	t.octets = rfc6598
-	t.hexes = rfc8215a
+	// Copy values to avoid mutating global state
+	copy(t.octets, rfc6598)
+	copy(t.hexes, rfc8215a)
 }
 
 func (t *dnsgateway) fromInternalCache(tid, uid, fid string, q *dns.Msg, typ iptype) (ans *dns.Msg, err error) {
@@ -1302,7 +1310,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, origin, network, u
 	usepreset := len(preset) > 0               // preset may be nil
 	mod := !uidself && fromtun && t.mod.Load() // allow alg?
 	discarduid := !t.split.Load()              // do not split tunnel?
-	hasblock := isAnyBlockAll(idstr(t2), idstr(t2))
+	hasblock := isAnyBlockAll(idstr(t1), idstr(t2))
 	hasfixed := isAnyFixed(idstr(t1))         // fixed transport?
 	usefixed := !usepreset && mod && hasfixed // use preset fixed realips?
 	skipcache := skipInternalCache(idstr(t1), idstr(t2))
@@ -1651,10 +1659,10 @@ func withDNS64Summary(ans64 *dns.Msg, s *x.DNSSummary) {
 }
 
 func withAlgSummary(s *x.DNSSummary, algips ...netip.Addr) {
-	if settings.Debug {
-		// convert algips to ipcsv; any algips may be invalid
-		ipcsv := Netip2Csv(algips)
+	// convert algips to ipcsv; any algips may be invalid
+	ipcsv := Netip2Csv(algips)
 
+	if settings.Debug {
 		if len(s.RData) > 0 {
 			s.RData = s.RData + "," + ipcsv
 		} else {
@@ -1668,7 +1676,8 @@ func withAlgSummary(s *x.DNSSummary, algips ...netip.Addr) {
 		}
 	}
 	// if modified alg ips are being returned, then these are not authentic
-	s.AD = len(algips) > 0
+	// only set AD=true if we actually have valid algips
+	s.AD = len(ipcsv) > 0
 }
 
 func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 netip.Addr, realips []netip.Addr, ttl time.Duration, targets []string, secres secans) bool {
@@ -1690,11 +1699,12 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 	// for just-in-time re-resolution of the same domain by common.go via
 	// dialers.ResolverFor(uid) which may be called on new tcp / udp conn.
 	ttl = min(ttl8s, ttl)
+	algttl := min(ttl2m, ttl)
 
 	now := time.Now()
 	// ttl is used for algans and xips, but the alg'fied dns answer
 	// has a lower ttl as defined by const algttl (currently, 8s).
-	ansttl := now.Add(max(ttl2m, ttl))
+	ansttl := now.Add(algttl)
 	xipsttl := now.Add(ttl)
 	// secres.ips may be empty on timeout errors, or
 	// or same as realips if t2 is nil; realips can be nil
@@ -1759,7 +1769,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 		didRegister = true
 	}
 	logeif(!didRegister)("alg: reg: algips (reg? %t / new? %t) (alg: %s+%s => real: %s) for %s@%s[%s] %s; real? %d, sec? %d; until (ans: %s / xips: %s)",
-		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, fid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
+		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, fid, len(realips), len(secres.ips), time.Until(algttl), time.Until(xipsttl))
 
 	return didRegister
 }
@@ -1772,7 +1782,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 			ans.extend(ttl2m)
 			return ip, true
 		} else {
-			// shouldn't happen; if it does, rm erroneous entry
+			// shouldn't happen; if it does, rm erroneous entry and fall through to generate new
 			delete(t.alg, k)
 			delete(t.nat, ip)
 			ans.ips.each(func(ip netip.Addr) {
@@ -1780,6 +1790,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 					delete(t.ptr, ip)
 				}
 			})
+			log.E("alg: gen: take4: found %s but not ip4 %s; removed: %s", k, ip, ans)
 		}
 	}
 
@@ -1793,7 +1804,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 				return genip, genip.IsValid()
 			}
 		}
-		log.W("alg: gen: no more IP4s (%v)", q)
+		log.E("alg: gen: no more IP4s (%v)", q)
 		return zeroaddr, false
 	}
 
@@ -1814,8 +1825,8 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 			if i > maxiter {
 				break
 			}
-			if d := time.Since(ent.ttl); d > 0 {
-				log.I("alg: reuse stale alg %s for %s", kx, k)
+			if d := time.Since(ent.ttl); d > 0 && ent.algip.Is4() {
+				log.I("alg: gen: take4: reuse stale alg %s for %s", kx, k)
 				delete(t.alg, kx)
 				delete(t.nat, ent.algip)
 				ent.ips.each(func(ip netip.Addr) {
@@ -1835,13 +1846,13 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 		genip := netip.AddrFrom4(b4).Unmap()
 		return genip, genip.IsValid()
 	} else {
-		log.W("alg: no more IP4s (%v)", t.octets)
+		log.E("alg: gen: take4: no more IP4s (%v)", t.octets)
 	}
 	return zeroaddr, false
 }
 
-func gen4Locked(k string, hop int) netip.Addr {
-	s := strconv.Itoa(hop) + k
+func gen4Locked(k string, salt int) netip.Addr {
+	s := strconv.Itoa(salt) + k
 	v22 := hash22(s)
 	// 100.64.y.z/15 2m+ ip4s
 	b4 := [4]byte{
@@ -1871,6 +1882,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 					delete(t.ptr, ip)
 				}
 			})
+			log.E("alg: gen: take6: found %s but not ip6 %s; removed: %s", k, ip, ans)
 		}
 	}
 
@@ -1881,7 +1893,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 				return genip, genip.IsValid()
 			}
 		}
-		log.W("alg: gen: no more IP6s (%v)", q)
+		log.E("alg: gen: take6: no more IP6s (%v)", q)
 		return zeroaddr, false
 	}
 
@@ -1898,6 +1910,25 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 		t.hexes[7] = 1  // z
 	} else {
 		// possible that we run out of 200 trillion ips...?
+		// try recycling stale entries before giving up
+		i := 0
+		for kx, ent := range t.alg {
+			if i > maxiter {
+				break
+			}
+			if d := time.Since(ent.ttl); d > 0 && ent.algip.Is6() {
+				log.I("alg: gen: take6: reuse stale alg %s for %s", kx, k)
+				delete(t.alg, kx)
+				delete(t.nat, ent.algip)
+				ent.ips.each(func(ip netip.Addr) {
+					if pans := t.ptr[ip]; pans == ent.baseans {
+						delete(t.ptr, ip)
+					}
+				})
+				return ent.algip, true
+			}
+			i += 1
+		}
 		gen = false
 	}
 	if gen {
@@ -1910,7 +1941,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 		genip := netip.AddrFrom16(b16)
 		return genip, genip.IsValid()
 	} else {
-		log.W("alg: no more IP6s (%x)", t.hexes)
+		log.E("alg: gen: take6: no more IP6s (%x)", t.hexes)
 	}
 	return zeroaddr, false
 }
@@ -2346,7 +2377,7 @@ func (t *dnsgateway) rdnsblLocked(algip netip.Addr, useptr bool) (bcsv string) {
 	return
 }
 
-// xor fold fnv to 18 bits: www.isthe.com/chongo/tech/comp/fnv
+// xor fold fnv to 22 bits: www.isthe.com/chongo/tech/comp/fnv
 func hash22(s string) uint32 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(s))
