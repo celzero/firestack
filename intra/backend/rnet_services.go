@@ -21,13 +21,13 @@ const (
 	// status of proxies
 
 	// svc UP
-	SUP = 0
+	SUP int32 = 0
 	// svc OK
-	SOK = 1
+	SOK int32 = 1
 	// svc not OK
-	SKO = -1
+	SKO int32 = -1
 	// svc stopped
-	SOP = -2
+	SOP int32 = -2
 )
 
 type Server interface {

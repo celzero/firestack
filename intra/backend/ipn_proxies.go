@@ -70,19 +70,19 @@ const ( // see ipn/proxies.go
 	// status of proxies
 
 	// proxy paused until resumed; will not dial
-	TPU = 3
+	TPU int32 = 3
 	// proxy UP but not responding
-	TNT = 2
+	TNT int32 = 2
 	// proxy idle
-	TZZ = 1
+	TZZ int32 = 1
 	// proxy UP but not yet OK
-	TUP = 0
+	TUP int32 = 0
 	// proxy OK
-	TOK = -1
+	TOK int32 = -1
 	// proxy OK but erroring out
-	TKO = -2
+	TKO int32 = -2
 	// proxy stopped
-	END = -3
+	END int32 = -3
 )
 
 // RpnOps carries options that control the behaviour of Update and RegisterWin.
