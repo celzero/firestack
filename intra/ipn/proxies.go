@@ -71,7 +71,7 @@ const (
 type pxstatus int32
 
 func (s pxstatus) String() string {
-	switch s {
+	switch int32(s) {
 	case TKO:
 		return "notok"
 	case TOK:
