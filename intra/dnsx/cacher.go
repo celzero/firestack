@@ -217,7 +217,7 @@ func (cb *cache) scrubCache() {
 	// scrub the cache if it's getting too big
 	highload := len(cb.c) >= cb.size*75/100
 
-	i, j, m := 0, 0, 0
+	i, j := 0, 0
 	for k, v := range cb.c {
 		i++
 		if highload && time.Since(v.expiry) > 0 {
@@ -230,7 +230,7 @@ func (cb *cache) scrubCache() {
 			break
 		}
 	}
-	log.I("cache: del: %d; ref: %d; tot: %d / high? %t", j, m, i, highload)
+	log.I("cache: del: %d; tot: %d / high? %t", j, i, highload)
 }
 
 func (cb *cache) freshCopy(key string) (v *cres, ok bool) {
@@ -333,9 +333,9 @@ func asResponse(q *dns.Msg, v *cres, fresh bool) (a *dns.Msg, s *x.DNSSummary, e
 		return
 	}
 	aname := qname(a)
-	qname := qname(q)
-	if aname != qname {
-		log.E("cache: asResponse: qname mismatch: a(%s) != q(%s)", aname, qname)
+	rname := qname(q)
+	if aname != rname {
+		log.E("cache: asResponse: qname mismatch: a(%s) != q(%s)", aname, rname)
 		err = errCacheResponseMismatch
 		return
 	}
@@ -392,7 +392,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		})
 
 		if cc == nil { // may be nil for example when barrier times outs
-			log.E("cache: barrier: %s; nil return for %s; err? %v", t.ID(), key, err)
+			log.E("cache: barrier: %s; nil return for %s; err? %v", idstr(t), key, err)
 			cc = ccx
 		}
 
@@ -443,7 +443,14 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 	// has 10s elapsed since the first send failure
 	trok := t.hangover.Within(httl)
 
-	if v, isfresh := cb.freshCopy(key); trok && v != nil {
+	// only check cache when transport is likely connected;
+	// skip freshCopy when !trok to avoid wasting bumps
+	var v *cres
+	var isfresh bool
+	if trok {
+		v, isfresh = cb.freshCopy(key)
+	}
+	if trok && v != nil {
 		var cachedsmm *x.DNSSummary
 		hasans := v.ans != nil
 

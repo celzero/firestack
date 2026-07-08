@@ -1675,9 +1675,6 @@ func withAlgSummary(s *x.DNSSummary, algips ...netip.Addr) {
 			s.Server = prefix + notransport
 		}
 	}
-	// if modified alg ips are being returned, then these are not authentic
-	// only set AD=true if we actually have valid algips
-	s.AD = len(ipcsv) > 0
 }
 
 func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 netip.Addr, realips []netip.Addr, ttl time.Duration, targets []string, secres secans) bool {
