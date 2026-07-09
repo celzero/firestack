@@ -224,6 +224,13 @@ func (r *rpnp) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	return main.Hop(via, dryrun)
 }
 
+// setSince implements Proxy.
+func (r *rpnp) setSince(unixmillis int64) {
+	if p, err := r.requireProxy(); err == nil {
+		p.setSince(unixmillis)
+	}
+}
+
 // Dial implements Proxy.
 func (r *rpnp) Dial(network, addr string) (protect.Conn, error) {
 	if p, err := r.requireProxy(); err == nil {

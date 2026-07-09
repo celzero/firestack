@@ -188,6 +188,8 @@ type Proxy interface {
 	OnProtoChange(lp LinkProps) (cfg string, readd bool)
 	// Gateway sets proxy p as the gateway for this router.
 	Hop(via *core.WeakRef[Proxy], dryrun bool) error
+	// setSince resets the since time for this proxy (useful in re-add/update scenarios).
+	setSince(unixmillis int64)
 }
 
 type Rpn interface {
@@ -356,8 +358,15 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 				}
 				// do not hold px.lock, exec stop in a goroutine
 				core.Go("pxr.add.stop: "+id, func() {
-					if oldVia, _ := old.Router().Via(); oldVia != nil {
-						px.Hop(oldVia.ID(), id)
+					oldRouter := old.Router()
+					if oldRouter != nil {
+						// preserve old proxy's uptime for the new proxy
+						if oldStats := oldRouter.Stat(); oldStats != nil {
+							p.setSince(oldStats.Since)
+						}
+						if oldVia, _ := oldRouter.Via(); oldVia != nil {
+							px.Hop(oldVia.ID(), id)
+						}
 					}
 					_ = old.Stop()
 					// onRmv is not sent here, as one has just been added
@@ -1543,8 +1552,8 @@ func isPip(id string) bool {
 	return strings.HasPrefix(id, PIPH2) || strings.HasPrefix(id, PIPWS)
 }
 
-func idling(t time.Time) bool {
-	return time.Since(t) > tzzTimeout
+func idling(t int64) bool {
+	return now()-t > tzzTimeout.Milliseconds()
 }
 
 func localDialStrat(d *protect.RDial, network, local, remote string) (protect.Conn, error) {

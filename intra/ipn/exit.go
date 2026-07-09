@@ -67,6 +67,7 @@ func newExitProxy(id, addr string, ctx context.Context, c protect.Controller) *e
 		done:     done,
 	}
 	h.status.Store(TUP) // 0
+	h.since.Store(now())
 	return h
 }
 

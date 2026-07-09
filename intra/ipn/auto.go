@@ -51,6 +51,7 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 		ba:   core.NewBarrier[bool](ctx, "ipn.a.bar", ttl30s),
 	}
 	h.status.Store(TUP)
+	h.since.Store(now())
 	return h
 }
 

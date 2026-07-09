@@ -13,7 +13,6 @@ import (
 	"net/netip"
 	"strconv"
 	"sync/atomic"
-	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -38,8 +37,8 @@ type socks5 struct {
 	outbound []proxy.Dialer                      // outbound dialers via this upstream proxy
 	px       ProxyProvider                       // proxy provider
 	via      atomic.Pointer[core.WeakRef[Proxy]] // hop proxy
-	lastdial time.Time                           // last time this transport attempted a connection
-	status   atomic.Int32                 // status of this transport
+	lastdial atomic.Int64 // last time this transport attempted a connection
+	status   atomic.Int32                        // status of this transport
 	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc // cancel func
 }
@@ -117,6 +116,7 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 		opts: po,
 		done: done,
 	}
+	h.since.Store(now())
 
 	var clients []proxy.Dialer
 	// x.net.proxy doesn't yet support udp
@@ -200,7 +200,7 @@ func (h *socks5) dial(network, _, remote string) (c protect.Conn, err error) {
 		return nil, err
 	}
 
-	h.lastdial = time.Now()
+	h.lastdial.Store(now())
 	// todo: tx.Client can only dial in to ip:port and not host:port even for server addr
 	// tx.Client.Dial does not support dialing into client addr as hostnames
 	if c, err = dialers.ProxyDials(h.outbound, network, remote); err == nil {
@@ -290,7 +290,7 @@ func (h *socks5) GetAddr() string {
 // Status implements Proxy.
 func (h *socks5) Status() int32 {
 	s := h.status.Load()
-	if s != END && idling(h.lastdial) {
+	if s != END && idling(h.lastdial.Load()) {
 		return TZZ
 	}
 	return s

@@ -52,7 +52,7 @@ type pipws struct {
 	outbound   *protect.RDial // ws dialer
 	px         ProxyProvider
 	via        atomic.Pointer[core.WeakRef[Proxy]] // hop dialer
-	lastdial   time.Time                           // last dial time
+	lastdial   atomic.Int64
 
 	done context.CancelFunc // cancel func
 
@@ -218,6 +218,7 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider
 		opts:       po,
 	}
 	t.status.Store(TUP)
+	t.since.Store(now())
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -313,7 +314,7 @@ func (t *pipws) Stop() error {
 // Status implements Proxy.
 func (t *pipws) Status() int32 {
 	s := t.status.Load()
-	if s != END && idling(t.lastdial) {
+	if s != END && idling(t.lastdial.Load()) {
 		return TZZ
 	}
 	return s
@@ -410,7 +411,7 @@ func (t *pipws) forward(network, addr string) (protect.Conn, error) {
 
 	rurl := u.String()
 	c, res, err := t.wsconn(rurl, msg)
-	t.lastdial = time.Now()
+	t.lastdial.Store(now())
 	if err != nil || res == nil { // nilaway
 		err = core.OneErr(err, errNoProxyConn)
 		core.CloseConn(c)

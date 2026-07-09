@@ -117,7 +117,7 @@ type wgtun struct {
 	finalize      chan struct{}     // close signal for incomingPacket
 	once          sync.Once         // closer fn; exec exactly once
 	preferOffload bool              // UDP GRO/GSO offloads
-	since         int64             // start time in unix millis
+	since         atomic.Int64      // start time in unix millis
 
 	px ProxyProvider
 
@@ -572,6 +572,11 @@ func (w *wgtun) allowedIPs(allowed []netip.Prefix) {
 	// TODO: remove IPs on peer update
 }
 
+// setSince resets the since time for this proxy (useful in re-add/update scenarios).
+func (w *wgtun) setSince(unixmillis int64) {
+	w.since.Store(unixmillis)
+}
+
 func wglogger(w *wgtun) *device.Logger {
 	tag := WG + "#" + w.idhdl
 	logger := &device.Logger{
@@ -953,8 +958,8 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		preferOffload: preferOffload(id),
 		refreshBa:     core.NewBarrier[bool](ctx, "wg.r.bar."+id, refreshInterval),
 		uapicfg:       core.NewVolatile(cfg),
-		since:         now(),
 	}
+	t.since.Store(now())
 	t.status.Store(TUP)
 	t.dns.Store(ifopts.dns)
 	t.remote.Store(ifopts.eps) // may be nil
@@ -962,7 +967,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	t.amnezia.Store(ifopts.amnezia)
 	t.hdl = core.Loc(t)
 	t.idhdl = id2 + ":" + core.LocStr(t)
-	t.latestRefresh.Store(t.since)
+	t.latestRefresh.Store(t.since.Load())
 	t.desiredmtu.Store(uint32(ifopts.mtu))
 	t.netmtu.Store(uint32(lp.mtu))
 	t.allowedIPs(ifopts.allowed)
@@ -1272,7 +1277,7 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 	out.LastGoodTx = w.latestGoodTx.Load()
 	out.LastRefresh = w.latestRefresh.Load()
 	out.LastOpen = w.latestOpen.Load()
-	out.Since = w.since
+	out.Since = w.since.Load()
 	out.Status = pxstatus(w.status.Load()).String()
 	out.StatusReason = w.statusReason.Load()
 

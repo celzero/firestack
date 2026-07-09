@@ -31,6 +31,7 @@ func NewGroundProxy() *ground {
 		GWNoVia: ProxyNoGateway,
 		addr:    "[::]:0",
 	}
+	h.since.Store(now())
 	return h
 }
 

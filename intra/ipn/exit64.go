@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/netip"
 	"sync/atomic"
-	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -41,7 +40,6 @@ type exit64 struct {
 
 	outbound *protect.RDial // outbound dialer
 	addr     string
-	since    time.Time
 	status   atomic.Int32
 	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
@@ -56,10 +54,10 @@ func NewExit64Proxy(ctx context.Context, c protect.Controller) *exit64 {
 		addr: "127.64.64.127:6464",
 		// "Exit" as "id" to have all its sockets "protected"
 		outbound: protect.MakeNsRDial(Exit, ctx, c),
-		since:    time.Now(),
 		done:     done,
 	}
 	h.status.Store(TUP)
+	h.since.Store(now())
 	return h
 }
 

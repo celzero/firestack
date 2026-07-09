@@ -53,6 +53,7 @@ func newBasicProxy(id, addr string, ctx context.Context, c protect.Controller, p
 		done:     done,
 	}
 	h.status.Store(TUP)
+	h.since.Store(now())
 	return h
 }
 

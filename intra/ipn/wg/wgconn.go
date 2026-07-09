@@ -233,6 +233,8 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, errInvalidEndpoint
 	}
 
+	e.sendAddr.Store(&ipport)
+
 	log.I("wg: bind: %s new shared endpoint for %s %v [among: %s]", e.id, s, ipport, all)
 
 	// todo: add stdnetendpoint to s.eps

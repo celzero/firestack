@@ -54,8 +54,8 @@ type piph2 struct {
 	done context.CancelFunc
 
 	// mutable fields
-	lastdial *core.Volatile[time.Time] // last dial time
-	status   atomic.Int32       // proxy status: TOK, TKO, END
+	lastdial atomic.Int64 // last dial time as unix millis
+	status   atomic.Int32 // proxy status: TOK, TKO, END
 	lastaddr atomic.Pointer[string]
 }
 
@@ -223,10 +223,11 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 		toksig:   po.Auth.Password,
 		rsasig:   rsasig,
 		done:     done,
-		lastdial: core.NewVolatile(time.Time{}),
+		
 		opts:     po,
 	}
 	t.status.Store(TUP)
+	t.since.Store(now())
 	if err != nil {
 		return nil, err
 	}
@@ -517,7 +518,7 @@ func (t *piph2) forward(network, addr string) (protect.Conn, error) {
 		// req.Header.Set("x-nile-pip-msg", msg)
 	}
 
-	t.lastdial.Store(time.Now())
+	t.lastdial.Store(now())
 	core.Go("piph2.Dial", func() {
 		// fixme: currently, this hangs forever when upstream is cloudflare
 		// setting the content-length to the first len(first-write-bytes) works

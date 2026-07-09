@@ -11,7 +11,6 @@ import (
 	"crypto/tls"
 	"net/url"
 	"sync/atomic"
-	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -34,7 +33,7 @@ type http1 struct {
 	via      atomic.Pointer[core.WeakRef[Proxy]]
 	px       ProxyProvider
 	opts     *settings.ProxyOptions
-	lastdial time.Time
+	lastdial atomic.Int64
 	status   atomic.Int32
 	lastaddr atomic.Pointer[string]
 }
@@ -78,6 +77,7 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px Proxy
 		opts:     po,
 	}
 	h.status.Store(TUP)
+	h.since.Store(now())
 
 	logeif(err != nil)("proxy: http1: created %s with opts(%s); err? %v",
 		h.ID(), po, err)
@@ -101,7 +101,7 @@ func (h *http1) Dial(network, addr string) (c protect.Conn, err error) {
 		return nil, err
 	}
 
-	h.lastdial = time.Now()
+	h.lastdial.Store(now())
 
 	who := idstr(h)
 	if ref := h.via.Load(); ref != nil {
@@ -191,7 +191,7 @@ func (h *http1) GetAddr() string {
 // Status implements Proxy.
 func (h *http1) Status() int32 {
 	s := h.status.Load()
-	if s != END && idling(h.lastdial) {
+	if s != END && idling(h.lastdial.Load()) {
 		return TZZ
 	}
 	return s

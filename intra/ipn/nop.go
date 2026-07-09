@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/netip"
 	"slices"
+	"sync/atomic"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -35,6 +36,12 @@ type GWNoVia struct {
 type GW struct {
 	nov4, nov6 bool          // is dualstack
 	stats      x.RouterStats // zero stats
+	since      atomic.Int64  // uptime in unix millis
+}
+
+// setSince resets the since time for this proxy (useful in re-add/update scenarios).
+func (w *GW) setSince(unixmillis int64) {
+	w.since.Store(unixmillis)
 }
 
 var _ x.Router = (*GWNoVia)(nil)
@@ -53,6 +60,7 @@ func (w *GW) Stat() *x.RouterStats {
 	if !w.nov4 || !w.nov6 {
 		w.stats.LastOK = now() // always OK
 	}
+	w.stats.Since = w.since.Load()
 	return &w.stats
 }
 
@@ -161,7 +169,7 @@ func (NoProxy) Reaches(string) bool                                   { return f
 func (NoProxy) Dial(string, string) (protect.Conn, error)             { return nil, errNop }
 func (NoProxy) DialBind(string, string, string) (protect.Conn, error) { return nil, errNop }
 func (NoProxy) Dialer() protect.RDialer                               { return nil }
-func (NoProxy) Status() int32                                           { return 0 }
+func (NoProxy) Status() int32                                         { return 0 }
 func (NoProxy) GetAddr() string                                       { return "" }
 func (NoProxy) Stop() error                                           { return nil }
 func (NoProxy) Client() x.Client                                      { return nil }
