@@ -66,8 +66,8 @@ type SeamlessEndpoint interface {
 }
 
 type magiclink struct {
-	e *core.Volatile[SeamlessEndpoint]
-	d *core.Volatile[stack.NetworkDispatcher]
+	e core.Volatile[SeamlessEndpoint]
+	d core.Volatile[stack.NetworkDispatcher]
 	s io.WriteCloser
 }
 
@@ -100,11 +100,13 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 	if ep, err = newFdbasedInjectableEndpoint(&opt); err != nil {
 		return nil, err
 	}
-	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	v := core.NewVolatile(ep)
-	d := core.NewZeroVolatile[stack.NetworkDispatcher]()
 
-	return &magiclink{e: v, d: d /*nil*/, s: sink}, nil
+	m := magiclink{}
+	m.s = sink
+	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
+	m.e.Store(ep)
+
+	return &m, nil
 }
 
 func DebugLog(y bool) (l string) {

@@ -47,8 +47,9 @@ type socks5 struct {
 }
 
 type socks5handler struct {
-	*tx.DefaultHandle
-	px *core.Volatile[ipn.Proxy]
+	// not used; see dial, TCPHandle, and UDPHandle
+	tx.DefaultHandle
+	px core.Volatile[ipn.Proxy]
 }
 
 // newSocks5Server creates a new socks5 server with the given id, url, controller, and listener.
@@ -81,10 +82,6 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 
 	// unused in our case; usage: github.com/txthinking/brook/issues/988
 	remoteip := ""
-	hdl := &socks5handler{
-		DefaultHandle: &tx.DefaultHandle{}, // not used; see dial, TCPHandle, and UDPHandle
-		px:            core.NewZeroVolatile[ipn.Proxy](),
-	}
 	server, _ := tx.NewClassicServer(host, remoteip, usr, pwd, tcptimeoutsec, udptimeoutsec)
 
 	hasauth := len(usr) > 0 || len(pwd) > 0
@@ -94,7 +91,7 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 		id:        id,
 		url:       host,
 		outbound:  dialer,
-		hdl:       hdl,
+		hdl:       &socks5handler{},
 		listener:  listener,
 		summaries: make(map[*tx.UDPExchange]*ServerSummary),
 		done:      done,

@@ -48,7 +48,7 @@ type plus struct {
 	ba *core.Barrier[[]Transport, string]
 
 	closed atomic.Bool
-	last   *core.Volatile[Transport]
+	last   core.Volatile[Transport]
 }
 
 var _ Transport = (*plus)(nil)
@@ -63,7 +63,6 @@ func NewPlusTransport(ctx context.Context, r TransportProviderInternal, ts ...Tr
 		r:          r,
 		done:       done,
 		ipports:    fakePlusIpports,
-		last:       core.NewZeroVolatile[Transport](),
 	}
 
 	for _, tr := range ts {

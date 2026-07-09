@@ -43,8 +43,8 @@ type httpx struct {
 }
 
 type httpxhandle struct {
-	*AuthHandle
-	px *core.Volatile[ipn.Proxy]
+	AuthHandle
+	px core.Volatile[ipn.Proxy]
 }
 
 func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (*httpx, error) {
@@ -63,9 +63,8 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 		pwd, _ = u.User.Password() // may be empty
 	}
 	dialer := protect.MakeNsDialer(id, ctl)
-	hdl := &httpxhandle{
-		AuthHandle: &AuthHandle{usr: usr, pwd: pwd},
-		px:         core.NewZeroVolatile[ipn.Proxy](),
+	hdl := httpxhandle{
+		AuthHandle: AuthHandle{usr: usr, pwd: pwd},
 	}
 	hproxy := tx.NewProxyHttpServer()
 	hproxy.Logger = log.Glogger
@@ -95,7 +94,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 		usetls:          usetls,
 		host:            host,
 		dialer:          dialer,
-		hdl:             hdl,
+		hdl:             &hdl,
 		svc:             svc,
 		listener:        listener,
 	}

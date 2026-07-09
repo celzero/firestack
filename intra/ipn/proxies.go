@@ -265,7 +265,7 @@ type proxifier struct {
 
 	extc *rpn.BaseClient // external wg registration, never changes
 
-	lastWinErr *core.Volatile[error] // win registration error
+	lastWinErr core.Volatile[error] // win registration error
 }
 
 type LinkProps struct {
@@ -301,8 +301,7 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 
 		hp: make(map[string][]string),
 
-		rp:         make(map[string]RpnProxy),
-		lastWinErr: core.NewZeroVolatile[error](),
+		rp: make(map[string]RpnProxy),
 	}
 
 	pxr.exit = NewExitProxy(pctx, c)

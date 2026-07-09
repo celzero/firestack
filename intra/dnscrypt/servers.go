@@ -67,9 +67,11 @@ type server struct {
 
 	// fields below are mutable
 
-	RelayUDPAddrs *core.Volatile[[]*net.UDPAddr] // anonymous relays, if any
-	RelayTCPAddrs *core.Volatile[[]*net.TCPAddr] // anonymous relays, if any
-	status        atomic.Int32                   // status of the last query
+	// populated later; see proxy.refreshRoutes()
+	RelayUDPAddrs core.Volatile[[]*net.UDPAddr] // anonymous relays, if any
+	RelayTCPAddrs core.Volatile[[]*net.TCPAddr] // anonymous relays, if any
+
+	status atomic.Int32 // status of the last query
 }
 
 var _ dnsx.Transport = (*server)(nil)
@@ -286,8 +288,6 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		Name:               name,
 		UDPAddr:            udpaddr,
 		TCPAddr:            tcpaddr,
-		RelayTCPAddrs:      core.NewZeroVolatile[[]*net.TCPAddr](), // populated later; see proxy.refreshRoutes()
-		RelayUDPAddrs:      core.NewZeroVolatile[[]*net.UDPAddr](), // populated later; see proxy.refreshRoutes()
 		proxies:            px,
 		relay:              relay,
 		relayref:           relayref,

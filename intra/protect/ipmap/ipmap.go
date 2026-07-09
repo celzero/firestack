@@ -145,7 +145,7 @@ type ipmap struct {
 	rptr x.IpTree // regular => hostname
 	pptr x.IpTree // protected => hostname
 
-	r *core.Volatile[IPMapper] // resolver
+	r core.Volatile[IPMapper] // resolver
 }
 
 // IPSet represents an unordered collection of IP addresses for a single host.
@@ -171,16 +171,18 @@ func NewIPMap() *ipmap {
 
 // NewIPMapFor returns a fresh IPMap with r as its nameserver.
 func NewIPMapFor(r IPMapper) *ipmap {
-	return &ipmap{
+	ipm := ipmap{
 		m:  make(map[string]*IPSet),
 		p:  make(map[string]*IPSet),
 		ip: make(map[string]*IPSet),
 
 		rptr: x.NewIpTree(),
 		pptr: x.NewIpTree(),
-
-		r: core.NewVolatile(r), // r may be nil
 	}
+	if r != nil && core.IsNotNil(r) {
+		ipm.r.Store(r)
+	}
+	return &ipm
 }
 
 func (m *ipmap) With(r IPMapper) {

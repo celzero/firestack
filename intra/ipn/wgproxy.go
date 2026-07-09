@@ -135,7 +135,7 @@ type wgtun struct {
 	desiredmtu atomic.Uint32 // desired mtu
 	netmtu     atomic.Uint32 // underlay network mtu
 
-	rev *core.Volatile[netstack.GConnHandler] // reverser for local packets
+	rev core.Volatile[netstack.GConnHandler] // reverser for local packets
 
 	dns     atomic.Pointer[multihost.MH]    // dns resolver for this interface
 	remote  atomic.Pointer[multihost.MHMap] // peer (remote endpoint) addrs
@@ -144,7 +144,7 @@ type wgtun struct {
 
 	rt x.IpTree // route table for this interface
 
-	uapicfg *core.Volatile[string] // stores the last UAPI-formatted peer config
+	uapicfg core.Volatile[string] // stores the last UAPI-formatted peer config
 
 	refreshBa *core.Barrier[bool, string] // 1min refresh barrier
 
@@ -953,14 +953,14 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 		direct:   protect.MakeNsRDial(id, ctx, ctl),
 		px:       px,
 
-		rev:           core.NewVolatile(lp.rev),
 		rt:            x.NewIpTree(), // must be set to allowedaddrs
 		preferOffload: preferOffload(id),
 		refreshBa:     core.NewBarrier[bool](ctx, "wg.r.bar."+id, refreshInterval),
-		uapicfg:       core.NewVolatile(cfg),
 	}
+	t.rev.Store(lp.rev)
 	t.since.Store(now())
 	t.status.Store(TUP)
+	t.uapicfg.Store(cfg)
 	t.dns.Store(ifopts.dns)
 	t.remote.Store(ifopts.eps) // may be nil
 	t.allowed.Store(&ifopts.allowed)
