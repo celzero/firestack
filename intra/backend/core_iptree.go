@@ -483,10 +483,11 @@ func (c *iptree) routesLike(cidr, like string) string {
 			// grab all occurrences of v in csv s
 			for val := range strings.SplitSeq(s, Vsep) {
 				if strings.HasPrefix(val, like) {
-					rt = append(rt, val)
-				}
+					rt = append(rt, k.String())
+					return true // next
+				} // else: val+Vsep+val not prefixed with "like"
 			}
-		}
+		} // else: v not a string?
 		return true // next
 	})
 	return strings.Join(rt, Ksep)

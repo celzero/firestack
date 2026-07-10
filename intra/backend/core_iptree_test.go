@@ -44,13 +44,14 @@ func Test192(tst *testing.T) {
 
 	route := t.Routes("192.1.0.0/16")
 	rlike := t.RoutesLike("192.1.0.0/16", ":80")
+	rlike2 := t.RoutesLike("192.1.0.0/16", "app192:80")
 	val := t.Values("192.1.0.0/16")
 	vlike := t.ValuesLike("192.1.0.0/16", ":80")
 	vlike2 := t.ValuesLike("192.1.0.0/16", "app192:80")
 	log("val", val)
 	log("route", route)
 	log("vlike", vlike, "vlike(1app):", vlike2)
-	log("rlike", rlike)
+	log("rlike", rlike, "rlike(1app):", rlike2)
 
 	ov1 := t.Values("1.1.1.1")
 	o1, err := t.Get("1.1.1.1")
