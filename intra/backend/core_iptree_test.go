@@ -22,6 +22,7 @@ func Test192(tst *testing.T) {
 	t.Add("0.0.0.0/0", "test0000")
 	t.Add("192.0.0.0/8", "app192:443")
 	t.Add("1.1.0.0/16", "app1100:0")
+	t.Add("0.0.0.0/0", "a1000:0")
 
 	g8, err := t.Get("192.0.0.0/8")
 	ko(tst, err)
@@ -58,6 +59,11 @@ func Test192(tst *testing.T) {
 	ko(tst, err)
 	log("o1", o1)   // empty
 	log("ov1", ov1) // test0000, app1100:0, *:80
+
+	rlike0 := t.RoutesLike("5.5.5.5", "a1000")
+	vlike0 := t.ValuesLike("5.5.5.5", "a1000")
+	log("rlike0", rlike0)
+	log("vlike0", vlike0)
 }
 
 func TestUn(tst *testing.T) {
