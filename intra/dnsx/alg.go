@@ -105,7 +105,8 @@ type Gateway interface {
 	// fixedTransport returns true if split tunneling is enforced via dnsx.Fixed
 	fixedTransport() bool
 	// Query using t1 as primary transport and t2 as secondary and preset as pre-determined ip answers
-	q(t1, t2 Transport, preset []netip.Addr, origin, network, uid string, q *dns.Msg, s *x.DNSSummary) (og *dns.Msg, algd *dns.Msg, err error)
+	// network is the primary transport's proxy routing; snetwork is for the secondary transport.
+	q(t1, t2 Transport, preset []netip.Addr, origin, network, snetwork, uid string, q *dns.Msg, s *x.DNSSummary) (og *dns.Msg, algd *dns.Msg, err error)
 	// onStopped is called when a transport tid is stopped. Gateway invalidates its local caches, if any.
 	onStopped(tid string)
 	// S reveals internal state for debugging
@@ -1300,8 +1301,8 @@ func (t *dnsgateway) querySecondary(t2 Transport, uid, fid, network string, msg 
 }
 
 // Implements Gateway
-// preset may be nil
-func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, origin, network, uid string, q *dns.Msg, smm *x.DNSSummary) (ogmsg *dns.Msg, outmsg *dns.Msg, outerr error) {
+// preset may be nil; network for t1, snetwork for t2.
+func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, origin, network, snetwork, uid string, q *dns.Msg, smm *x.DNSSummary) (ogmsg *dns.Msg, outmsg *dns.Msg, outerr error) {
 	var ansin *dns.Msg // answer got from transports
 	var err error
 
@@ -1374,7 +1375,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, origin, network, u
 	t1res := make(chan *dns.Msg, 1)
 	innersummary := copySummary(smm)
 	// todo: use context?
-	secch := t.qs(t2, uid, innersummary.FID, network, q, t1res) // t2 may be nil
+	secch := t.qs(t2, uid, innersummary.FID, snetwork, q, t1res) // t2 may be nil
 
 	if synthAns {
 		ansin, err = synthesizeOrQuery(preset, t1, q, network, innersummary, usefixed)

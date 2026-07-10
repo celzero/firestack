@@ -76,19 +76,16 @@ type DNSOpts struct {
 	// uid of the app (or the stub resolver) that sent this query.
 	// May be ANDROID, DNS, MDNS etc instead of the actual app.
 	UID string
-	// csv of proxy ids to use for this query. Not all transports are proxied.
-	// For instance, dnsx.System, dnsx.Local, dnsx.Goos, dnsx.Preset, dnsx.Default
-	// are never proxied.
-	PIDCSV string
 	// csv of ips to answer for this query; incl unspecified ips, if any.
 	// applicable only for A/AAAA queries.
 	// if set, query bypasses on-device blocklists.
 	IPCSV string
-	// primary transport ids to use for this query.
-	// dictated by user preferences (dnsx.Preferred, dnsx.System etc) or
+	// csv of transport ids to use for this query, each optionally
+	// with proxy ids: <tid>, <tid:pid>, <tid:pid1:pid2>, or a mix.
+	// dictated by user preferences (dnsx.Preferred, dnsx.System etc)
 	// or user set rules (dnsx.BlockAll, dnsx.BlockFree, dnsx.Fixed etc)
 	TIDCSV string
-	// secondary transport ids to use for this query.
+	// csv of secondary transport ids, same format as TIDCSV.
 	// usually, user-set DNS (dnsx.Preferred or dnsx.System) when primary is
 	// dnsx.BlockFree or dnsx.Fixed. Mostly, left unset.
 	TIDSECCSV string
@@ -105,7 +102,6 @@ func (o *DNSOpts) Copy() *DNSOpts {
 	}
 	return &DNSOpts{
 		UID:       o.UID,
-		PIDCSV:    o.PIDCSV,
 		IPCSV:     o.IPCSV,
 		TIDCSV:    o.TIDCSV,
 		TIDSECCSV: o.TIDSECCSV,

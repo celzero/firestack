@@ -629,7 +629,7 @@ runagain:
 
 	log.V("dns: fwd: 1 for %s (fid: %s / %s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, fid, who, qname, qtyp, run, pref, chosenids)
 
-	id, sid, pids, diag, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
+	id, sid, pids, spids, diag, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
 
 	t := r.determineTransport(id)         // id may be empty if pref is nil
 	t2 := r.determineTransport(sid)       // sid may be empty
@@ -639,12 +639,12 @@ runagain:
 	diffT1 := hasT1 && id != idstr(t)
 	diffT2 := hasT2 && sid != idstr(t2)
 
-	log.V("dns: fwd: 2 for %s (fid: %s); query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s, ips? %v",
-		uid, fid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, presetIPs)
+	log.V("dns: fwd: 2 for %s (fid: %s); query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s/%s, ips? %v",
+		uid, fid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, spids, presetIPs)
 
 	if settings.Debug || (!hasPre && (diffT1 || diffT2)) || !hasT1 {
-		smm.Extra += fmt.Sprintf(" #%d Prefs: %s+%s over %s; Actual: %s+%s over %s",
-			run, pref.TIDCSV, pref.TIDSECCSV, pref.PIDCSV, id, sid, pids)
+		smm.Extra += fmt.Sprintf(" #%d Prefs: %s+%s; Actual: %s+%s over %s/%s",
+			run, pref.TIDCSV, pref.TIDSECCSV, id, sid, pids, spids)
 	}
 	if len(diag) > 0 {
 		smm.Extra += "{" + diag + "}"
@@ -693,9 +693,10 @@ runagain:
 	// when sid and pid fallback on Default or System DNS
 	// in which case, selected proxy must be overriden
 	netid := xdns.NetAndProxyID(NetTypeUDP, pids)
+	snetid := xdns.NetAndProxyID(NetTypeUDP, spids)
 
 	// with t2 as the secondary transport, which could be nil
-	nonalg, ans1, err = r.gateway.q(t, t2, presetIPs, who, netid, uid, msg, smm)
+	nonalg, ans1, err = r.gateway.q(t, t2, presetIPs, who, netid, snetid, uid, msg, smm)
 
 	if smm.Latency <= 0 {
 		smm.Latency = time.Since(starttime).Seconds()
@@ -1182,10 +1183,25 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv, diag string, ips []netip.Addr) {
-	var x []string  // primary
-	var xx []string // secondary
+// parseTIDEntry parses a TID entry in the format <tid>, <tid:pid>, or <tid:pid1:pid2>.
+func parseTIDEntry(entry string) (tid string, pids []string) {
+	parts := strings.Split(entry, ":")
+	if len(parts) <= 0 {
+		return
+	}
+	tid = strings.TrimSpace(parts[0])
+	if len(parts) > 1 {
+		pids = parts[1:]
+	}
+	return
+}
+
+func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv, spidcsv, diag string, ips []netip.Addr) {
+	var x []string  // primary tids parsed from TIDCSV
+	var xx []string // secondary tids parsed from TIDSECCSV
 	var diags []string
+	t1pids := make(map[string]string) // tid -> pidcsv (from TIDCSV)
+	t2pids := make(map[string]string) // tid -> pidcsv (from TIDSECCSV)
 
 	defer func() {
 		diag = strings.Join(diags, ";")
@@ -1196,8 +1212,34 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		log.W("dns: pref: no ns opts for %s", qname)
 		return // no-op
 	} else {
-		x = strings.Split(s.TIDCSV, ",")
-		xx = strings.Split(s.TIDSECCSV, ",")
+		// parse TIDCSV: <tid>, <tid:pid>, <tid:pid1:pid2>, or csv of such
+		for entry := range strings.SplitSeq(s.TIDCSV, ",") {
+			entry = strings.TrimSpace(entry)
+			if len(entry) <= 0 {
+				continue
+			}
+			tid, pids := parseTIDEntry(entry)
+			if len(tid) > 0 {
+				x = append(x, tid)
+				if len(pids) > 0 {
+					t1pids[tid] = strings.Join(pids, ",")
+				}
+			}
+		}
+		// parse TIDSECCSV in the same format
+		for entry := range strings.SplitSeq(s.TIDSECCSV, ",") {
+			entry = strings.TrimSpace(entry)
+			if len(entry) <= 0 {
+				continue
+			}
+			tid, pids := parseTIDEntry(entry)
+			if len(tid) > 0 {
+				xx = append(xx, tid)
+				if len(pids) > 0 {
+					t2pids[tid] = strings.Join(pids, ",")
+				}
+			}
+		}
 		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
 			ips = make([]netip.Addr, 0, len(y))
 			badip := 0
@@ -1283,7 +1325,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		}
 		log.VV("dns: pref: use fixed tr(%s, %s) for %s", id1, id2, qname)
 		// s.NOBLOCK must be respected
-		// s.PIDCSV must be respected
+		// as must be the pids
 	}
 	if len(ips) > 0 {
 		log.D("dns: pref: preset ips (no block) %v for %s", ips, qname)
@@ -1296,7 +1338,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 	}
 	ipblock := isAnyIPUnspecified(ips)
 	trblock := isAnyBlockAll(id1, id2)
-	reqblock := isAnyBlockAll(x...)
+	reqblock := isAnyBlockAll(x...) || isAnyBlockAll(xx...)
 	if isAnyBlockFree(id1, id2) {
 		if !s.NOBLOCK {
 			log.W("dns: pref: tr for %s over %s+%s; override NOBLOCK", qname, id1, id2)
@@ -1311,14 +1353,28 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		id2 = ""
 	}
 
-	if len(s.PIDCSV) > 0 {
-		pidcsv = overrideProxyIfNeeded(s.PIDCSV, id1, id2)
-		if pidcsv != s.PIDCSV {
-			diags = append(diags, fmt.Sprintf("pid %s <> %s", pidcsv, s.PIDCSV))
+	// pidcsv: PIDs for the primary transport (t1) from TIDCSV.
+	// spid: PIDs for the secondary transport (t2) from TIDSECCSV.
+	if pid, ok := t1pids[id1]; ok && len(pid) > 0 {
+		pidcsv = overrideProxyIfNeeded(pid, id1, id2)
+	} else if pid, ok := t1pids[id2]; ok && len(pid) > 0 && id1 != id2 {
+		// id2 may have TIDCSV PIDs after Fixed swap
+		pidcsv = overrideProxyIfNeeded(pid, id1, id2)
+		if pidcsv != pid {
+			diags = append(diags, fmt.Sprintf("pid %s <> %s", pidcsv, pid))
 			log.D("dns: pref: override pidcsv to %s for %s; tr(%s, %s)", pidcsv, qname, id1, id2)
 		}
 	} else {
-		pidcsv = NetNoProxy
+		pidcsv = NetBaseProxy
+	}
+	if pid, ok := t2pids[id2]; ok && len(pid) > 0 {
+		spidcsv = overrideProxyIfNeeded(pid, id1, id2)
+		if spidcsv != pid {
+			diags = append(diags, fmt.Sprintf("pid %s <> %s", spidcsv, pid))
+			log.D("dns: pref: override spid to %s for %s; tr(%s, %s)", spidcsv, qname, id1, id2)
+		}
+	} else {
+		spidcsv = NetBaseProxy
 	}
 	return
 }

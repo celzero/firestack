@@ -72,7 +72,7 @@ type fakeBdg struct {
 }
 
 var (
-	baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetNoProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
+	baseNsOpts = &x.DNSOpts{IPCSV: "", TIDCSV: x.CT + "test0"}
 	baseTab    = &rnet.Tab{CID: "testcid", Block: false}
 )
 
