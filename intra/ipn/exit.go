@@ -37,6 +37,8 @@ type exit struct {
 	GWNoVia
 	id       string
 	addr     string
+	hdl      uint64
+	dhdl     uint64
 	outbound *protect.RDial // outbound dialer
 	status   atomic.Int32
 	lastaddr atomic.Pointer[string]
@@ -68,17 +70,19 @@ func newExitProxy(id, addr string, ctx context.Context, c protect.Controller) *e
 	}
 	h.status.Store(TUP) // 0
 	h.since.Store(now())
+	h.hdl = core.Loc(h)
+	h.dhdl = core.Loc(h.outbound)
 	return h
 }
 
 // Handle implements Proxy.
 func (h *exit) Handle() uint64 {
-	return core.Loc(h)
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.
 func (h *exit) DialerHandle() uint64 {
-	return core.Loc(h.outbound)
+	return h.dhdl
 }
 
 // Dial implements Proxy.

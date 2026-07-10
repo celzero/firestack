@@ -29,6 +29,8 @@ type http1 struct {
 	GW          // dual stack gateway
 
 	id       string
+	hdl      uint64
+	dhdl     uint64
 	outbound proxy.Dialer
 	via      atomic.Pointer[core.WeakRef[Proxy]]
 	px       ProxyProvider
@@ -78,6 +80,8 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px Proxy
 	}
 	h.status.Store(TUP)
 	h.since.Store(now())
+	h.hdl = core.Loc(h)
+	h.dhdl = core.Loc(h.outbound)
 
 	logeif(err != nil)("proxy: http1: created %s with opts(%s); err? %v",
 		h.ID(), po, err)
@@ -87,12 +91,12 @@ func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px Proxy
 
 // Handle implements Proxy.
 func (h *http1) Handle() uint64 {
-	return core.Loc(h)
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.
 func (h *http1) DialerHandle() uint64 {
-	return core.Loc(h.outbound)
+	return h.dhdl
 }
 
 // Dial implements Proxy.

@@ -30,6 +30,8 @@ type base struct {
 	GW
 	id       string
 	addr     string
+	hdl      uint64
+	dhdl     uint64
 	outbound *protect.RDial                      // outbound dialer
 	via      atomic.Pointer[core.WeakRef[Proxy]] // via dialer
 	px       ProxyProvider
@@ -54,6 +56,8 @@ func newBasicProxy(id, addr string, ctx context.Context, c protect.Controller, p
 	}
 	h.status.Store(TUP)
 	h.since.Store(now())
+	h.hdl = core.Loc(h)
+	h.dhdl = core.Loc(h.outbound)
 	return h
 }
 
@@ -63,12 +67,12 @@ func NewBasicProxy(id string, ctx context.Context, c protect.Controller, px Prox
 
 // Handle implements Proxy.
 func (h *base) Handle() uint64 {
-	return core.Loc(h)
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.
 func (h *base) DialerHandle() uint64 {
-	return core.Loc(h.outbound)
+	return h.dhdl
 }
 
 // Dial implements Proxy.

@@ -47,6 +47,8 @@ type piph2 struct {
 	rsasig   string         // hex, authorizer unblinded signature
 	client   http.Client    // h2 client, see trType
 	outbound *protect.RDial // h2 dialer
+	hdl      uint64
+	dhdl     uint64
 	px       ProxyProvider
 	via      atomic.Pointer[core.WeakRef[Proxy]] // hop dialer
 	opts     *settings.ProxyOptions
@@ -223,11 +225,12 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 		toksig:   po.Auth.Password,
 		rsasig:   rsasig,
 		done:     done,
-		
 		opts:     po,
 	}
 	t.status.Store(TUP)
 	t.since.Store(now())
+	t.hdl = core.Loc(t)
+	t.dhdl = core.Loc(t.outbound)
 	if err != nil {
 		return nil, err
 	}
@@ -363,12 +366,12 @@ func (t *piph2) claim(msg string) []string {
 
 // Handle implements Proxy.
 func (t *piph2) Handle() uint64 {
-	return core.Loc(t)
+	return t.hdl
 }
 
 // DialerHandle implements Proxy.
 func (t *piph2) DialerHandle() uint64 {
-	return core.Loc(t.outbound)
+	return t.dhdl
 }
 
 // Dial implements Proxy.

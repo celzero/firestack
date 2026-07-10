@@ -34,6 +34,8 @@ type socks5 struct {
 	id       string                              // unique identifier
 	opts     *settings.ProxyOptions              // connect options
 	d        protect.RDialer                     // dialer to this upstream proxy
+	hdl      uint64
+	dhdl     uint64
 	outbound []proxy.Dialer                      // outbound dialers via this upstream proxy
 	px       ProxyProvider                       // proxy provider
 	via      atomic.Pointer[core.WeakRef[Proxy]] // hop proxy
@@ -117,6 +119,8 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 		done: done,
 	}
 	h.since.Store(now())
+	h.hdl = core.Loc(h)
+	h.dhdl = core.Loc(h.d)
 
 	var clients []proxy.Dialer
 	// x.net.proxy doesn't yet support udp
@@ -174,12 +178,12 @@ func (h *socks5) txdial(n, src, dst string) (c net.Conn, err error) {
 
 // Handle implements Proxy.
 func (h *socks5) Handle() uint64 {
-	return core.Loc(h)
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.
 func (h *socks5) DialerHandle() uint64 {
-	return core.Loc(h.d)
+	return h.dhdl
 }
 
 // Dial implements Proxy.

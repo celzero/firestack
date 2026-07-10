@@ -50,6 +50,8 @@ type pipws struct {
 	client     http.Client    // ws client
 	client3    *http.Client   // ws client for ech
 	outbound   *protect.RDial // ws dialer
+	hdl        uint64
+	dhdl       uint64
 	px         ProxyProvider
 	via        atomic.Pointer[core.WeakRef[Proxy]] // hop dialer
 	lastdial   atomic.Int64
@@ -219,6 +221,8 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider
 	}
 	t.status.Store(TUP)
 	t.since.Store(now())
+	t.hdl = core.Loc(t)
+	t.dhdl = core.Loc(t.outbound)
 
 	_, ok := dialers.New(t.hostname, po.Addrs) // po.Addrs may be nil or empty
 	if !ok {
@@ -360,12 +364,12 @@ func (t *pipws) claim(msg string) []string {
 
 // Handle implements Proxy.
 func (t *pipws) Handle() uint64 {
-	return core.Loc(t)
+	return t.hdl
 }
 
 // DialerHandle implements Proxy.
 func (t *pipws) DialerHandle() uint64 {
-	return core.Loc(t.outbound)
+	return t.dhdl
 }
 
 // Dial connects to addr via wsconn over this ws proxy

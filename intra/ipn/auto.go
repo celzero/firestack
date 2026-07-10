@@ -34,6 +34,7 @@ type auto struct {
 	GW
 	pxr  ProxyProvider
 	addr string
+	hdl  uint64
 
 	via atomic.Pointer[core.WeakRef[Proxy]] // via dialer
 
@@ -52,12 +53,13 @@ func NewAutoProxy(ctx context.Context, pxr Proxies) *auto {
 	}
 	h.status.Store(TUP)
 	h.since.Store(now())
+	h.hdl = core.Loc(h)
 	return h
 }
 
 // Handle implements Proxy.
 func (h *auto) Handle() uint64 {
-	return core.Loc(h)
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.

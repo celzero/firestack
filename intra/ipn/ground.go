@@ -21,6 +21,7 @@ type ground struct {
 	CantPause
 	NoClient
 	addr string
+	hdl  uint64
 }
 
 var _ Proxy = (*ground)(nil)
@@ -32,12 +33,13 @@ func NewGroundProxy() *ground {
 		addr:    "[::]:0",
 	}
 	h.since.Store(now())
+	h.hdl = core.Loc(h)
 	return h
 }
 
 // Handle implements Proxy.
 func (h *ground) Handle() uint64 {
-	return core.Loc(h)
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.

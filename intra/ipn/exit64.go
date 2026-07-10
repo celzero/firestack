@@ -40,6 +40,8 @@ type exit64 struct {
 
 	outbound *protect.RDial // outbound dialer
 	addr     string
+	hdl      uint64
+	dhdl     uint64
 	status   atomic.Int32
 	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
@@ -58,17 +60,19 @@ func NewExit64Proxy(ctx context.Context, c protect.Controller) *exit64 {
 	}
 	h.status.Store(TUP)
 	h.since.Store(now())
+	h.hdl = core.Loc(h)
+	h.dhdl = core.Loc(h.outbound)
 	return h
 }
 
 // Handle implements Proxy.
 func (h *exit64) Handle() uint64 {
-	return core.Loc(h)
+	return h.hdl
 }
 
 // DialerHandle implements Proxy.
 func (h *exit64) DialerHandle() uint64 {
-	return core.Loc(h.outbound)
+	return h.dhdl
 }
 
 // Dial implements Proxy.
