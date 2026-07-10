@@ -62,7 +62,7 @@ your Android builds via [Jitpack](https://jitpack.io/#celzero/firestack) ([ref](
 ## API
 
 The APIs aren't stable and hence left undocumented, but you can look at
-Rethink DNS + Firewall + VPN codebase: ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/0c931d23d7/app/src/main/java/com/celzero/bravedns/net/go/GoVpnAdapter.kt#L113-L137), [BraveVpnService](https://github.com/celzero/rethink-app/blob/0c931d23d7/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L5306-L5324)) to see how to integrate with Firestack on Android.
+Rethink DNS + Firewall + VPN codebase: ([GoVpnAdapter](https://github.com/celzero/rethink-app/blob/v0.5.5y/app/src/main/java/com/celzero/bravedns/net/go/GoVpnAdapter.kt#L123-L151), [BraveVpnService](https://github.com/celzero/rethink-app/blob/v0.5.5y/app/src/main/java/com/celzero/bravedns/service/BraveVPNService.kt#L5203-L5376)) to see how to integrate with Firestack on Android.
 
 ## Build
 
@@ -72,7 +72,7 @@ Firestack only supports Android. Instructions for other platforms are left as-is
 
 - macOS host (iOS, macOS)
 - make
-- Go >= 1.25
+- Go >= 1.26
 - A C compiler (e.g.: clang, gcc)
 
 Firestack APIs are available only on Android builds for now. iOS and Linux support planned but nothing concrete yet.
