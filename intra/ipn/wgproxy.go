@@ -159,10 +159,10 @@ type wgtun struct {
 	latestTxErr     core.Volatile[error]  // last tx error
 	latestRead      atomic.Int64          // last read time in unix millis
 	latestWrite     atomic.Int64          // last write time in unix millis
-	latestGoodRead  atomic.Int64          // last successful read time in unix millis
-	latestGoodWrite atomic.Int64          // last successful write time in unix millis
-	latestGoodRx    atomic.Int64          // last successful rx time in unix millis
-	latestGoodTx    atomic.Int64          // last successful tx time in unix millis
+	latestGoodRead  atomic.Int64          // last successful read time (control or data) in unix millis
+	latestGoodWrite atomic.Int64          // last successful write time (control or data) in unix millis
+	latestGoodRx    atomic.Int64          // last successful rx (data) time in unix millis
+	latestGoodTx    atomic.Int64          // last successful tx (data) time in unix millis
 	latestRx        atomic.Int64          // last (successful or not) rx time in unix millis
 	latestTx        atomic.Int64          // last (successful or not) tx time in unix millis
 	errRx           atomic.Int64          // rx error count

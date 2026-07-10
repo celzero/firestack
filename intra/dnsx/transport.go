@@ -1183,8 +1183,61 @@ func (r *resolver) LiveTransports() string {
 	return trimcsv(s)
 }
 
-// parseTIDEntry parses a TID entry in the format <tid>, <tid:pid>, or <tid:pid1:pid2>.
-func parseTIDEntry(entry string) (tid string, pids []string) {
+func parseAllIPOpts(qtyp uint16, qname, ipcsv string) (ips []netip.Addr, badip, badfam int) {
+	for a := range strings.SplitSeq(ipcsv, ",") {
+		a = strings.TrimSpace(a)
+		if len(a) <= 0 {
+			continue
+		}
+		ip, err := netip.ParseAddr(a)
+		if err != nil || !ip.IsValid() {
+			badip++
+			log.W("dns: pref: skip bad ip %s for %s", a, qname)
+			continue
+		}
+		ips = append(ips, ip) // unmap?
+	}
+	if len(ips) > 0 {
+		ip4s, ip6s := splitIPFamilies(ips)
+		if xdns.IsAQType(qtyp) {
+			ips = ip4s
+		} else if xdns.IsAAAAQType(qtyp) {
+			ips = ip6s
+		} else if xdns.IsHTTPSQType(qtyp) || xdns.IsSVCBQType(qtyp) {
+			// ips are substituted in after answers are received
+			// so qtype checks are not sufficient; leave ips as-is
+			// see: synthesizeOrQuery
+		} else {
+			badfam++
+			ips = nil // mismatch in query type and ip family
+			if log.Debug {
+				log.D("dns: pref: ignore ips for %s; qtype %d not A/AAAA/HTTPS/SVCB", qname, qtyp)
+			}
+		}
+	}
+	return
+}
+
+// parse TIDCSV: <tid>, <tid:pid>, <tid:pid1:pid2>, or csv of such
+func parseAllTidOpts(tidcsv string) (tids []string, pidmap map[string]string) {
+	pidmap = make(map[string]string)
+	for v := range strings.SplitSeq(tidcsv, ",") {
+		v = strings.TrimSpace(v)
+		if len(v) <= 0 {
+			continue
+		}
+		if tid, pids := parseTidOpt(v); len(tid) > 0 {
+			tids = append(tids, tid)
+			if len(pids) > 0 {
+				pidmap[tid] = strings.Join(pids, ",")
+			}
+		}
+	}
+	return
+}
+
+// parseTidOpt parses a TID entry in the format <tid>, <tid:pid>, or <tid:pid1:pid2>.
+func parseTidOpt(entry string) (tid string, pids []string) {
 	parts := strings.Split(entry, ":")
 	if len(parts) <= 0 {
 		return
@@ -1200,6 +1253,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 	var x []string  // primary tids parsed from TIDCSV
 	var xx []string // secondary tids parsed from TIDSECCSV
 	var diags []string
+	var badips, badfam int
 	t1pids := make(map[string]string) // tid -> pidcsv (from TIDCSV)
 	t2pids := make(map[string]string) // tid -> pidcsv (from TIDSECCSV)
 
@@ -1212,69 +1266,12 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		log.W("dns: pref: no ns opts for %s", qname)
 		return // no-op
 	} else {
-		// parse TIDCSV: <tid>, <tid:pid>, <tid:pid1:pid2>, or csv of such
-		for entry := range strings.SplitSeq(s.TIDCSV, ",") {
-			entry = strings.TrimSpace(entry)
-			if len(entry) <= 0 {
-				continue
-			}
-			tid, pids := parseTIDEntry(entry)
-			if len(tid) > 0 {
-				x = append(x, tid)
-				if len(pids) > 0 {
-					t1pids[tid] = strings.Join(pids, ",")
-				}
-			}
-		}
-		// parse TIDSECCSV in the same format
-		for entry := range strings.SplitSeq(s.TIDSECCSV, ",") {
-			entry = strings.TrimSpace(entry)
-			if len(entry) <= 0 {
-				continue
-			}
-			tid, pids := parseTIDEntry(entry)
-			if len(tid) > 0 {
-				xx = append(xx, tid)
-				if len(pids) > 0 {
-					t2pids[tid] = strings.Join(pids, ",")
-				}
-			}
-		}
-		if y := strings.Split(s.IPCSV, ","); len(y) > 0 {
-			ips = make([]netip.Addr, 0, len(y))
-			badip := 0
-			for _, a := range y {
-				a = strings.TrimSpace(a)
-				if len(a) <= 0 {
-					continue
-				}
-				ip, err := netip.ParseAddr(a)
-				if err != nil || !ip.IsValid() {
-					badip++
-					log.W("dns: pref: skip bad ip %s for %s", a, qname)
-					continue
-				}
-				ips = append(ips, ip) // unmap?
-			}
-			if badip > 0 {
-				diags = append(diags, fmt.Sprintf("%d invalid ipcsv", badip))
-			}
-		}
-		if len(ips) > 0 {
-			ip4s, ip6s := splitIPFamilies(ips)
-			if xdns.IsAQType(qtyp) {
-				ips = ip4s
-			} else if xdns.IsAAAAQType(qtyp) {
-				ips = ip6s
-			} else if xdns.IsHTTPSQType(qtyp) || xdns.IsSVCBQType(qtyp) {
-				// ips are substituted in after answers are received
-				// so qtype checks are not sufficient
-				// see: synthesizeOrQuery
-			} else {
-				ips = nil // mismatch in query type and ip family
-				diags = append(diags, fmt.Sprintf("ip ignored %d", qtyp))
-				log.D("dns: pref: ignore ips for %s; qtype %d not A/AAAA/HTTPS/SVCB", qname, qtyp)
-			}
+		x, t1pids = parseAllTidOpts(s.TIDCSV)
+		xx, t2pids = parseAllTidOpts(s.TIDSECCSV)
+
+		ips, badips, badfam = parseAllIPOpts(qtyp, qname, s.IPCSV)
+		if badips > 0 || badfam > 0 {
+			diags = append(diags, fmt.Sprintf("%d invalid ips / %d invalid fam", badips, badfam))
 		}
 	}
 
@@ -1296,7 +1293,9 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			id1 = Plus
 			id2 = ""
 			diags = append(diags, "plus over default")
-			log.D("dns: pref: use Plus instead of Default for %s", qname)
+			if log.Debug {
+				log.D("dns: pref: use Plus instead of Default for %s", qname)
+			}
 		} else {
 			id1 = chosenids[0] // never empty
 			id2 = ""           // wipe out id2 if not set; use just id1
@@ -1304,7 +1303,9 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 				id2 = chosenids[1] // may be empty, but that's ok
 			}
 			diags = append(diags, fmt.Sprintf("chosen(%s,%s)", id1, id2))
-			log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
+			if log.Debug {
+				log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
+			}
 		}
 	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 {
 		// use approp transport given a qname
@@ -1323,7 +1324,9 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if len(id2) <= 0 {
 			id2 = Preferred
 		}
-		log.VV("dns: pref: use fixed tr(%s, %s) for %s", id1, id2, qname)
+		if log.Verbose {
+			log.VV("dns: pref: use fixed tr(%s, %s) for %s", id1, id2, qname)
+		}
 		// s.NOBLOCK must be respected
 		// as must be the pids
 	}
@@ -1362,7 +1365,9 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		pidcsv = overrideProxyIfNeeded(pid, id1, id2)
 		if pidcsv != pid {
 			diags = append(diags, fmt.Sprintf("pid %s <> %s", pidcsv, pid))
-			log.D("dns: pref: override pidcsv to %s for %s; tr(%s, %s)", pidcsv, qname, id1, id2)
+			if log.Debug {
+				log.D("dns: pref: override pidcsv to %s for %s; tr(%s, %s)", pidcsv, qname, id1, id2)
+			}
 		}
 	} else {
 		pidcsv = NetBaseProxy
@@ -1371,7 +1376,9 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		spidcsv = overrideProxyIfNeeded(pid, id1, id2)
 		if spidcsv != pid {
 			diags = append(diags, fmt.Sprintf("pid %s <> %s", spidcsv, pid))
-			log.D("dns: pref: override spid to %s for %s; tr(%s, %s)", spidcsv, qname, id1, id2)
+			if log.Debug {
+				log.D("dns: pref: override spid to %s for %s; tr(%s, %s)", spidcsv, qname, id1, id2)
+			}
 		}
 	} else {
 		spidcsv = NetBaseProxy
