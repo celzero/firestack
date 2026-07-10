@@ -15,10 +15,12 @@ import (
 	"github.com/celzero/firestack/intra/netstack"
 )
 
+const sinkChanSize = 1024
+
 type pcapsink struct {
 	ctx  context.Context
 	done context.CancelFunc
-	sink *core.Volatile[io.WriteCloser]
+	sink core.Volatile[io.WriteCloser]
 	inC  chan []byte // always buffered
 }
 
@@ -37,10 +39,10 @@ func newSink(pctx context.Context) *pcapsink {
 	p := new(pcapsink)
 	p.ctx = ctx
 	p.done = cancel
-	p.sink = core.NewVolatile[io.WriteCloser](zerowriter)
+	p.sink.Store(zerowriter)
 	p.log(false)  // no log
 	p.fout(false) // no file out
-	p.inC = make(chan []byte, 128)
+	p.inC = make(chan []byte, sinkChanSize)
 	core.Go("pcap.w", func() { p.writeAsync() })
 	context.AfterFunc(ctx, func() {
 		defer close(p.inC) // signal writeAsync to exit
