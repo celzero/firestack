@@ -144,8 +144,17 @@ func (f *fds) stop() {
 	}
 }
 
-func (f *fds) String() string {
-	return strconv.Itoa(f.tunFd)
+func (f *fds) String() (s string) {
+	if f == nil {
+		return "<nil-fd>"
+	}
+	if f.tunFd == invalidfd {
+		return "<invalid-fd>"
+	}
+	if f.closed.Load() {
+		s = "<closed-fd> "
+	}
+	return s + strconv.Itoa(f.tunFd)
 }
 
 func clos(fd int) {
