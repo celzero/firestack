@@ -47,6 +47,7 @@ type WorkCtx[T any] func(context.Context) (T, error)
 
 // V is an in-flight or completed Barrier.Do V
 type V[T any, K comparable] struct {
+	hdl string
 	wg  sync.WaitGroup
 	dob time.Time
 	Val T
@@ -72,7 +73,7 @@ func (v *V[t, k]) E() string {
 }
 
 func (v *V[t, k]) id() string {
-	return LocStr(v)
+	return v.hdl
 }
 
 // Barrier represents a class of work and forms a namespace in
@@ -214,6 +215,7 @@ func (ba *Barrier[T, K]) addLocked(k K) *V[T, K] {
 	v := new(V[T, K])
 	v.wg.Add(1)
 	v.dob = time.Now()
+	v.hdl = LocStr(v)
 	if !ba.closed.Load() {
 		ba.m[k] = v
 	}
