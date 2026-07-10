@@ -357,6 +357,7 @@ func resolv(id string, domainsOrIps []string) (names []string, pre []netip.AddrP
 		if ip, parseIPErr := netip.ParseAddr(dip); parseIPErr != nil { // may be hostname
 			names = append(names, ep) // add hostname regardless of resolution success
 			log.D("multihost: %s resolving: %q", id, ep)
+			// TODO: use dialers.Resolve(dip, tid) with tid set to via, if any
 			if resolvedips, resolveErr := dialers.Resolve(dip); resolveErr == nil && len(resolvedips) > 0 {
 				reps := addrport(port, resolvedips...)
 				addrs = append(addrs, reps...)
