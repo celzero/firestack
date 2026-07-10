@@ -64,7 +64,8 @@ type FlowListener interface {
 	// domains is a comma-separated list of domain names associated with origdsts, if any.
 	// probableDomains is a comma-separated list of probable domain names associated with origdsts, if any.
 	// blocklists is a comma-separated list of rdns blocklist names that apply, if any.
-	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string) *Mark
+	// dstIsAlg is true if the destination is an alg'd IP (which is only valid within the tunnel & will not be used for dialing).
+	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string, dstIsAlg bool) *Mark
 	// Inflow is called on a new incoming connection. Returned *Mark values have no discernable effect on these connections,
 	// except for the CID field, which is sent back via Postflow, and "Block" proxy which
 	// will drop this connection on the floor.

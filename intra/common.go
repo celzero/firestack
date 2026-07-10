@@ -71,11 +71,11 @@ type zeroListener struct{}
 
 var _ FlowListener = (*zeroListener)(nil)
 
-func (*zeroListener) Preflow(_, _ int32, _, _ string) *PreMark       { return nil }
-func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string) *Mark { return nil }
-func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark           { return nil }
-func (*zeroListener) Flowing(*Mark)                                  {}
-func (*zeroListener) Postflow(*FlowSummary)                          {}
+func (*zeroListener) Preflow(_, _ int32, _, _ string) *PreMark               { return nil }
+func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string, _ bool) *Mark { return nil }
+func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark                   { return nil }
+func (*zeroListener) Flowing(*Mark)                                          {}
+func (*zeroListener) Postflow(*FlowSummary)                                  {}
 
 var nooplistener = new(zeroListener)
 
@@ -205,7 +205,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		}
 	}
 
-	if settings.Debug {
+	if log.Debug {
 		log.VV("com: %s: onFlow: preflow: has? %t, preuid: %s for %s => %s", h.proto, hasPre, preuid, src, dst)
 	}
 
@@ -219,7 +219,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			for d := range strings.SplitSeq(doms, ",") {
 				nodomain := len(d) <= 0
 				if nodomain {
-					if settings.Debug {
+					if log.Debug {
 						logwif(len(d) <= 0)("com: %s: onFlow: preflow: %v from %v => %v for %s; nodomain? %t",
 							h.proto, doms, src, target, preuid, nodomain)
 					}
@@ -244,13 +244,13 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
 	} else {
-		if settings.Debug {
+		if log.Debug {
 			log.D("com: %s: onFlow: noalg? %t or hasips? %t for %s => %s; preuid %s",
 				h.proto, !undidAlg, hasOldIPs, src, dst, preuid)
 		}
 	}
 
-	if settings.Debug && (len(ips) <= 0 || len(doms) <= 0) {
+	if log.Debug && (len(ips) <= 0 || len(doms) <= 0) {
 		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s; preuid=%s; alg? %t",
 			h.proto, ips, doms, pdoms, localaddr, target, preuid, undidAlg)
 	}
@@ -259,7 +259,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	loopback := settings.Loopingback.Load()
 
 	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
-		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists), nil
+		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists, undidAlg), nil
 	}, onFlowTimeout)
 
 	if fm == nil || !ok { // zeroListener returns nil
@@ -352,7 +352,7 @@ func (h *baseHandler) queueSummary(s *FlowSummary) {
 	// log.VV("com: %s: queueSummary: %x %x %s", h.proto, h.smmch, h.ctx, s.ID)
 	select {
 	case <-h.ctx.Done():
-		if settings.Debug {
+		if log.Debug {
 			log.D("%s: queueSummary: end: %s", h.proto, s)
 		}
 	default:
@@ -395,7 +395,7 @@ func (h *baseHandler) sendSummary(s *FlowSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	if settings.Debug {
+	if log.Debug {
 		log.VV("com: %s: end? sendNotif: %s", h.proto, s)
 	}
 	h.listener.Postflow(s) // s.Duration may be uninitialized (zero)
@@ -560,7 +560,7 @@ func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
 
 	n, err := core.Pipe(remote, local)
 
-	if settings.Debug {
+	if log.Debug {
 		log.D("com: %s upload(%d) done(%v) b/w %s",
 			id, n, err, conn2str(local, remote))
 	}
@@ -574,7 +574,7 @@ func download(id string, local, remote net.Conn) (n int64, err error) {
 
 	n, err = core.Pipe(local, remote)
 
-	if settings.Debug {
+	if log.Debug {
 		log.D("com: %s download(%d) done(%v) b/w %s",
 			id, n, err, conn2str(local, remote))
 	}
@@ -640,7 +640,7 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool
 		} // else: discard ip
 	}
 
-	if settings.Debug {
+	if log.Debug {
 		log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
 			use4, use6, origipp, len(ips), ips, r)
 	}
@@ -781,7 +781,7 @@ func (h *baseHandler) maybeReplaceDest(res *Mark, target *netip.AddrPort) {
 		return
 	} else if resip, err := netip.ParseAddr(res.IP); resip.IsValid() && err == nil {
 		// if res.IP is set, then use it as the target
-		if settings.Debug {
+		if log.Debug {
 			log.D("%s: proxy: %s %s target instead of %s",
 				h.proto, res.CID, resip, target)
 		}
