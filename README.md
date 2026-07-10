@@ -53,8 +53,6 @@ your Android builds via [Jitpack](https://jitpack.io/#celzero/firestack) ([ref](
         ...
         // jitpack (stripped)
         implementation 'com.github.celzero:firestack:Tag@aar'
-        // jitpack (debug symbols)
-        implementation 'com.github.celzero:firestack:Tag:debug@aar'
         ...
     }
 ```
