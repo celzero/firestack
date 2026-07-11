@@ -43,7 +43,6 @@ type exit64 struct {
 	hdl      uint64
 	dhdl     uint64
 	status   atomic.Int32
-	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
 }
 

@@ -357,6 +357,8 @@ type Router interface {
 	Reaches(hostportOrIPPortCsv string) (y bool)
 	// Contains returns true if this router can route ipprefix.
 	Contains(ipprefix string) (y bool)
+	// Self returns true if the given ip is one of this router's own exit IPs.
+	Self(ip string) (y bool)
 }
 
 type Client interface {

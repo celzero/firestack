@@ -41,7 +41,6 @@ type exit struct {
 	dhdl     uint64
 	outbound *protect.RDial // outbound dialer
 	status   atomic.Int32
-	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
 }
 

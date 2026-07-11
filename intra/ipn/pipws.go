@@ -58,9 +58,8 @@ type pipws struct {
 
 	done context.CancelFunc // cancel func
 
-	status   atomic.Int32 // proxy status: TOK, TKO, END
-	lastaddr atomic.Pointer[string]
-	opts     *settings.ProxyOptions
+	status atomic.Int32 // proxy status: TOK, TKO, END
+	opts   *settings.ProxyOptions
 }
 
 var _ core.TCPConn = (*pipwsconn)(nil)
@@ -286,6 +285,19 @@ func (t *pipws) Router() x.Router {
 // Reaches implements x.Router.
 func (t *pipws) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(t, hostportOrIPPortCsv)
+}
+
+// Self implements x.Router.
+func (t *pipws) Self(ip string) bool {
+	if ip == "" {
+		return false
+	}
+	for _, a := range dialers.CachedAddrs(t.hostname) {
+		if a.String() == ip {
+			return true
+		}
+	}
+	return t.GW.Self(ip)
 }
 
 // Hop implements Proxy.

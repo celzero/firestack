@@ -707,6 +707,13 @@ func hasroute(p Proxy, ipp string) bool {
 	return p.Router().Contains(ipp)
 }
 
+func iscircular(p Proxy, ip string) bool {
+	if p == nil {
+		return false
+	}
+	return p.Router().Self(ip)
+}
+
 func healthy(p Proxy) error {
 	if p == nil {
 		return errProxyNotFound

@@ -8,6 +8,7 @@ package ipn
 
 import (
 	"errors"
+	"net"
 	"net/netip"
 	"slices"
 	"sync/atomic"
@@ -34,9 +35,10 @@ type GWNoVia struct {
 
 // GW is a no-op/stub gateway that is either dualstack or not and has dummy stats.
 type GW struct {
-	nov4, nov6 bool          // is dualstack
-	stats      x.RouterStats // zero stats
-	since      atomic.Int64  // uptime in unix millis
+	nov4, nov6 bool                   // is dualstack
+	stats      x.RouterStats          // zero stats
+	since      atomic.Int64           // uptime in unix millis
+	lastaddr   atomic.Pointer[string] // last dialed address (ip:port)
 }
 
 // setSince resets the since time for this proxy (useful in re-add/update scenarios).
@@ -62,6 +64,19 @@ func (w *GW) Stat() *x.RouterStats {
 	}
 	w.stats.Since = w.since.Load()
 	return &w.stats
+}
+
+// Self implements x.Router.
+func (w *GW) Self(ip string) bool {
+	if len(ip) <= 0 {
+		return false
+	}
+	if a := w.lastaddr.Load(); a != nil {
+		if host, _, err := net.SplitHostPort(*a); err == nil && host == ip {
+			return true
+		}
+	}
+	return false
 }
 
 // Contains implements x.Router.
@@ -166,6 +181,7 @@ func (NoProxy) ID() string                                            { return "
 func (NoProxy) Type() string                                          { return "" }
 func (NoProxy) Router() x.Router                                      { return nil }
 func (NoProxy) Reaches(string) bool                                   { return false }
+func (NoProxy) Self(string) bool                                      { return false }
 func (NoProxy) Dial(string, string) (protect.Conn, error)             { return nil, errNop }
 func (NoProxy) DialBind(string, string, string) (protect.Conn, error) { return nil, errNop }
 func (NoProxy) Dialer() protect.RDialer                               { return nil }

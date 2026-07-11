@@ -37,7 +37,6 @@ type http1 struct {
 	opts     *settings.ProxyOptions
 	lastdial atomic.Int64
 	status   atomic.Int32
-	lastaddr atomic.Pointer[string]
 }
 
 func NewHTTPProxy(id string, ctx context.Context, c protect.Controller, px ProxyProvider, po *settings.ProxyOptions) (*http1, error) {
@@ -159,6 +158,21 @@ func (h *http1) Router() x.Router {
 // Reaches implements x.Router.
 func (h *http1) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
+}
+
+// Self implements x.Router.
+func (h *http1) Self(ip string) bool {
+	if len(ip) <= 0 {
+		return false
+	}
+	// Check cached IPs of the upstream proxy host
+	for _, a := range dialers.CachedAddrs(h.opts.Host) {
+		if a.String() == ip {
+			return true
+		}
+	}
+	// fallback to last known dialed address
+	return h.GW.Self(ip)
 }
 
 // Hop implements Proxy.

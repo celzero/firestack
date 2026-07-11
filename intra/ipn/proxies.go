@@ -133,11 +133,13 @@ var (
 	errNotRpnAcc          = errors.New("proxy: not rpn account")
 	errNotRemote          = errors.New("proxy: not a remote proxy")
 	errNotActive          = errors.New("proxy: not active")
+	errCircularRoute      = errors.New("proxy: circular route")
 )
 
 var (
 	ErrProxyNotFound   = errProxyNotFound
 	ErrGetProxyTimeout = errGetProxyTimeout
+	ErrCircularRoute   = errCircularRoute
 )
 
 const (
@@ -499,6 +501,7 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 	}
 
 	stalledSec := uint32(0)
+	var circular []string
 
 	if len(pids) == 1 { // there's no other pid to choose from
 	retryPin:
@@ -518,6 +521,11 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 		logev(err)("proxy: pin: %s: %s+%s; pin pid0: %s (stalled? %ds / waited? %t); err? %v",
 			proto, uid, ippstr, pids[0], stalledSec, waitedForMissingProxy, err)
 		if p != nil {
+			if iscircular(p, ippstr) {
+				circular = append(circular, pids[0])
+				px.delpin(uid, ipp)
+				return nil, e(errCircularRoute)
+			}
 			if !hasroute(p, ippstr) {
 				px.delpin(uid, ipp)
 				return nil, e(core.JoinErr(err, errProxyRoute))
@@ -559,13 +567,18 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 
 		hasp := core.IsNotNil(p)
 		if hasp && p != nil && err != nil {
-			// allow h3 like egress from myuid, which could actually be rpn/wg on 443
-			if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+			// check for circular route before other checks
+			if iscircular(p, ippstr) {
+				circular = append(circular, pinnedpid)
+				px.delpin(uid, ipp)
+			} else if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+				// allow h3 like egress from myuid, which could actually be rpn/wg on 443
 				err = core.JoinErr(err, errProxyProtoH3)
 			} else if hasroute(p, ippstr) {
 				return p, nil
+			} else {
+				px.delpin(uid, ipp) // del pin if no route
 			}
-			px.delpin(uid, ipp) // del pin if no route
 		} // else: pinnedpid not ok (ex: END/TPU/TNT) or no route
 		logev(err)("proxy: pin: %s: %s+%s; chosen and pinned: %s (but err? %v); hasproxy? %t (or no route)",
 			proto, uid, ippstr, pinnedpid, err, hasp)
@@ -586,8 +599,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 	}
 
 	defer func() {
-		logev(err)("proxy: pin: %s: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v; noh3: %v",
-			proto, uid, ipp, idstr(theone), stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies)
+		logev(err)("proxy: pin: %s: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v; noh3: %v; circular: %v",
+			proto, uid, ipp, idstr(theone), stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies, circular)
 	}()
 
 retrySearch:
@@ -621,6 +634,10 @@ retrySearch:
 			continue
 		}
 
+		if iscircular(p, ippstr) {
+			circular = append(circular, pid)
+			continue
+		}
 		if hasroute(p, ippstr) {
 			// TODO: myuid check only required for loopback mode?
 			// allow h3 like egress from myuid, which could actually be rpn/wg on 443
@@ -704,6 +721,8 @@ retrySearch:
 		return nil, e(errProxyPaused)
 	} else if len(noh3proxies) > 0 {
 		return nil, e(errProxyProtoH3)
+	} else if len(circular) > 0 {
+		return nil, e(errCircularRoute)
 	}
 
 	return nil, e(errProxyAllDown)
@@ -1177,6 +1196,22 @@ func (px *proxifier) Reverser(rhdl netstack.GConnHandler) error {
 
 	px.lp.rev = rhdl
 	return nil
+}
+
+// Self implements x.Router.
+func (px *proxifier) Self(ip string) bool {
+	if len(ip) <= 0 {
+		return false
+	}
+	px.RLock()
+	defer px.RUnlock()
+
+	for _, p := range px.p {
+		if r := p.Router(); r != nil && r.Self(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // IP4 implements x.Router.

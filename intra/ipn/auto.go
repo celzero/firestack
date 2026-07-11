@@ -463,6 +463,30 @@ func (h *auto) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
 }
 
+// Self implements x.Router.
+func (h *auto) Self(ip string) bool {
+	if len(ip) <= 0 {
+		return false
+	}
+	if settings.AutoAlwaysRemote() {
+		if win, _ := h.pxr.mainRpnProxyOf(RpnWin); win != nil {
+			if iscircular(win, ip) {
+				return true
+			}
+		}
+		if exit64, _ := h.pxr.ProxyFor(Rpn64); exit64 != nil {
+			if iscircular(exit64, ip) {
+				return true
+			}
+		}
+		return false
+	}
+	if exit, _ := h.pxr.ProxyFor(Exit); exit != nil {
+		return iscircular(exit, ip)
+	}
+	return false
+}
+
 // Hop implements Proxy.
 func (h *auto) Hop(via *core.WeakRef[Proxy], dryrun bool) error {
 	var winerr error

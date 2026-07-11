@@ -36,7 +36,6 @@ type base struct {
 	via      atomic.Pointer[core.WeakRef[Proxy]] // via dialer
 	px       ProxyProvider
 	status   atomic.Int32
-	lastaddr atomic.Pointer[string]
 	done     context.CancelFunc
 }
 

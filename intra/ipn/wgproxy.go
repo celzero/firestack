@@ -1610,6 +1610,22 @@ func (h *wgtun) dnsResolvers() string {
 }
 
 // Implements x.Router.
+func (h *wgtun) Self(ip string) bool {
+	if len(ip) <= 0 {
+		return false
+	}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+
+	// Check peer (remote) endpoint IPs
+	if rm := h.remote.Load(); rm != nil {
+		return rm.HasAddr(addr)
+	}
+	return false
+}
+
 func (h *wgtun) IP4() bool { return h.hasV4.Load() }
 func (h *wgtun) IP6() bool { return h.hasV6.Load() }
 

@@ -31,18 +31,18 @@ type socks5 struct {
 	SkipRefresh // no refresh
 	GW          // dual stack gateway
 
-	id       string                              // unique identifier
-	opts     *settings.ProxyOptions              // connect options
-	d        protect.RDialer                     // dialer to this upstream proxy
+	id       string                 // unique identifier
+	opts     *settings.ProxyOptions // connect options
+	d        protect.RDialer        // dialer to this upstream proxy
 	hdl      uint64
 	dhdl     uint64
+	mh       *multihost.MH                       // upstream proxy host resolution
 	outbound []proxy.Dialer                      // outbound dialers via this upstream proxy
 	px       ProxyProvider                       // proxy provider
 	via      atomic.Pointer[core.WeakRef[Proxy]] // hop proxy
-	lastdial atomic.Int64 // last time this transport attempted a connection
+	lastdial atomic.Int64                        // last time this transport attempted a connection
 	status   atomic.Int32                        // status of this transport
-	lastaddr atomic.Pointer[string]
-	done     context.CancelFunc // cancel func
+	done     context.CancelFunc                  // cancel func
 }
 
 type socks5tcpconn struct {
@@ -114,6 +114,7 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 	h := &socks5{
 		id:   id,
 		d:    dialer,
+		mh:   mh,
 		px:   px,
 		opts: po,
 		done: done,
@@ -262,6 +263,20 @@ func (h *socks5) Router() x.Router {
 // Reaches implements x.Router.
 func (h *socks5) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(h, hostportOrIPPortCsv)
+}
+
+// Self implements x.Router.
+func (h *socks5) Self(ip string) bool {
+	if len(ip) <= 0 {
+		return false
+	}
+	if h.GW.Self(ip) {
+		return true
+	}
+	if mh := h.mh; mh != nil {
+		return mh.Has(ip)
+	}
+	return false
 }
 
 // Hop implements Proxy.

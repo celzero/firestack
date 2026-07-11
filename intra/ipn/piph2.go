@@ -58,7 +58,6 @@ type piph2 struct {
 	// mutable fields
 	lastdial atomic.Int64 // last dial time as unix millis
 	status   atomic.Int32 // proxy status: TOK, TKO, END
-	lastaddr atomic.Pointer[string]
 }
 
 // github.com/posener/h2conn/blob/13e7df33ed1/conn.go
@@ -290,6 +289,19 @@ func (t *piph2) Router() x.Router {
 // Reaches implements x.Router.
 func (t *piph2) Reaches(hostportOrIPPortCsv string) bool {
 	return Reaches(t, hostportOrIPPortCsv)
+}
+
+// Self implements x.Router.
+func (t *piph2) Self(ip string) bool {
+	if ip == "" {
+		return false
+	}
+	for _, a := range dialers.CachedAddrs(t.hostname) {
+		if a.String() == ip {
+			return true
+		}
+	}
+	return t.GW.Self(ip)
 }
 
 // Hop implements Proxy.

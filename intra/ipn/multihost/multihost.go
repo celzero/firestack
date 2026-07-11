@@ -124,6 +124,38 @@ func (h *MH) Addrs() []netip.AddrPort {
 	return slices.Concat(h.addrs, h.preresolved)
 }
 
+// Has returns true if the given ip matches any address in this multihost.
+func (h *MH) Has(ip string) bool {
+	if h == nil {
+		return false
+	}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	return h.HasAddr(addr)
+}
+
+// HasAddr returns true if the given addr matches any address in this multihost.
+func (h *MH) HasAddr(addr netip.Addr) bool {
+	if h == nil || !addr.IsValid() {
+		return false
+	}
+	h.RLock()
+	defer h.RUnlock()
+	for _, a := range h.addrs {
+		if a.Addr() == addr {
+			return true
+		}
+	}
+	for _, a := range h.preresolved {
+		if a.Addr() == addr {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *MH) splitFamily() (out4, out6, og []netip.AddrPort) {
 	out4 = make([]netip.AddrPort, 0)
 	out6 = make([]netip.AddrPort, 0)

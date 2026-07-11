@@ -83,6 +83,7 @@ func NewProtected(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
 // For returns addresses for hostOrIP from cache, resolving them if missing.
 // Underlying cache relies on Disconfirm() to remove unreachable IP addrs;
 // if not called, these entries may go stale. Use Resolve() to bypass cache.
+// Use CachedAddrs() to only ever return from cache.
 // hostOrIP may be host:port, or ip:port, or host, or ip.
 func For(hostOrIP string) []netip.Addr {
 	ipset := ipm.Get(hostOrIP)
