@@ -1252,10 +1252,10 @@ func parseTidOpt(entry string) (tid string, pids []string) {
 func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv, spidcsv, diag string, ips []netip.Addr) {
 	var x []string  // primary tids parsed from TIDCSV
 	var xx []string // secondary tids parsed from TIDSECCSV
-	var diags []string
+	var t1pids map[string]string // tid -> pidcsv (from TIDCSV)
+	var t2pids map[string]string // tid -> pidcsv (from TIDSECCSV)
 	var badips, badfam int
-	t1pids := make(map[string]string) // tid -> pidcsv (from TIDCSV)
-	t2pids := make(map[string]string) // tid -> pidcsv (from TIDSECCSV)
+	var diags []string
 
 	defer func() {
 		diag = strings.Join(diags, ";")

@@ -142,7 +142,7 @@ type fakeBdg struct {
 var (
 	// baseNsOpts = &x.DNSOpts{PIDCSV: dnsx.NetBaseProxy, IPCSV: "", TIDCSV: x.CT + "test0"}
 	baseTab    = &x.Tab{CID: "testcid", Block: false}
-	autoNsOpts = &x.DNSOpts{PIDCSV: x.RpnWin, IPCSV: "", TIDCSV: x.CT + "test0"}
+	autoNsOpts = &x.DNSOpts{IPCSV: "", TIDCSV: x.CT + "test0:" + x.RpnWin}
 )
 
 func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts { return autoNsOpts }
@@ -348,7 +348,7 @@ func TestWgReaches(t *testing.T) {
 	dialers.Mapper(netr)
 
 	wgid := x.WG + "1111"
-	autoNsOpts.PIDCSV = wgid
+	autoNsOpts.TIDCSV = x.CT + "test0:" + wgid
 
 	_ = xdns.NetAndProxyID("tcp", wgid)
 
@@ -539,7 +539,7 @@ func TestWinReaches(t *testing.T) {
 	err = os.WriteFile("sess.json", sess, 0644) // same as win.json
 	ko(t, err)
 
-	autoNsOpts.PIDCSV = ipn.RpnWin
+	autoNsOpts.TIDCSV = x.CT + "test0:" + ipn.RpnWin
 	/*ilog.VV("-----------------------MAIN--------------------------")
 	ilog.I("proxies 1: %t; 2: %t, 3: %t", propx != nil, propx2 != nil, auto != nil)
 	if ok := ipn.Reaches(propx, "google.com:443", "tcp"); !ok {
