@@ -70,10 +70,6 @@ var SetUserAgent = atomic.Bool{}
 const AndroidCcUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.32 Safari/537.36"
 const IntraUa = "Intra"
 
-// PanicAtRandom is a global flag to panic the network engine
-// every once in a while (for testing).
-var PanicAtRandom = atomic.Bool{}
-
 // OwnTunFd is a global flag to indicate that the TUN fd is fully owned by netstack.
 // that is, he TUN FD won't be dup'd and will be closed after use.
 var OwnTunFd = atomic.Bool{}
