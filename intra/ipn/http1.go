@@ -209,7 +209,10 @@ func (h *http1) GetAddr() string {
 // Status implements Proxy.
 func (h *http1) Status() int32 {
 	s := h.status.Load()
-	if s != END && idling(h.lastdial.Load()) {
+	if candial2(s) != nil {
+		return s // paused or ended
+	}
+	if idling(h.lastdial.Load()) {
 		return TZZ
 	}
 	return s

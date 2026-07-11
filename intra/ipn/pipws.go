@@ -330,7 +330,10 @@ func (t *pipws) Stop() error {
 // Status implements Proxy.
 func (t *pipws) Status() int32 {
 	s := t.status.Load()
-	if s != END && idling(t.lastdial.Load()) {
+	if candial2(s) != nil {
+		return s // paused or ended
+	}
+	if idling(t.lastdial.Load()) {
 		return TZZ
 	}
 	return s
