@@ -35,6 +35,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 )
 
@@ -632,11 +633,12 @@ func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
 		return nil, false
 	}
 
+	loopingback := settings.Loopingback.Load()
 	ctx := context.Background()
 
 	var resolved []netip.Addr
 	var err error
-	if s.typ == Protected {
+	if s.typ == Protected && !loopingback {
 		// dnsx.System is "never resolved" and hence can be used to resolve
 		// "protected" IPSets like the one used by bootstrap's DoH (x.Default)
 		// see: protect.NeverResolve and dnsx.RegisterAddrs
