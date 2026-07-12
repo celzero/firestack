@@ -17,9 +17,9 @@ type ground struct {
 	NoDNS
 	ProtoAgnostic
 	SkipRefresh
-	GWNoVia
 	CantPause
 	NoClient
+	*GWNoVia
 	addr string
 	hdl  uint64
 }

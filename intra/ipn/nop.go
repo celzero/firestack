@@ -104,7 +104,7 @@ func (w *GW) Reaches(hostportOrIPPortCsvStr string) bool {
 }
 
 // ProxyNoGateway is a Router that routes nothing.
-var ProxyNoGateway = GWNoVia{GW: GW{nov4: true, nov6: true}}
+var ProxyNoGateway = &GWNoVia{GW: GW{nov4: true, nov6: true}}
 
 // ProtoAgnostic is a proxy that does not care about protocol changes.
 type ProtoAgnostic struct{}
@@ -175,17 +175,17 @@ type NoProxy struct {
 	GWNoVia
 }
 
-func (NoProxy) Handle() uint64                                        { return core.Nobody }
-func (NoProxy) DialerHandle() uint64                                  { return core.Nobody }
-func (NoProxy) ID() string                                            { return "" }
-func (NoProxy) Type() string                                          { return "" }
-func (NoProxy) Router() x.Router                                      { return nil }
-func (NoProxy) Reaches(string) bool                                   { return false }
-func (NoProxy) Self(string) bool                                      { return false }
-func (NoProxy) Dial(string, string) (protect.Conn, error)             { return nil, errNop }
-func (NoProxy) DialBind(string, string, string) (protect.Conn, error) { return nil, errNop }
-func (NoProxy) Dialer() protect.RDialer                               { return nil }
-func (NoProxy) Status() int32                                         { return 0 }
-func (NoProxy) GetAddr() string                                       { return "" }
-func (NoProxy) Stop() error                                           { return nil }
-func (NoProxy) Client() x.Client                                      { return nil }
+func (*NoProxy) Handle() uint64                                        { return core.Nobody }
+func (*NoProxy) DialerHandle() uint64                                  { return core.Nobody }
+func (*NoProxy) ID() string                                            { return "" }
+func (*NoProxy) Type() string                                          { return "" }
+func (*NoProxy) Router() x.Router                                      { return nil }
+func (*NoProxy) Reaches(string) bool                                   { return false }
+func (*NoProxy) Self(string) bool                                      { return false }
+func (*NoProxy) Dial(string, string) (protect.Conn, error)             { return nil, errNop }
+func (*NoProxy) DialBind(string, string, string) (protect.Conn, error) { return nil, errNop }
+func (*NoProxy) Dialer() protect.RDialer                               { return nil }
+func (*NoProxy) Status() int32                                         { return 0 }
+func (*NoProxy) GetAddr() string                                       { return "" }
+func (*NoProxy) Stop() error                                           { return nil }
+func (*NoProxy) Client() x.Client                                      { return nil }
