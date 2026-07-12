@@ -21,7 +21,7 @@ import (
 func ResolveFor(nom string, uid string) ([]netip.Addr, error) {
 	// ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
 	// and since TIDs are specified, the ipmap cache is not used.
-	return ipm.LookupNetIPFor(context.Background(), "ip", nom, uid)
+	return ipm.LookupNetIP(context.Background(), "ip", nom, uid)
 }
 
 // Resolve resolves hostname to IP addresses, bypassing cache.
@@ -31,7 +31,7 @@ func Resolve(hostname string, tids ...string) (addrs []netip.Addr, err error) {
 	// both lookups may return addrs = nil, err = nil
 	// (see: ipmapper.go:queryIP2 and protect.NeverResolve)
 	// ipm.LookupNetIPxxx itself has a short-term cache (ipmapper.go:battl)
-	addrs, err = ipm.LocalLookupNetIP(ctx, "ip", hostname, tids...)
+	addrs, err = ipm.LookupNetIP(ctx, "ip", hostname, protect.MyUid, tids...)
 
 	if len(addrs) <= 0 { // check cache
 		if addrs = CachedAddrs(hostname); len(addrs) > 0 {
@@ -71,7 +71,7 @@ func ECH(hostname string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := ipm.LocalLookup(q)
+	res, err := ipm.Lookup(q, protect.MyUid)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +113,8 @@ func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
 	return ans, nil
 }
 
-// QueryFor forward a DNS request for uid (if set)
-// or to chosen transport, tid (if uid is not set).
+// QueryFor forward a DNS request for tid (if set) attributed to uid,
+// or to transport chosen for uid, which may be core.UNKNOWN_UID_STR.
 func QueryFor(msg *dns.Msg, uid, tid string) (*dns.Msg, error) {
 	q, qerr := msg.Pack()
 	if qerr != nil {

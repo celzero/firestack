@@ -40,6 +40,7 @@ type answer struct {
 	tid, uid string
 }
 
+// ipmapper implements IPMapper using a dnsx.ResolverSelf and a dnsx.Gateway.
 type ipmapper struct {
 	id string
 	r  dnsx.ResolverSelf
@@ -76,31 +77,17 @@ func str2ip(host string) (netip.Addr, error) {
 }
 
 // Implements IPMapper.
-func (m *ipmapper) LocalLookup(q []byte) ([]byte, error) {
-	return m.Lookup(q, protect.MyUid, dnsx.Default)
-}
-
-// Implements IPMapper.
 func (m *ipmapper) Lookup(q []byte, uid string, tids ...string) ([]byte, error) {
-	return m.queryAny2(q, uid, tids...)
+	return m.queryAny(q, uid, tids...)
 }
 
 // Implements IPMapper.
-func (m *ipmapper) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
-	return m.queryIP(ctx, network, host, uid)
-}
-
-// Implements IPMapper.
-func (m *ipmapper) LocalLookupNetIP(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
-	return m.queryIP2(ctx, network, host, protect.MyUid, tid...)
-}
-
-func (m *ipmapper) queryIP(ctx context.Context, network, host string, uid string) ([]netip.Addr, error) {
-	return m.queryIP2(ctx, network, host, uid)
+func (m *ipmapper) LookupNetIP(ctx context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error) {
+	return m.queryIP(ctx, network, host, uid, tids...)
 }
 
 // todo: use context
-func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ...string) ([]netip.Addr, error) {
+func (m *ipmapper) queryIP(_ context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error) {
 	if len(host) <= 0 {
 		return nil, errNoHost
 	}
@@ -117,7 +104,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	}
 
 	if log.Verbose {
-		log.V("ipmapper: lookup: host %s:%s for %s on %v", network, host, uid, tid)
+		log.V("ipmapper: lookup: host %s:%s for %s on %v", network, host, uid, tids)
 	}
 
 	var q4, q6 []byte
@@ -142,9 +129,9 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	}
 
 	var val4, val6 *core.V[answer, string]
-	if len(tid) > 0 { // always choose one among these tids
-		val4, _ = m.ba.Do(key4(host, tid...), m.lookupon(q4, uid, tid...))
-		val6, _ = m.ba.Do(key6(host, tid...), m.lookupon(q6, uid, tid...))
+	if len(tids) > 0 { // always choose one among these tids
+		val4, _ = m.ba.Do(key4(host, tids...), m.lookupon(q4, uid, tids...))
+		val6, _ = m.ba.Do(key6(host, tids...), m.lookupon(q6, uid, tids...))
 	} else if uid != core.UNKNOWN_UID_STR { // client code chooses a tid depending on uid & "origin"
 		val4, _ = m.ba.Do(key4(host, uid), m.lookupfor(q4, uid))
 		val6, _ = m.ba.Do(key6(host, uid), m.lookupfor(q6, uid))
@@ -200,7 +187,7 @@ func (m *ipmapper) queryIP2(_ context.Context, network, host, uid string, tid ..
 	return ips, nil
 }
 
-func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, error) {
+func (m *ipmapper) queryAny(q []byte, uid string, tids ...string) ([]byte, error) {
 	msg := xdns.AsMsg(q)
 	if msg == nil {
 		log.W("ipmapper: not a dns query sz(%d)", len(q))
@@ -227,6 +214,7 @@ func (m *ipmapper) queryAny2(q []byte, uid string, tids ...string) ([]byte, erro
 		v, _ = m.ba.Do(key(qname, qtypestr, dnsx.Default), m.locallookup(q))
 	}
 
+	// TODO: regiser domain names with ipmap.go for PTR / dns bypass queries
 	if v == nil || len(v.Val.a) <= 0 || v.Err != nil {
 		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d; for: %s [on %v]",
 			v == nil, v.Err, qname, qtype, uid, tids)

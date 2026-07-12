@@ -25,6 +25,7 @@ package ipmap
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"strings"
@@ -79,10 +80,9 @@ func newUndelegatedDomainTrie() x.RadixTree {
 }
 
 // IPMapper is an interface for resolving hostnames to IP addresses.
-// For internal used by firestack.
+// Capable of handling special internal hostnames, it is mostly used
+// by firestack for its own use.
 type IPMapper interface {
-	// Shorthand for Lookup(q, protect.MySelf, dnsx.Default)
-	LocalLookup(q []byte) ([]byte, error)
 	// Lookup resolves q over client-code preferred tid conveyed via
 	// DNSOpts returned from DNSListener.OnQuery. As a special case, UID
 	// may be protect.MyUid or core.UNKNOWN_UID_STR ("-1")
@@ -90,11 +90,8 @@ type IPMapper interface {
 	// which presumably is requesting this lookup. If tids is empty, either
 	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
 	Lookup(q []byte, uid string, tids ...string) ([]byte, error)
-	// LookupNetIPFor is like Lookup but with empty tids and a specified uid.
-	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
-	// LocalLookupNetIP is like LocalLookup but with tids set to some preset IDs
-	// on behalf of protect.MyUid.
-	LocalLookupNetIP(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
+	// LookupNetIP is like Lookup but for hostname to IP addresses.
+	LookupNetIP(ctx context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error)
 }
 
 // IPMap maps hostnames to IPSets.
@@ -103,6 +100,9 @@ type IPMap interface {
 	// Resolves hostOrIP and adds the resulting IPs to its IPSet.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
 	Add(hostOrIP string) *IPSet
+	// Returns the IPSet for host, creating it if necessary, with
+	// ips as its initial or appended contents.
+	AddMany(host string, ips []netip.Addr) *IPSet
 	// Get creates an IPSet for this hostname populated with the IPs
 	// discovered by resolving it. Subsequent calls to Get return the
 	// same IPSet. Never returns nil.
@@ -144,6 +144,8 @@ type ipmap struct {
 
 	r core.Volatile[IPMapper] // resolver
 }
+
+var _ IPMap = (*ipmap)(nil)
 
 // IPSet represents an unordered collection of IP addresses for a single host.
 // One IP can be marked as confirmed to be working correctly.
@@ -225,11 +227,6 @@ func (m *ipmap) Clear() {
 }
 
 // Implements IPMapper.
-func (m *ipmap) LocalLookup(q []byte) ([]byte, error) {
-	return m.Lookup(q, protect.MyUid, x.Default)
-}
-
-// Implements IPMapper.
 func (m *ipmap) Lookup(q []byte, uid string, tids ...string) ([]byte, error) {
 	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
@@ -239,21 +236,12 @@ func (m *ipmap) Lookup(q []byte, uid string, tids ...string) ([]byte, error) {
 }
 
 // Implements IPMapper.
-func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
+func (m *ipmap) LookupNetIP(ctx context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error) {
 	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
-	return r.LookupNetIPFor(ctx, network, host, uid)
-}
-
-// Implements IPMapper.
-func (m *ipmap) LocalLookupNetIP(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
-	r := m.r.Load() // actual ipmapper implementation
-	if r == nil {
-		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
-	}
-	return r.LocalLookupNetIP(ctx, network, host, tid...)
+	return r.LookupNetIP(ctx, network, host, uid, tids...)
 }
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
@@ -263,6 +251,17 @@ func (m *ipmap) Add(hostOrIP string) *IPSet {
 		m.revmap(hostOrIP, s, nil)
 	} else {
 		log.W("ipmap: Add: zero ips for %s", hostOrIP)
+	}
+	return s
+}
+
+func (m *ipmap) AddMany(host string, ips []netip.Addr) *IPSet {
+	s := m.get(host, AutoType)
+	if err := s.addAll(ips...); err == nil {
+		log.I("ipmap: AddMany: adding %s", host)
+		m.revmap(host, s, nil)
+	} else {
+		log.W("ipmap: AddMany: zero ips for %s: %v", host, err)
 	}
 	return s
 }
@@ -617,6 +616,21 @@ func (s *IPSet) Seed() []string {
 	return s.seed
 }
 
+func (s *IPSet) addAll(ips ...netip.Addr) error {
+	if s.typ == IPAddr { // nothing to do as this ipset only has one ipaddr
+		return log.EE("ipmap: AddAll: ipaddr type; ignoring %d ips", len(ips))
+	}
+
+	if len(ips) <= 0 {
+		return errors.ErrUnsupported
+	}
+
+	s.mu.Lock()
+	s.addLocked(ips...)
+	s.mu.Unlock()
+	return nil
+}
+
 // add one or more IP addresses to the set.
 // The hostname can be a domain name or an IP address.
 func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
@@ -644,16 +658,16 @@ func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
 		// see: protect.NeverResolve and dnsx.RegisterAddrs
 		// in Loopback mode, do not use System (as it may overriding user prefs
 		// for "proxy lockdown" / ip/domain rules and the like)
-		resolved, err = r.LocalLookupNetIP(ctx, "ip", hostOrIP, x.System)
+		resolved, err = r.LookupNetIP(ctx, "ip", hostOrIP, protect.MyUid, x.System)
 	} else if s.typ == Regular || s.typ == AutoType {
-		resolved, err = r.LocalLookupNetIP(ctx, "ip", hostOrIP)
+		resolved, err = r.LookupNetIP(ctx, "ip", protect.MyUid, hostOrIP)
 	}
 
 	if err != nil {
-		log.W("ipmap: Add: err resolving %s: %v", hostOrIP, err)
+		log.W("ipmap: Add: err resolving %s; looping? %t; typ: %v: %v", hostOrIP, loopingback, s.typ, err)
 		return nil, false
 	} else {
-		log.D("ipmap: Add: resolved? %s => %s", hostOrIP, resolved)
+		log.D("ipmap: Add: resolved? %s => %s; looping? %t; typ: %v", hostOrIP, resolved, loopingback, s.typ)
 	}
 
 	if len(resolved) > 0 {
@@ -815,6 +829,7 @@ func (s *IPSet) Confirm(ip netip.Addr) {
 		// Add this IP to the set if it hasn't been seen before.
 		if s.typ != Protected && newIP {
 			s.mu.Lock()
+			// TODO: must add to revmap against this IPSet s
 			s.addLocked(ip) // Add is O(N)
 			s.mu.Unlock()
 		}

@@ -21,16 +21,11 @@ type fakeProxy struct{ id string }
 
 type systemMapper struct{}
 
-func (systemMapper) LocalLookup(_ []byte) ([]byte, error) {
-	return nil, errors.New("wire lookup not supported")
-}
 func (systemMapper) Lookup(_ []byte, _ string, _ ...string) ([]byte, error) {
 	return nil, errors.New("wire lookup not supported")
 }
-func (systemMapper) LookupNetIPFor(ctx context.Context, network, host, _ string) ([]netip.Addr, error) {
-	return net.DefaultResolver.LookupNetIP(ctx, network, host)
-}
-func (systemMapper) LocalLookupNetIP(ctx context.Context, network, host string, _ ...string) ([]netip.Addr, error) {
+
+func (systemMapper) LookupNetIP(ctx context.Context, network, host, _ string, _ ...string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, network, host)
 }
 

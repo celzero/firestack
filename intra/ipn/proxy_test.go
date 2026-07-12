@@ -42,11 +42,7 @@ func (r fakeResolver) Lookup([]byte) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (r fakeResolver) LookupOn([]byte, ...string) ([]byte, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (r fakeResolver) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
+func (r fakeResolver) LookupNetIP(ctx context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error) {
 	return nil, errors.New("not implemented")
 }
 

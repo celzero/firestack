@@ -41,10 +41,6 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) LocalLookup(q []byte) ([]byte, error) {
-	return r.Lookup(q, protect.MyUid)
-}
-
 func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
 	// return nil, errors.New("lookup: not implemented")
 	msg := xdns.AsMsg(q)
@@ -86,23 +82,12 @@ func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
 	return ans.Pack()
 }
 
-func (r fakeResolver) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
+func (r fakeResolver) LookupNetIP(ctx context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error) {
 	if r.Resolver == nil {
 		r.Resolver = net.DefaultResolver
 	}
 	// return nil, errors.New("lookup net ip for: not implemented")
 	return r.Resolver.LookupNetIP(ctx, network, host)
-}
-
-func (r fakeResolver) LocalLookupNetIP(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
-	if r.Resolver == nil {
-		r.Resolver = net.DefaultResolver
-	}
-	ilog.VV("fakeResolver: lookup net ip on: network=%s, host=%s, tid=%v", network, host, tid)
-	// return nil, errors.New("fakeResolver: lookup net ip on not implemented")
-	out, err := r.Resolver.LookupNetIP(ctx, network, host)
-	ilog.VV("fakeResolver: lookup net ip on: out=%v, err=%v", out, err)
-	return out, err
 }
 
 type fakeCtl struct {
