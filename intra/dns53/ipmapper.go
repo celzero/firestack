@@ -50,7 +50,10 @@ type ipmapper struct {
 var _ ipmap.IPMapper = (*ipmapper)(nil)
 
 // AddIPMapper adds or removes the IPMapper.
-func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
+func AddIPMapper(ctx context.Context, r dnsx.Resolver, protos string, clear bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var m ipmap.IPMapper // nil
 	ok := r != nil
 	if ok {
@@ -58,7 +61,7 @@ func AddIPMapper(r dnsx.Resolver, protos string, clear bool) {
 			id: dnsx.IpMapper,
 			r:  r,
 			g:  r.Gateway(),
-			ba: core.NewBarrier[answer](context.Background(), "ipm.bar", battl),
+			ba: core.NewBarrier[answer](ctx, "ipm.bar", battl),
 		}
 	} // else remove; m is nil
 	if clear {

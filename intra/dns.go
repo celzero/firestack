@@ -25,9 +25,9 @@ import (
 )
 
 func addIPMapper(ctx context.Context, r dnsx.Resolver, protos string) {
-	dns53.AddIPMapper(r, protos, false /*clear cache*/)
+	dns53.AddIPMapper(ctx, r, protos, false /*clear cache*/)
 	context.AfterFunc(ctx, func() {
-		dns53.AddIPMapper(nil, "", true /*clear cache*/)
+		dns53.AddIPMapper(ctx, nil, "", true /*clear cache*/)
 	})
 }
 
