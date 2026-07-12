@@ -82,22 +82,18 @@ func newUndelegatedDomainTrie() x.RadixTree {
 type IPMapper interface {
 	// Shorthand for Lookup(q, protect.MySelf, dnsx.Default)
 	LocalLookup(q []byte) ([]byte, error)
-	// Lookup resolves q over one of the tids. If tids is empty, either
-	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
-	Lookup(q []byte, uid string, tids ...string) ([]byte, error)
-	// LookupFor resolves q over client-code preferred tid conveyed via
+	// Lookup resolves q over client-code preferred tid conveyed via
 	// DNSOpts returned from DNSListener.OnQuery. As a special case, UID
 	// may be protect.MyUid or core.UNKNOWN_UID_STR ("-1")
 	// but otherwise it is usually a Linux user-id assigned to a process
-	// which presumably is requesting this lookup.
-	LookupFor(q []byte, uid string) ([]byte, error)
-	// LookupNetIP is like Lookup but with empty tids.
-	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
-	// LookupNetIPFor is like LookupFor
+	// which presumably is requesting this lookup. If tids is empty, either
+	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
+	Lookup(q []byte, uid string, tids ...string) ([]byte, error)
+	// LookupNetIPFor is like Lookup but with empty tids and a specified uid.
 	LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error)
-	// LookupNetIPOn is like Lookup but with tids set to some preset IDs
+	// LocalLookupNetIP is like LocalLookup but with tids set to some preset IDs
 	// on behalf of protect.MyUid.
-	LookupNetIPOn(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
+	LocalLookupNetIP(ctx context.Context, network, host string, tids ...string) ([]netip.Addr, error)
 }
 
 // IPMap maps hostnames to IPSets.
@@ -228,15 +224,6 @@ func (m *ipmap) Clear() {
 }
 
 // Implements IPMapper.
-func (m *ipmap) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	r := m.r.Load() // actual ipmapper implementation
-	if r == nil {
-		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
-	}
-	return r.LookupNetIP(ctx, network, host)
-}
-
-// Implements IPMapper.
 func (m *ipmap) LocalLookup(q []byte) ([]byte, error) {
 	return m.Lookup(q, protect.MyUid, x.Default)
 }
@@ -251,15 +238,6 @@ func (m *ipmap) Lookup(q []byte, uid string, tids ...string) ([]byte, error) {
 }
 
 // Implements IPMapper.
-func (m *ipmap) LookupFor(q []byte, uid string) ([]byte, error) {
-	r := m.r.Load() // actual ipmapper implementation
-	if r == nil {
-		return nil, &net.DNSError{Err: "no resolver", Name: "LookupFor", Server: "localhost"}
-	}
-	return r.LookupFor(q, uid)
-}
-
-// Implements IPMapper.
 func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
 	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
@@ -269,12 +247,12 @@ func (m *ipmap) LookupNetIPFor(ctx context.Context, network, host, uid string) (
 }
 
 // Implements IPMapper.
-func (m *ipmap) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
+func (m *ipmap) LocalLookupNetIP(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
 	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: host, Server: "localhost"}
 	}
-	return r.LookupNetIPOn(ctx, network, host, tid...)
+	return r.LocalLookupNetIP(ctx, network, host, tid...)
 }
 
 func (m *ipmap) Add(hostOrIP string) *IPSet {
@@ -503,7 +481,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, ogtyp IPSetType) *IPSe
 		typ = Regular // discard AutoType & IPAddr type
 	}
 
-	logeif(typ != ogtyp)("ipmap: makeIPSet: %s, seed: %v, typ: %s, ogtyp: %s", hostname, ipps, typ, ogtyp)
+	logiif(typ != ogtyp)("ipmap: makeIPSet: %s, seed: %v, typ: %s, ogtyp: %s", hostname, ipps, typ, ogtyp)
 
 	s := &IPSet{
 		typ:   typ,
@@ -662,9 +640,11 @@ func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
 		// dnsx.System is "never resolved" and hence can be used to resolve
 		// "protected" IPSets like the one used by bootstrap's DoH (x.Default)
 		// see: protect.NeverResolve and dnsx.RegisterAddrs
-		resolved, err = r.LookupNetIPOn(ctx, "ip", hostOrIP, x.System)
+		// in Loopback mode, do not use System (as it may overriding user prefs
+		// for "proxy lockdown" / ip/domain rules and the like)
+		resolved, err = r.LocalLookupNetIP(ctx, "ip", hostOrIP, x.System)
 	} else if s.typ == Regular || s.typ == AutoType {
-		resolved, err = r.LookupNetIP(ctx, "ip", hostOrIP)
+		resolved, err = r.LocalLookupNetIP(ctx, "ip", hostOrIP)
 	}
 
 	if err != nil {
@@ -896,9 +876,9 @@ func (s *IPSet) Disconfirm(ip netip.Addr) (done bool) {
 	return
 }
 
-func logeif(cond bool) log.LogFn {
+func logiif(cond bool) log.LogFn {
 	if cond {
-		return log.E
+		return log.I
 	}
 	return log.D
 }

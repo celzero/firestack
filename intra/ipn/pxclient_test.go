@@ -27,16 +27,10 @@ func (systemMapper) LocalLookup(_ []byte) ([]byte, error) {
 func (systemMapper) Lookup(_ []byte, _ string, _ ...string) ([]byte, error) {
 	return nil, errors.New("wire lookup not supported")
 }
-func (systemMapper) LookupFor(_ []byte, _ string) ([]byte, error) {
-	return nil, errors.New("wire lookup not supported")
-}
-func (systemMapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	return net.DefaultResolver.LookupNetIP(ctx, network, host)
-}
 func (systemMapper) LookupNetIPFor(ctx context.Context, network, host, _ string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, network, host)
 }
-func (systemMapper) LookupNetIPOn(ctx context.Context, network, host string, _ ...string) ([]netip.Addr, error) {
+func (systemMapper) LocalLookupNetIP(ctx context.Context, network, host string, _ ...string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, network, host)
 }
 
@@ -66,9 +60,9 @@ func (f *fakeProxy) Client() x.Client                       { return newProxyCli
 func (f *fakeProxy) onNotOK() (bool, bool)                  { return false, true }
 func (f *fakeProxy) OnProtoChange(LinkProps) (string, bool) { return "", false }
 func (f *fakeProxy) Hop(*core.WeakRef[Proxy], bool) error   { return nil }
-func (f *fakeProxy) Status() int32                            { return TOK }
+func (f *fakeProxy) Status() int32                          { return TOK }
 func (f *fakeProxy) GetAddr() string                        { return "" }
-func (f *fakeProxy) setSince(int64)                            {}
+func (f *fakeProxy) setSince(int64)                         {}
 func (f *fakeProxy) DNS() string                            { return "" }
 func (f *fakeProxy) Ping() bool                             { return true }
 func (f *fakeProxy) Pause() bool                            { return false }

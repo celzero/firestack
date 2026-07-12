@@ -86,18 +86,6 @@ func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
 	return ans.Pack()
 }
 
-func (r fakeResolver) LookupFor(q []byte, _ string) ([]byte, error) {
-	return r.LocalLookup(q)
-}
-
-func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	if r.Resolver == nil {
-		r.Resolver = net.DefaultResolver
-	}
-	// return nil, errors.New("lookup net ip: not implemented")
-	return r.Resolver.LookupNetIP(ctx, network, host)
-}
-
 func (r fakeResolver) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
 	if r.Resolver == nil {
 		r.Resolver = net.DefaultResolver
@@ -106,7 +94,7 @@ func (r fakeResolver) LookupNetIPFor(ctx context.Context, network, host, uid str
 	return r.Resolver.LookupNetIP(ctx, network, host)
 }
 
-func (r fakeResolver) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
+func (r fakeResolver) LocalLookupNetIP(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
 	if r.Resolver == nil {
 		r.Resolver = net.DefaultResolver
 	}

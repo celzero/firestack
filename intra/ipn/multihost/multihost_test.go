@@ -67,19 +67,11 @@ func (r fakeResolver) LocalLookup(q []byte) ([]byte, error) {
 	return r.Lookup(q, protect.MyUid)
 }
 
-func (r fakeResolver) LookupFor(q []byte, _ string) ([]byte, error) {
-	return r.Lookup(q, protect.MyUid)
-}
-
-func (r fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	return r.Resolver.LookupNetIP(ctx, network, host)
-}
-
 func (r fakeResolver) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
 	return r.Resolver.LookupNetIP(ctx, network, host)
 }
 
-func (r fakeResolver) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
+func (r fakeResolver) LocalLookupNetIP(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
 	return r.Resolver.LookupNetIP(ctx, network, host)
 }
 

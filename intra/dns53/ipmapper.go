@@ -83,22 +83,12 @@ func (m *ipmapper) Lookup(q []byte, uid string, tids ...string) ([]byte, error) 
 }
 
 // Implements IPMapper.
-func (m *ipmapper) LookupFor(q []byte, uid string) ([]byte, error) {
-	return m.queryAny2(q, uid)
-}
-
-// Implements IPMapper.
-func (m *ipmapper) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
-	return m.queryIP(ctx, network, host, core.UNKNOWN_UID_STR)
-}
-
-// Implements IPMapper.
 func (m *ipmapper) LookupNetIPFor(ctx context.Context, network, host, uid string) ([]netip.Addr, error) {
 	return m.queryIP(ctx, network, host, uid)
 }
 
 // Implements IPMapper.
-func (m *ipmapper) LookupNetIPOn(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
+func (m *ipmapper) LocalLookupNetIP(ctx context.Context, network, host string, tid ...string) ([]netip.Addr, error) {
 	return m.queryIP2(ctx, network, host, protect.MyUid, tid...)
 }
 

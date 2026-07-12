@@ -77,19 +77,11 @@ func (r fakeResolver) Lookup([]byte, string, ...string) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (r fakeResolver) LookupFor([]byte, string) ([]byte, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (r fakeResolver) LookupNetIP(_ context.Context, _, _ string) ([]netip.Addr, error) {
-	return nil, errors.New("not implemented")
-}
-
 func (r fakeResolver) LookupNetIPFor(_ context.Context, _, _, _ string) ([]netip.Addr, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (r fakeResolver) LookupNetIPOn(_ context.Context, _, _ string, _ ...string) ([]netip.Addr, error) {
+func (r fakeResolver) LocalLookupNetIP(_ context.Context, _, _ string, _ ...string) ([]netip.Addr, error) {
 	return nil, errors.New("not implemented")
 }
 

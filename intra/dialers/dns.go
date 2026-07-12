@@ -31,7 +31,7 @@ func Resolve(hostname string, tids ...string) (addrs []netip.Addr, err error) {
 	// both lookups may return addrs = nil, err = nil
 	// (see: ipmapper.go:queryIP2 and protect.NeverResolve)
 	// ipm.LookupNetIPxxx itself has a short-term cache (ipmapper.go:battl)
-	addrs, err = ipm.LookupNetIPOn(ctx, "ip", hostname, tids...)
+	addrs, err = ipm.LocalLookupNetIP(ctx, "ip", hostname, tids...)
 
 	if len(addrs) <= 0 { // check cache
 		if addrs = CachedAddrs(hostname); len(addrs) > 0 {
