@@ -245,6 +245,8 @@ type proxifier struct {
 	rpnmu sync.RWMutex        // protects rp
 	rp    map[string]RpnProxy // main rpn proxies
 
+	// TODO: expose hop stats, alg miss gen stats, loopback tracker stats,
+	// ipmap stats, other map use stats
 	hmu sync.RWMutex        // protects hp
 	hp  map[string][]string // hopproxy => [proxyid]
 
