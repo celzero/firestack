@@ -145,12 +145,8 @@ type Transport interface {
 
 // TransportMult is a hybrid: transport and a multi-transport.
 type TransportMult interface {
-	TransportMultInternal
-	Transport
-}
-
-type TransportMultInternal interface {
 	x.DNSTransportMult
+	Transport
 	TransportProviderInternal
 }
 
@@ -169,7 +165,6 @@ type TransportProviderInternal interface {
 type Resolver interface {
 	TransportProviderInternal
 	TransportMultProviderInternal
-	TransportMultInternal
 	ResolverSelf
 	RdnsResolver
 	NatPt
@@ -197,22 +192,28 @@ type Resolver interface {
 type resolver struct {
 	sync.RWMutex // protects transports
 	NatPt
-	ctx          context.Context
-	done         context.CancelFunc
+	ctx  context.Context
+	done context.CancelFunc
+
 	dnsaddrs     []netip.AddrPort
 	transports   map[string]Transport
 	gateway      Gateway
 	localdomains x.RadixTree
-	listener     x.DNSListener
-	smms         chan *x.DNSSummary
+
+	listener x.DNSListener
+	smms     chan *x.DNSSummary
 
 	once   sync.Once
 	closed atomic.Bool
 
 	// mutable fields
-	rmu   sync.RWMutex // protects rdnsr and rdnsl
-	rdnsl *rethinkdnslocal
-	rdnsr *rethinkdns
+	rdnsl atomic.Pointer[rethinkdnslocal]
+	rdnsr atomic.Pointer[rethinkdns]
+}
+
+// Status implements [backend.DNSResolver].
+func (h *resolver) Status() int32 {
+	return Start
 }
 
 var _ Resolver = (*resolver)(nil)
@@ -1250,8 +1251,8 @@ func parseTidOpt(entry string) (tid string, pids []string) {
 }
 
 func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv, spidcsv, diag string, ips []netip.Addr) {
-	var x []string  // primary tids parsed from TIDCSV
-	var xx []string // secondary tids parsed from TIDSECCSV
+	var x []string               // primary tids parsed from TIDCSV
+	var xx []string              // secondary tids parsed from TIDSECCSV
 	var t1pids map[string]string // tid -> pidcsv (from TIDCSV)
 	var t2pids map[string]string // tid -> pidcsv (from TIDSECCSV)
 	var badips, badfam int

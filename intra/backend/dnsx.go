@@ -163,6 +163,7 @@ type DNSResolver interface {
 	DNSTransportMult
 	DNSTransportMultProvider
 	RDNSResolver
+	Status() int32
 }
 
 type ResolverListener interface {
