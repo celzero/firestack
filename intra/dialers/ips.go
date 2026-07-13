@@ -13,6 +13,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
+	"github.com/celzero/firestack/intra/xdns"
 )
 
 const (
@@ -112,6 +113,29 @@ func CachedAddrs(hostOrIP string) []netip.Addr {
 		return ipset.Addrs()
 	}
 	return nil
+}
+
+// Cache adds a set of addresses for host to the cache.
+func Cache(host string, addrs []netip.Addr) bool {
+	if len(host) <= 0 || len(addrs) <= 0 {
+		return false
+	}
+	s := ipm.AddMany(host, addrs)
+	return s != nil && !s.Empty()
+}
+
+func CacheFrom(a []byte) bool {
+	msg := xdns.AsMsg(a)
+	if msg == nil {
+		return false
+	}
+	qname := xdns.QName(msg)
+	host, err := xdns.NormalizeQName(qname)
+	if err != nil {
+		log.E("dialers: ips: cachefrom: normalize qname %s err: %v", qname, err)
+		return false
+	}
+	return Cache(host, xdns.IPs(msg))
 }
 
 // Mapper is a hostname to IP (a/aaaa) resolver for the network engine; may be nil.
