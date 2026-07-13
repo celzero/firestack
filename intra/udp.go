@@ -314,6 +314,14 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 		px, err = h.prox.ProxyTo(dstipp, "udp", uid, pids)
 
+		// TODO: wait to break circular route after going through all actualTargets?
+		if errors.Is(err, ipn.ErrCircularRoute) {
+			log.I("udp: dial: loop: break1 #%d: %s circular route; dst(%s) for %s; exiting...", i, cid, dstipp, uid)
+			// do not invoke ProxyTo (as it also pins dst to ipn.Exit)
+			// we only want to break "circular loop" just this one time.
+			px, err = h.prox.ProxyFor(ipn.Exit)
+		}
+
 		selectedTarget = dstipp
 
 		if err != nil || px == nil {
@@ -327,7 +335,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		smm.Target = selectedTarget.Addr().String() // may be invalid
 
 		if h.loopDetected(smm) {
-			log.I("udp: loop: break %s => %v via %s for %s; exiting...", src, selectedTarget, smm.PID, uid)
+			log.I("udp: dial: loop: break2 %s => %v via %s for %s; exiting...", src, selectedTarget, smm.PID, uid)
 			px, err = h.prox.ProxyTo(dstipp, "udp", uid, onlyExitPid)
 			smm.PID = ipn.Exit // last chosen proxy may yet emayrror out
 			smm.RPID = ""

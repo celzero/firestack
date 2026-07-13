@@ -526,7 +526,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 			if iscircular(p, ippstr) {
 				circular = append(circular, pids[0])
 				px.delpin(uid, ipp)
-				return nil, e(errCircularRoute)
+				// circular route must be returned as-is (clients may check for equality)
+				return nil, ErrCircularRoute
 			}
 			if !hasroute(p, ippstr) {
 				px.delpin(uid, ipp)
@@ -724,7 +725,8 @@ retrySearch:
 	} else if len(noh3proxies) > 0 {
 		return nil, e(errProxyProtoH3)
 	} else if len(circular) > 0 {
-		return nil, e(errCircularRoute)
+		// circular route errors returned as-is, as clients may check for equality
+		return nil, errCircularRoute
 	}
 
 	return nil, e(errProxyAllDown)

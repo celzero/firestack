@@ -328,6 +328,14 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		var px ipn.Proxy = nil
 		px, err = h.prox.ProxyTo(dstipp, "tcp", uid, pids)
 
+		// TODO: wait to break circular route after going through all actualTargets?
+		if errors.Is(err, ipn.ErrCircularRoute) {
+			log.E("tcp: loop: dial: break1: #%d: %s circular route; dst(%s) for %s; exiting...", i, cid, dstipp, uid)
+			// do not invoke ProxyTo (as it also pins dst to ipn.Exit)
+			// we only want to break "circular loop" just this one time.
+			px, err = h.prox.ProxyFor(ipn.Exit)
+		}
+
 		// last chosen (but not dialed in) proxy (which error)
 		smm.Target = targetstr // addr may be invalid
 		smm.PID = pidstr(px)   // px may be nil
@@ -340,7 +348,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 
 		if h.loopDetected(smm) {
-			log.I("tcp: loop: break %s => %s via %s for %s; exiting...", src, dstipp, smm.PID, uid)
+			log.I("tcp: dial: loop: break2: %s => %s via %s for %s; exiting...", src, dstipp, smm.PID, uid)
 			px, err = h.prox.ProxyTo(dstipp, "tcp", uid, onlyExitPid)
 			smm.PID = ipn.Exit
 			smm.RPID = ""
