@@ -106,8 +106,7 @@ type DNSTransport interface {
 	// Return the proxy (relay) always used by this transport.
 	// Returns nil if there isn't any.
 	GetRelay() Proxy
-	// State of the transport after previous query (see: queryerror.go)
-	Status() int32
+	DNSStatusProvider
 }
 
 type DNSTransportMult interface {
@@ -158,12 +157,17 @@ type DNSTransportMultProvider interface {
 	GetMult(id string) (DNSTransportMult, error)
 }
 
+type DNSStatusProvider interface {
+	// State of the transport after previous query (see: queryerror.go)
+	Status() int32
+}
+
 type DNSResolver interface {
 	DNSTransportProvider
 	DNSTransportMult
 	DNSTransportMultProvider
 	RDNSResolver
-	Status() int32
+	DNSStatusProvider
 }
 
 type ResolverListener interface {

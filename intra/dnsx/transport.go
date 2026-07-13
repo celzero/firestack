@@ -163,6 +163,8 @@ type TransportProviderInternal interface {
 }
 
 type Resolver interface {
+	x.DNSTransportMult
+	x.DNSStatusProvider
 	TransportProviderInternal
 	TransportMultProviderInternal
 	ResolverSelf
@@ -200,8 +202,9 @@ type resolver struct {
 	gateway      Gateway
 	localdomains x.RadixTree
 
-	listener x.DNSListener
-	smms     chan *x.DNSSummary
+	listener   x.DNSListener
+	smms       chan *x.DNSSummary
+	laststatus atomic.Int32
 
 	once   sync.Once
 	closed atomic.Bool
@@ -211,9 +214,9 @@ type resolver struct {
 	rdnsr atomic.Pointer[rethinkdns]
 }
 
-// Status implements [backend.DNSResolver].
+// Status implements [x.DNSResolver].
 func (h *resolver) Status() int32 {
-	return Start
+	return h.laststatus.Load()
 }
 
 var _ Resolver = (*resolver)(nil)
@@ -271,8 +274,9 @@ func (r *resolver) queueSummary(smm *x.DNSSummary) {
 		log.W("dns: fwd: smms closed; dropping %s", smm)
 	default:
 		select {
-		case <-r.ctx.Done():
+		case <-r.ctx.Done(): // DEnd will be stored by StopAll
 		case r.smms <- smm:
+			r.laststatus.Store(smm.Status)
 		default:
 			log.W("dns: fwd: smms full; dropping %s", smm)
 		}
@@ -1095,6 +1099,8 @@ func (r *resolver) StopAll() {
 		defer core.Go("r.onStop", func() { r.listener.OnDNSStopped() })
 		r.closed.Store(true)
 		r.done()
+
+		defer r.laststatus.Store(DEnd)
 
 		if dc, err := r.dcProxy(); err == nil {
 			_ = dc.Stop()
