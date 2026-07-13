@@ -219,8 +219,8 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 
 	log.D("tun: <<< new >>>; resolvers: ok")
 
-	dialers.IPProtos(dualstack)           // assume dual-stack
-	addIPMapper(ctx, resolver, dualstack) // namespace aware os-resolver for pkg dialers
+	dialers.IPProtos(dualstack) // assume dual-stack
+	dialers.Mapper(resolver)    // namespace aware os-resolver for pkg dialers
 
 	var src []netip.Prefix
 	for s := range strings.SplitSeq(ifaddrs, ",") {
@@ -271,7 +271,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 	context.AfterFunc(ctx, wire.Pool.Clear)
 	context.AfterFunc(ctx, dialers.Clear)
 	context.AfterFunc(ctx, ipn.ClearIPMeta)
-
+	context.AfterFunc(ctx, func() { dialers.Mapper(nil) })
 	log.I("tun: <<< new >>>; tunnel ok; reverser? %v", rerr)
 	return rt, nil
 }

@@ -24,13 +24,6 @@ import (
 	"github.com/celzero/firestack/intra/xdns"
 )
 
-func addIPMapper(ctx context.Context, r dnsx.Resolver, protos string) {
-	dns53.AddIPMapper(ctx, r, protos, false /*clear cache*/)
-	context.AfterFunc(ctx, func() {
-		dns53.AddIPMapper(ctx, nil, "", true /*clear cache*/)
-	})
-}
-
 // AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.
 func AddDNSProxy(t Tunnel, id, ippcsv string) error {
 	p, perr := t.internalProxies()

@@ -8,7 +8,6 @@ package dns53
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/netip"
 	"strings"
@@ -38,7 +37,11 @@ const (
 	mdnstimeout = 5 * time.Second  // default timeout for MDNS
 )
 
-var errQueryParse = errors.New("dns53: err parse query")
+var (
+	errQueryParse = dnsx.ErrQueryParse
+	errNoNet      = dnsx.ErrNoNet
+	errNoAns      = dnsx.ErrNoAns
+)
 
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {

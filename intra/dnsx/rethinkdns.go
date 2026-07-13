@@ -23,6 +23,7 @@ import (
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/xdns"
 
 	"slices"
@@ -70,8 +71,10 @@ type RdnsResolver interface {
 
 // ResolverSelf is for internal resolution needs.
 type ResolverSelf interface {
+	ipmap.IPMapper
+
 	// LocalLookup performs resolution on Default and/or Goos DNSes.
-	// To be only used by protect.MyUid.
+	// To be only used by [protect.MyUid].
 	LocalLookup(q []byte) (a []byte, tid string, err error)
 	// LookupFor performs resolution for uid.
 	LookupFor(q []byte, uid string) (a []byte, tid string, err error)

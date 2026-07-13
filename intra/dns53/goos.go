@@ -83,7 +83,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 	var err error
 	var ip netip.Addr
 	if msg == nil {
-		qerr = dnsx.NewBadQueryError(errQueryParse)
+		qerr = dnsx.NewBadQueryError(dnsx.ErrQueryParse)
 		return
 	}
 	if qerr = dnsx.WillErr(t); qerr != nil {
@@ -95,7 +95,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 	host := xdns.QName(msg)
 	// TODO: zero length host must return NS records for the root zone
 	if len(host) <= 0 || host == "." {
-		qerr = dnsx.NewBadQueryError(errNoHost)
+		qerr = dnsx.NewBadQueryError(dnsx.ErrNoHost)
 		elapsed = time.Since(start)
 		ans = xdns.Servfail(msg)
 		return
@@ -110,7 +110,7 @@ func (t *goosr) send(msg *dns.Msg) (ans *dns.Msg, elapsed time.Duration, qerr *d
 		if !aquadaq { // TODO: support queries other than A/AAAA
 			log.E("dns53: goosr: not A/AAAA query type for %d:%s", xdns.QType(msg), host)
 			ans = xdns.Servfail(msg)
-			err = errQueryParse
+			err = dnsx.ErrQueryParse
 		} else {
 			proto := "ip4"
 			if xdns.HasAAAAQuestion(msg) {
@@ -216,4 +216,8 @@ func (t *goosr) Stop() error {
 	t.status.Store(dnsx.DEnd)
 	t.done()
 	return nil
+}
+
+func str2ip(host string) (netip.Addr, error) {
+	return netip.ParseAddr(host)
 }

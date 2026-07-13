@@ -485,7 +485,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, ogtyp IPSetType) *IPSe
 
 	s := &IPSet{
 		typ:   typ,
-		r:     m, // m stays constant, but m.r may change
+		r:     m, // m stays constant, but underlying m.r may change
 		seed:  core.CopyUniq(ipps),
 		fails: atomic.Uint32{},
 	}

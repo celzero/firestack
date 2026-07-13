@@ -212,6 +212,9 @@ type resolver struct {
 	// mutable fields
 	rdnsl atomic.Pointer[rethinkdnslocal]
 	rdnsr atomic.Pointer[rethinkdns]
+
+	// ipmapper
+	ba *core.Barrier[answer, string]
 }
 
 // Status implements [x.DNSResolver].
@@ -232,6 +235,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 		smms:         make(chan *x.DNSSummary, 64),
 		transports:   make(map[string]Transport),
 		localdomains: ipmap.UndelegatedDomainsTrie,
+		ba:           core.NewBarrier[answer](ctx, "r.ipm.bar", battl),
 	}
 	r.loadaddrs(fakeaddrs)
 	r.gateway = NewDNSGateway(r.ctx, r.dnsaddrs, r, pt)
@@ -530,7 +534,7 @@ func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 	return r.forward(q, OriginInternal, core.Rand64(), uid)
 }
 
-// LocalLookup implements ResovlerSelf.
+// LocalLookup implements [ResolverSelf].
 func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
 	if r.closed.Load() {
 		return nil, NoDNS, errResolverClosed
