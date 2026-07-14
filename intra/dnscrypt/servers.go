@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math/rand"
 	"net"
 	"net/netip"
 	"strconv"
@@ -117,33 +116,21 @@ func (serversInfo *ServersInfo) getOne() (serverInfo *server) {
 	serversInfo.RLock()
 	defer serversInfo.RUnlock()
 
-	serversCount := len(serversInfo.inner)
-	if serversCount <= 0 {
+	if len(serversInfo.inner) <= 0 {
 		return nil
 	}
-	selectAny := false
-	candidate := rand.Intn(serversCount)
-retry:
-	i := 0
+
+	// Go map iteration is random. Return the first healthy server encountered.
 	for _, si := range serversInfo.inner {
-		if i == candidate || selectAny {
-			if si != nil && dnsx.WillErr(si) == nil {
-				if settings.Debug {
-					log.V("dnscrypt: candidate [%v]", si) // may be nil?
-				}
-				serverInfo = si
-				break
+		if si != nil && dnsx.WillErr(si) == nil {
+			if settings.Debug {
+				log.V("dnscrypt: candidate [%v]", si)
 			}
+			return si
 		}
-		i++
 	}
 
-	if serverInfo == nil && !selectAny {
-		selectAny = true
-		goto retry
-	}
-
-	return serverInfo
+	return nil
 }
 
 func (serversInfo *ServersInfo) get(name string) *server {

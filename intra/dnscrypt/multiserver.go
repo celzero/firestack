@@ -42,6 +42,9 @@ import (
 	stamps "github.com/jedisct1/go-dnsstamps"
 )
 
+// no of query exchange retries for udp
+const maxudptries = 2
+
 // DcMulti is a dnsx.TransportMult supporting dnscrypt servers and relays
 type DcMulti struct {
 	sync.RWMutex
@@ -124,7 +127,7 @@ func udpExchange(pid string, serverInfo *server, relayAddrs []*net.UDPAddr, shar
 		*bptr = encryptedResponse
 		core.Recycle(bptr)
 	}()
-	for tries := 2; tries > 0; tries-- {
+	for tries := maxudptries; tries > 0; tries-- {
 		if _, err = pc.Write(encryptedQuery); err != nil {
 			log.E("dnscrypt: udp: [%s] write err; [%v]", serverInfo.Name, err)
 			return
@@ -134,11 +137,12 @@ func udpExchange(pid string, serverInfo *server, relayAddrs []*net.UDPAddr, shar
 		if err == nil {
 			encryptedResponse = encryptedResponse[:length]
 			break
-		} else if tries <= 0 {
-			log.E("dnscrypt: udp: [%s] read err; quit [%v]", serverInfo.Name, err)
-			return
 		}
 		log.D("dnscrypt: udp: [%s] read err; retry [%v]", serverInfo.Name, err)
+	}
+	if err != nil {
+		log.E("dnscrypt: udp: [%s] read err; quit [%v]", serverInfo.Name, err)
+		return
 	}
 	res, err = decrypt(serverInfo, sharedKey, encryptedResponse, clientNonce)
 	return

@@ -87,9 +87,9 @@ func (ic *intercept) handleResponse(packet []byte, truncate bool) ([]byte, error
 		// HasTCFlag is always false because currently transport is TCP only
 		if len(packet) >= xdns.MinDNSPacketSize && xdns.HasTCFlag2(packet) {
 			log.W("dnscrypt: has-tc-flag, retry with tcp, ignore err: %w", err)
-			err = nil
+			return packet, nil // return raw packet; caller will retry
 		}
-		log.E("dnscrypt: has-tc-flag not set, intercept-handle-response err: %w", err)
+		log.E("dnscrypt: intercept-handle-response err: %w", err)
 		return packet, err
 	}
 
