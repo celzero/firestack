@@ -37,7 +37,8 @@ const (
 	defaultMullvadV4URL = "https://ipv4.am.i.mullvad.net/json"
 	defaultMullvadV6URL = "https://ipv6.am.i.mullvad.net/json"
 	maxIPBodySize       = int64(128 * 1024)
-	httpTimeout         = 10 * time.Second
+	maxHttpTimeout      = 10 * time.Second
+	httpResponseTimeout = 3 * time.Second
 )
 
 // test hooks
@@ -236,7 +237,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 		return nil, errors.New("testing: windscribe skipped")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), maxHttpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wsGeoURL, nil)
@@ -249,7 +250,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 
 	log.VV("proxy: client: %s fetching windscribe via %s...", idstr(p), network)
 
-	client := httpClient(p, network, httpTimeout)
+	client := httpClient(p, network, maxHttpTimeout)
 	resp, err := client.Do(req)
 	if resp == nil {
 		return nil, core.OneErr(err, errors.New("proxy: client: windscribe nil response"))
@@ -549,7 +550,7 @@ func applyMullvad(meta *x.IPMetadata, resp *mullvadResp) {
 }
 
 func fetch(p Proxy, network, rawurl string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), maxHttpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
@@ -560,7 +561,7 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	log.VV("proxy: client: %s fetching %s via %s...", idstr(p), rawurl, network)
 
 	// TODO: pool clients
-	client := httpClient(p, network, httpTimeout)
+	client := httpClient(p, network, maxHttpTimeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -593,7 +594,7 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 	return &http.Client{
 		Timeout: httpTimeout,
 		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			DialContext: func(_ context.Context, _, addr string) (net.Conn, error) {
 				host, port, err := net.SplitHostPort(addr)
 				if err != nil {
 					host = addr
@@ -621,7 +622,7 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 							idstr(p), network, dnsid, host, err)
 						ips = dialers.For(host)
 					} else {
-						log.E("proxy: client: %s on %s resolve %s err %s: %v",
+						err = log.EE("proxy: client: %s on %s resolve %s err %s: %v",
 							idstr(p), network, dnsid, host, err)
 						return nil, err
 					}
@@ -646,22 +647,23 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 				}
 
 				if log.Verbose {
-					log.VV("proxy: client: %s resolved %s to %v on port %d for %s",
+					log.V("proxy: client: %s resolved %s to %v on port %d for %s",
 						idstr(p), host, filtered, on, network)
 				}
 
 				var lastErr error
 				for _, ip := range filtered {
 					dest := netip.AddrPortFrom(ip, uint16(on)).String()
-					if conn, err := p.Dial(network, dest); err == nil {
-						log.VV("proxy: client: %s dialed %s @ %s on %s",
-							idstr(p), host, dest, network)
-						return conn, nil
-					} else {
-						log.E("proxy: client: %s failed to dial %s @ %s on %s: %v",
-							idstr(p), host, dest, network, err)
-						lastErr = err
+
+					// TODO: p.DialContext(ctx ...)
+					// dial via specified proxy
+					conn, err := p.Dial(network, dest)
+					if err != nil {
+						lastErr = log.EE("proxy: client: %s failed to dial %s @ %s on %s: %v", idstr(p), host, dest, network, err)
+						continue
 					}
+					log.I("proxy: client: %s dialed %s @ %s on %s", idstr(p), host, dest, network)
+					return conn, nil
 				}
 
 				return nil, core.OneErr(lastErr, core.ErrNoFruitOfLabour)

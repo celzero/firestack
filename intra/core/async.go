@@ -236,7 +236,7 @@ loop:
 	return // zz
 }
 
-func First[T any](who string, overallTimeout time.Duration, fs ...WorkCtx[T]) (zz T, idx int) {
+func First[T any](who string, overallTimeout time.Duration, tester func(T) bool, fs ...WorkCtx[T]) (zz T, idx int) {
 	timeoutPerFn := overallTimeout / time.Duration(len(fs))
 	for i, f := range fs {
 		// unneeded in go1.23+ i, f := i, f

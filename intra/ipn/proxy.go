@@ -309,7 +309,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	}
 	st := p.Status()
 	if err := candial2(st); err != nil {
-		log.W("proxy: %s reaches: err %v, status(%s)", idstr(p), err, pxstatus(st))
+		log.W("proxy: reaches: %s err %v, status(%s)", idstr(p), err, pxstatus(st))
 		return false
 	}
 	if len(urlOrHostPortOrIPPortCsv) <= 0 {
@@ -342,11 +342,11 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 				}
 				urls = append(urls, u.String())
 			}
-			log.I("proxy: %s reaches: auto:http for %v urls", idstr(p), urls)
+			log.I("proxy: reaches: %s auto:http for %v urls", idstr(p), urls)
 			urlOrHostPortOrIPPortCsv = strings.Join(urls, ",")
 		case "ip":
 			ips := make([]netip.Addr, 0, autoSize)
-			log.I("proxy: %s reaches: auto:ip for %v ips", idstr(p), ips)
+			log.I("proxy: reaches: %s auto:ip for %v ips", idstr(p), ips)
 
 			if ipfrag == "v4" {
 				protos = append(protos, "tcp4", "udp4")
@@ -368,7 +368,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			// default port for ip:port is 80 if left unspecified (see below)
 			urlOrHostPortOrIPPortCsv = strings.Join(core.Map(ips, func(ip netip.Addr) string { return ip.String() }), ",")
 		default:
-			log.E("proxy: %s reaches: auto:%s for %v protos; unsupported scheme", idstr(p), scheme, protos)
+			log.E("proxy: reaches: %s auto:%s for %v protos; unsupported scheme", idstr(p), scheme, protos)
 			return false
 		}
 	}
@@ -377,7 +377,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	hostportOrIPPort := strings.Split(urlOrHostPortOrIPPortCsv, ",")
 	if urls, oth := extractHttpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
 		if log.Verbose {
-			log.V("proxy: %s reaches: testing for %v", idstr(p), urls)
+			log.V("proxy: reaches: %s testing for %v", idstr(p), urls)
 		}
 
 		hostportOrIPPort = oth
@@ -385,12 +385,17 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		for _, u := range urls {
 			tests = append(tests, httpsReachesWorkCtx(p, u))
 		}
-		threeSecsPerTest := time.Duration(len(tests)) * 3 * time.Second
+		largeTimeoutForTest := time.Duration(len(tests)) * maxHttpTimeout
 
-		ok, who := core.First("reach.http."+pid, threeSecsPerTest, tests...)
+		ok, who := core.First(
+			"reach.http."+pid,
+			largeTimeoutForTest,
+			func(b bool) bool { return b },
+			tests...,
+		)
 
-		logeif(!ok)("proxy: %s #%d reaches: %v verdict (https): reachable? %t",
-			pid, who, urlOrHostPortOrIPPortCsv, ok)
+		logeif(!ok)("proxy: reaches: %s #%d %v verdict (https): (to: %s) reachable? %t (more? %t)",
+			pid, who, urlOrHostPortOrIPPortCsv, core.FmtPeriod(largeTimeoutForTest), ok, len(oth) > 0)
 
 		if !ok || len(oth) <= 0 {
 			return ok
@@ -456,20 +461,21 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	}
 
 	if n <= 0 {
-		log.W("proxy: %s reaches: %v / %v; no tests for %s",
+		log.W("proxy: reaches: %s %v / %v; no tests for %s",
 			pid, urlOrHostPortOrIPPortCsv, ipps, protos)
 		return false
 	}
 
 	ok, who, errs := core.Race("reach"+"."+pid, getproxytimeout, every(pid, tests)...)
 
-	logeif(!ok)("proxy: %s #%d reaches: %v => %v verdict (%s): reachable? %t; errs? %v",
+	logeif(!ok)("proxy: reaches: %s #%d %v => %v verdict (%s): reachable? %t; errs? %v",
 		pid, who, urlOrHostPortOrIPPortCsv, ipps, protos, ok, errs)
 
 	return ok
 }
 
-func httpclient(p Proxy, url *url.URL) (client *http.Client) {
+// Lightweight http transport client for one-time use
+func oneshothttp(_ context.Context, p Proxy, url *url.URL) (client *http.Client) {
 	v4, v6 := true, true
 	switch url.Fragment {
 	case "tcp", "udp":
@@ -479,11 +485,11 @@ func httpclient(p Proxy, url *url.URL) (client *http.Client) {
 		v4 = false // only v6
 	default:
 	}
-	// Lightweight transport for one-time use
 	client = &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: maxHttpTimeout,
 		Transport: &http.Transport{
-			Dial: func(network, addr string) (net.Conn, error) {
+			// TODO: use p.DialContext(ctx...)
+			DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
 				host, port, err := net.SplitHostPort(addr)
 				if err != nil {
 					if url.Scheme == "https" {
@@ -511,7 +517,7 @@ func httpclient(p Proxy, url *url.URL) (client *http.Client) {
 					}
 				}
 
-				logeif(len(ipps) == 0)("proxy: %s reaches: dial(%s, %s [among %v]) for %s",
+				logeif(len(ipps) == 0)("proxy: reaches: %s dial(%s, %s [among %v]) for %s",
 					idstr(p), network, addr, ipps, url)
 
 				if len(ipps) <= 0 {
@@ -530,10 +536,10 @@ func httpclient(p Proxy, url *url.URL) (client *http.Client) {
 			MaxIdleConns:        -1,
 			MaxIdleConnsPerHost: -1,
 			// Short timeouts for quick failure detection
-			ResponseHeaderTimeout: 3 * time.Second,
+			ResponseHeaderTimeout: httpResponseTimeout,
 			// TODO: Prefer h1 to simplify conn handling?
 			ForceAttemptHTTP2:   true,
-			TLSHandshakeTimeout: 3 * time.Second,
+			TLSHandshakeTimeout: httpResponseTimeout,
 		},
 	}
 	return
@@ -843,9 +849,10 @@ func extractHttpURLs(csv string) (urls []*url.URL, oth []string) {
 	return
 }
 
+// TODO: context carries cancel signal.
 func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
 	return func(ctx context.Context) (bool, error) {
-		return httpsReaches(idstr(p), httpclient(p, url), url)
+		return httpsReaches(idstr(p), oneshothttp(ctx, p, url), url)
 	}
 }
 
