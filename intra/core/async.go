@@ -241,7 +241,7 @@ func First[T any](who string, overallTimeout time.Duration, tester func(T) bool,
 	for i, f := range fs {
 		// unneeded in go1.23+ i, f := i, f
 		fid := who + ".all." + strconv.Itoa(i)
-		if x, ok := Grx(fid, f, timeoutPerFn); ok {
+		if x, ok := Grx(fid, f, timeoutPerFn); ok && tester(x) {
 			return x, i
 		}
 	}

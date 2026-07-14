@@ -394,8 +394,8 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			tests...,
 		)
 
-		logeif(!ok)("proxy: reaches: %s #%d %v verdict (https): (to: %s) reachable? %t (more? %t)",
-			pid, who, urlOrHostPortOrIPPortCsv, core.FmtPeriod(largeTimeoutForTest), ok, len(oth) > 0)
+		logeif(!ok)("proxy: reaches: %s #%d / %d %v verdict (https): (to: %s) reachable? %t (more? %t)",
+			pid, who, len(urls), urlOrHostPortOrIPPortCsv, core.FmtPeriod(largeTimeoutForTest), ok, len(oth) > 0)
 
 		if !ok || len(oth) <= 0 {
 			return ok
