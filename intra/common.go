@@ -113,6 +113,7 @@ func newBaseHandler(pctx context.Context, proto string, r dnsx.Resolver, px ipn.
 		listener:    l,
 		fwtracker:   core.NewExpiringMap[string, string](pctx, proto+".fwtrack"),
 		conntracker: core.NewConnMap(proto + ".conntrack"),
+		looptracker: make(map[string]uint64),
 	}
 	h.status.Store(HDLOK)
 	context.AfterFunc(pctx, h.End)
