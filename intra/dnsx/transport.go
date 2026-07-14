@@ -504,25 +504,32 @@ func (r *resolver) IsDnsAddr(ipport netip.AddrPort) bool {
 	return r.isDns(ipport)
 }
 
-// LookupFor2 implements ResolverSelf.
+// LookupFor2 implements [ResolverSelf].
 func (r *resolver) LookupFor2(q []byte, uid string, tids ...string) ([]byte, string, error) {
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
 	// uid may be UNKNOWN_UID_STR if set so by gateway.q()/alg.q()
+	// treat it as an internal lookup
 	if uid == core.UNKNOWN_UID_STR {
 		uid = protect.MyUid
+	}
+	if uid == protect.MyUid {
+		return r.lookupinternal(q)
 	}
 	// if len(tids) == 0, use transport from preferences
 	return r.forward(q, OriginInternal, core.Rand64(), uid, tids...)
 }
 
-// LookupFor implements ResolverSelf.
+// LookupFor implements [ResolverSelf].
 func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
 
+	if uid == protect.MyUid {
+		return r.lookupinternal(q)
+	}
 	// prechose tids preferred & fixed when uid is set to 0, -1, or 1051 (common
 	// android system components that send DNS requests on behalf of actual apps/uids)
 	// to use "fixed" transport to later uncover the actual requesting app/uid during
@@ -534,8 +541,8 @@ func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
 	return r.forward(q, OriginInternal, core.Rand64(), uid)
 }
 
-// LocalLookup implements [ResolverSelf].
-func (r *resolver) LocalLookup(q []byte) ([]byte, string, error) {
+// lookupinternal for [OriginInternal] queries on behalf of [protect.MyUid] over [Default].
+func (r *resolver) lookupinternal(q []byte) ([]byte, string, error) {
 	if r.closed.Load() {
 		return nil, NoDNS, errResolverClosed
 	}

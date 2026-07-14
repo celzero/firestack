@@ -220,7 +220,7 @@ func (m *resolver) lookupon(q []byte, uid string, tids ...string) func() (answer
 // if dnsx.Default fails.
 func (m *resolver) locallookup(q []byte) func() (answer, error) {
 	return func() (answer, error) {
-		a, tid, err := m.LocalLookup(q)
+		a, tid, err := m.LookupFor(q, protect.MyUid)
 		return answer{a, tid, protect.MyUid}, err
 	}
 }

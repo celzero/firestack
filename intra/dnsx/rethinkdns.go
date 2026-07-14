@@ -73,9 +73,6 @@ type RdnsResolver interface {
 type ResolverSelf interface {
 	ipmap.IPMapper
 
-	// LocalLookup performs resolution on Default and/or Goos DNSes.
-	// To be only used by [protect.MyUid].
-	LocalLookup(q []byte) (a []byte, tid string, err error)
 	// LookupFor performs resolution for uid.
 	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
 	// Lookup performs resolution on chosen Transport for uid.

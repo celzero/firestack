@@ -169,20 +169,17 @@ func TestDot(t *testing.T) {
 	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
-	r4, _, err := resolv.LocalLookup(b4)
-	r6, _, err6 := resolv.LocalLookup(b6)
-	_, _, _ = resolv.LocalLookup(b24)
-	_, _, _ = resolv.LocalLookup(b26)
+	r4, err := resolv.Lookup(b4, protect.MyUid)
+	ko(t, err)
+	r6, err6 := resolv.Lookup(b6, protect.MyUid)
+	ko(t, err6)
+	_, err = resolv.Lookup(b24, protect.MyUid)
+	ko(t, err)
+	_, err = resolv.Lookup(b26, protect.MyUid)
+	ko(t, err)
 	time.Sleep(1 * time.Second)
-	_, _, _ = resolv.LocalLookup(b6)
-	if err != nil {
-		// log.Output(2, smm.Str())
-		t.Fatal(err)
-	}
-	if err6 != nil {
-		// log.Output(2, smm6.Str())
-		t.Fatal(err6)
-	}
+	_, err = resolv.Lookup(b6, protect.MyUid)
+	ko(t, err)
 	ans := xdns.AsMsg(r4)
 	ans6 := xdns.AsMsg(r6)
 	if xdns.Len(ans) == 0 && xdns.Len(ans6) == 0 {
@@ -287,8 +284,8 @@ func TestSEProxy(t *testing.T) {
 	b4, _ := q.Pack()
 	b6, _ := q6.Pack()
 
-	r4, _, err := resolv.LocalLookup(b4)
-	r6, _, err6 := resolv.LocalLookup(b6)
+	r4, err := resolv.Lookup(b4, protect.MyUid)
+	r6, err6 := resolv.Lookup(b6, protect.MyUid)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)
@@ -386,7 +383,7 @@ func TestWgReaches(t *testing.T) {
 	}*/
 	ilog.VV("-----------------------DNSX--------------------------")
 	b4, _ := aquery("skysports.com").Pack()
-	r4, _, err := resolv.LocalLookup(b4) // must use "test0"
+	r4, err := resolv.Lookup(b4, protect.MyUid) // must use "test0"
 
 	ilog.D("testwg: %v", win.Router().Stat())
 	time.Sleep(2 * time.Second)
@@ -528,7 +525,7 @@ func TestWinReaches(t *testing.T) {
 	}*/
 	ilog.VV("\n-----------------------DNSX--------------------------\n")
 	b4, _ := aquery("skysports.com").Pack()
-	r4, _, err := resolv.LocalLookup(b4) // must use "test0"
+	r4, err := resolv.Lookup(b4, protect.MyUid) // must use "test0"
 	ko(t, err)
 
 	ilog.D("%v", propx2.Router().Stat())
