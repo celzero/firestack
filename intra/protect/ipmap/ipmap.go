@@ -96,6 +96,7 @@ type IPMapper interface {
 
 // IPMap maps hostnames to IPSets.
 type IPMap interface {
+	// IPMapper facade delegates to actual IPMapper implementation.
 	IPMapper
 	// Resolves hostOrIP and adds the resulting IPs to its IPSet.
 	// hostOrIP may be host:port, or ip:port, or host, or ip.
