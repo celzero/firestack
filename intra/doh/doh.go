@@ -847,9 +847,14 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
 
+	loopingback := settings.Loopingback.Load()
 	canproxy := dnsx.CanUseProxy(t.id)
 	if !canproxy { // bootstrap/default may not be proxied
-		pid = dnsx.NetBaseProxy
+		if loopingback {
+			pid = dnsx.NetExitProxy
+		} else {
+			pid = dnsx.NetBaseProxy
+		}
 	} else if r := t.relay; len(r) > 0 {
 		pid = t.chooseProxy(r)
 	} else {

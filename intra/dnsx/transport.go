@@ -1703,9 +1703,9 @@ func overrideProxyIfNeeded(pid string, ids ...string) string {
 		case CT + Goos, CT + Local: // exit
 			return NetExitProxy
 		case System, Preset: // base
-			return NetBaseProxy
+			return NetBaseProxy // TODO: exit if loopback?
 		case CT + System, CT + Preset: // base
-			return NetBaseProxy
+			return NetBaseProxy // exit if loopback?
 		case Default, CT + Default, Bootstrap, CT + Bootstrap: // may be proxy
 			return proxyForDefault(pid)
 		}
@@ -1754,7 +1754,7 @@ func proxyForDefault(pid string) string {
 	if canProxyDefault() {
 		return pid
 	}
-	return NetBaseProxy
+	return NetBaseProxy // TODO: Exit if loopback?
 }
 
 func skipInternalCache(tids ...string) bool {

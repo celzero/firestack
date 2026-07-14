@@ -154,7 +154,7 @@ func NewTransportFrom(ctx context.Context, id string, ipp netip.AddrPort, px ipn
 
 func (t *transport) pxdial(network, pid string) (*dns.Conn, string, uint64, error) {
 	// dnsx.CanUseProxy may return true even when Bootstrap is System DNS
-	if t.id == dnsx.Bootstrap || t.id == dnsx.System { // bootstrap/default never be proxied
+	if t.id == dnsx.Bootstrap || t.id == dnsx.System || !dnsx.CanUseProxy(t.id) { // bootstrap/default never be proxied
 		// never proxy dns53 transport with "bootstrap" id is a clone of dnsx.System
 		if settings.Loopingback.Load() {
 			// TODO: if system dns is always exited (regardless of whether "self uid" is set
