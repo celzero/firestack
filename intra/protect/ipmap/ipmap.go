@@ -295,9 +295,13 @@ func (m *ipmap) ReverseGetMany(n uint8, ipver string) []string {
 		}
 		return strings.Contains(host, ".")
 	}
+	nn := 0
+	if n > 4 {
+		nn = int(n) - 2 // at least 2 from m.p
+	}
 	// TODO: use hosts with public prefixes
 	for host, ips := range m.m {
-		if len(hosts) >= int(n) {
+		if len(hosts) >= int(nn) {
 			break
 		}
 		if possiblyPublicHost(host) && hasDesiredIPFamily(ips, ipver) {
@@ -315,7 +319,7 @@ func (m *ipmap) ReverseGetMany(n uint8, ipver string) []string {
 		}
 	}
 
-	log.I("ipmap: ReverseGetMany: sampled %d hosts", len(hosts))
+	log.I("ipmap: ReverseGetMany: sampled %d hosts: %v", len(hosts), hosts)
 	return hosts
 }
 
