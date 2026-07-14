@@ -44,6 +44,7 @@ func NewBaseProxy(ctx context.Context, c protect.Controller, px ProxyProvider) *
 	return newBasicProxy(Base, fakeBaseAddr, ctx, c, px)
 }
 
+// see also newExitProxy
 func newBasicProxy(id, addr string, ctx context.Context, c protect.Controller, px ProxyProvider) *base {
 	ctx, done := context.WithCancel(ctx)
 	h := &base{

@@ -376,7 +376,9 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	pid := idstr(p)
 	hostportOrIPPort := strings.Split(urlOrHostPortOrIPPortCsv, ",")
 	if urls, oth := extractHttpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
-		log.V("proxy: %s reaches: testing for %v", idstr(p), urls)
+		if log.Verbose {
+			log.V("proxy: %s reaches: testing for %v", idstr(p), urls)
+		}
 
 		hostportOrIPPort = oth
 		tests := make([]core.WorkCtx[bool], 0)
@@ -431,8 +433,11 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		}
 	}
 
+	if log.Verbose {
+		log.V("proxy: %s reaches: testing for %s", pid, ipps)
+	}
+
 	n := 0
-	log.V("proxy: %s reaches: testing for %s", pid, ipps)
 	tests := make([][]core.WorkCtx[bool], 0)
 	for _, ipp := range ipps {
 		fns := make([]core.WorkCtx[bool], 0)

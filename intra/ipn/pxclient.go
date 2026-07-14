@@ -616,7 +616,7 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 
 				ips, err := dialers.Resolve(host, dnsid)
 				if err != nil {
-					if settings.DefaultDNSAsFallback.Load() {
+					if dnsid != x.Default && settings.DefaultDNSAsFallback.Load() {
 						log.D("proxy: client: %s on %s resolve %s err %s: %v; using Default",
 							idstr(p), network, dnsid, host, err)
 						ips = dialers.For(host)
@@ -625,6 +625,10 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 							idstr(p), network, dnsid, host, err)
 						return nil, err
 					}
+				}
+
+				if len(ips) <= 0 {
+					return nil, errMissingAddress
 				}
 
 				filtered := make([]netip.Addr, 0, len(ips))
@@ -641,8 +645,10 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 					return nil, errNoSuitableAddress
 				}
 
-				log.VV("proxy: client: %s resolved %s to %v on port %d for %s",
-					idstr(p), host, filtered, on, network)
+				if log.Verbose {
+					log.VV("proxy: client: %s resolved %s to %v on port %d for %s",
+						idstr(p), host, filtered, on, network)
+				}
 
 				var lastErr error
 				for _, ip := range filtered {
@@ -658,10 +664,7 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 					}
 				}
 
-				if lastErr == nil {
-					lastErr = errNoSuitableAddress
-				}
-				return nil, lastErr
+				return nil, core.OneErr(lastErr, core.ErrNoFruitOfLabour)
 			},
 			TLSHandshakeTimeout:   httpTimeout / 2,
 			ResponseHeaderTimeout: httpTimeout - 2,
