@@ -71,6 +71,8 @@ var _ dnsx.Transport = (*transport)(nil)
 // NewTransportFromHostname returns a DNS53 transport serving from hostname, ready for use.
 func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ipcsv string, px ipn.ProxyProvider) (t *transport, err error) {
 	// ipcsv may contain port, eg: 10.1.1.3:53
+	// as a special case, the id may be "Bootstrap", and the corresponding
+	// hostOrHostport may be [protect.Selfhost] or [protect.Hostname]
 	do, err := settings.NewDNSOptionsFromHostname(hostOrHostport, ipcsv)
 	if err != nil {
 		return
@@ -107,10 +109,11 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		}
 	}
 	tx := &transport{
-		ctx:      ctx,
-		done:     done,
-		id:       id,
-		addrport: do.AddrPort(), // may be hostname:port or ip:port
+		ctx:  ctx,
+		done: done,
+		id:   id,
+		// may be hostname:port or ip:port or protect.Selfhost or protect.Systemhost
+		addrport: do.AddrPort(),
 		port:     do.Port(),
 		pool:     core.NewMultConnPool[uint64](ctx),
 		// todo: renable once we know why pooled wireguard dns conns are troublesome

@@ -115,6 +115,7 @@ func (b *bootstrap) newDefaultDohTransportLocked() (dnsx.Transport, error) {
 
 func (b *bootstrap) newDefaultTransportLocked() (dnsx.Transport, error) {
 	if ipcsv := b.ipports; len(ipcsv) > 0 {
+		// b.hostname may be protectedHostname or builtinHostname
 		return dns53.NewTransportFromHostname(b.ctx, bootid, b.hostname, ipcsv, b.proxies)
 	}
 	return nil, errCannotStart
