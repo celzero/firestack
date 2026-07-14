@@ -660,7 +660,7 @@ func (s *IPSet) add(hostOrIP string) ([]netip.Addr, bool) {
 		// for "proxy lockdown" / ip/domain rules and the like)
 		resolved, err = r.LookupNetIP(ctx, "ip", hostOrIP, protect.MyUid, x.System)
 	} else if s.typ == Regular || s.typ == AutoType {
-		resolved, err = r.LookupNetIP(ctx, "ip", protect.MyUid, hostOrIP)
+		resolved, err = r.LookupNetIP(ctx, "ip", hostOrIP, protect.MyUid)
 	}
 
 	if err != nil {
