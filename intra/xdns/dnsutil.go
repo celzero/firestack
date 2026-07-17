@@ -1215,7 +1215,7 @@ func MakeAAAARecord(name string, ip6 string, ttl uint32) *dns.AAAA {
 }
 
 func IsZeroPrefix(pfx net.IPNet) bool {
-	return bytes.Equal(pfx.IP, zeroprefix.IP) && bytes.Equal(pfx.Mask, zeroprefix.Mask)
+	return zeroprefix.IP.Equal(pfx.IP) && bytes.Equal(pfx.Mask, zeroprefix.Mask)
 }
 
 // MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
