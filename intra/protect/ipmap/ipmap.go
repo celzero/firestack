@@ -28,6 +28,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -408,13 +409,14 @@ func (m *ipmap) GetMany(n uint8, ipver string) []netip.Addr {
 		if desiredfamily(confirmed) && confirmed.IsGlobalUnicast() {
 			return confirmed
 		}
-		for _, ip := range s.ips {
+		for _, ip := range s.Addrs() {
 			if desiredfamily(ip) && ip.IsGlobalUnicast() {
 				return ip
 			}
 		}
 		return
 	}
+	// TODO: nn := 0
 	for _, s := range m.m {
 		if len(ips) >= int(n) {
 			break
@@ -770,8 +772,7 @@ func (s *IPSet) Addrs() []netip.Addr {
 		s.mu.RUnlock()
 		return []netip.Addr{}
 	}
-	c := make([]netip.Addr, 0, sz)
-	c = append(c, s.ips...)
+	c := slices.Clone(s.ips)
 	s.mu.RUnlock()
 
 	return core.ShuffleInPlace(c)

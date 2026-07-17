@@ -677,7 +677,7 @@ func IcmpReaches(p Proxy, ipp netip.AddrPort) (bool, error) {
 func viaCanListen(network string, hop Proxy) error {
 	switch network {
 	case "tcp", "tcp4":
-		c4, err4 := hop.Accept("udp", net.JoinHostPort(anyaddr4.String(), "0"))
+		c4, err4 := hop.Accept("tcp", net.JoinHostPort(anyaddr4.String(), "0"))
 		core.Close(c4)
 		if err4 != nil && errors.Is(err4, errAcceptNotSupported) {
 			return err4
@@ -768,7 +768,7 @@ func healthy(p Proxy) error {
 	oldEnough := age > ageThreshold.Milliseconds()
 	lastOK := stat.LastOK
 	lastOKNeverOK := lastOK <= 0
-	lastOKBeyondThres := now-lastOK > lastOKThreshold.Milliseconds()
+	lastOKBeyondThres := lastOK > 0 && now-lastOK > lastOKThreshold.Milliseconds()
 	if (oldEnough && lastOKNeverOK) || lastOKBeyondThres {
 		core.Gx("proxy.health.TNT."+pid, func() { p.onNotOK() }) // not ok for too long
 		return fmt.Errorf("proxy: %s not ok; age: %s / %s / lastOKNeverOK? %t / lastOKBeyondThres? %t",
