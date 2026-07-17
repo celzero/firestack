@@ -706,17 +706,6 @@ retrySearch:
 		}
 	}
 
-	// lopinned is always the first element, if any.
-	for _, pid := range loproxies {
-		// ignore err, as it unlikely for local proxies
-		// that are always available, and are presumed to
-		// be gateways (route all ips)
-		if p, _ := px.pinID(uid, ipp, pid); p != nil { // repin
-			return p, nil
-		}
-		missproxies = append(missproxies, pid)
-	}
-
 	if len(missproxies) > 0 && !waitedForMissingProxy {
 		// wait for the missing proxy to be added before returning error
 		waitedForMissingProxy = true
@@ -728,8 +717,19 @@ retrySearch:
 		log.W("proxy: pin: %s: %s: %s+%s; missing: %v; notok: %v; noroute: %v; paused: %v; ended: %v; waited: %ds",
 			who, proto, uid, ippstr, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, stalledSec)
 		pids = missproxies
-		missproxies = make([]string, 0)
+		clear(missproxies)
 		goto retrySearch
+	}
+
+	// lopinned is always the first element, if any.
+	for _, pid := range loproxies {
+		// ignore err, as it unlikely for local proxies
+		// that are always available, and are presumed to
+		// be gateways (route all ips)
+		if p, _ := px.pinID(uid, ipp, pid); p != nil { // repin
+			return p, nil
+		}
+		missproxies = append(missproxies, pid)
 	}
 
 	if len(notokproxies) > 0 {
