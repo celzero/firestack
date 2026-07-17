@@ -502,6 +502,7 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 		return nil, e(errMissingAddress)
 	}
 
+	totalStalledSec := uint32(0)
 	stalledSec := uint32(0)
 	var circular []string
 
@@ -517,11 +518,12 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 					time.Sleep(time.Duration(minWaitPeriodSec-stalledSec) * time.Second)
 					stalledSec = minWaitPeriodSec
 				}
+				totalStalledSec += stalledSec
 				goto retryPin
 			}
 		}
 		logev(err)("proxy: pin: single: 1 %s: %s: %s+%s; pin pid0: %s (stalled? %ds / waited? %t); err? %v",
-			who, proto, uid, ippstr, pids[0], stalledSec, waitedForMissingProxy, err)
+			who, proto, uid, ippstr, pids[0], totalStalledSec, waitedForMissingProxy, err)
 		if p != nil {
 			pid0 := p.ID()
 			iscircle := iscircular(p, ippstr)
@@ -531,7 +533,7 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 
 			if log.Verbose {
 				log.V("proxy: pin: single: 2 %s: %s: %s+%s; pin pid0: (%s <> %s) (stalled? %ds / waited? %t); err? %v; circular? %t; noroute? %t; canth3? %t; notok? %t",
-					who, proto, uid, ippstr, pid0, pids[0], stalledSec, waitedForMissingProxy, err, iscircle, noroute, canth3, notok)
+					who, proto, uid, ippstr, pid0, pids[0], totalStalledSec, waitedForMissingProxy, err, iscircle, noroute, canth3, notok)
 			}
 
 			if iscircle {
@@ -552,6 +554,7 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 			}
 			if notok { // proxy not ok
 				stalledSec = px.stall(uid + ippstr)
+				totalStalledSec += stalledSec
 			}
 			// wipe out err; return p, even if err is not nil
 			// helps client code verify for itself just why this proxy won't work...
@@ -589,7 +592,7 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 
 			if log.Verbose {
 				log.V("proxy: pin: %s: %s: %s+%s; chosen and pinned: 1 (%s <> %s) (stalled? %ds); err? %v; circular? %t; noroute? %t; canth3? %t",
-					who, proto, uid, ippstr, pinnedpid, pidc, stalledSec, err, iscircle, noroute, canth3)
+					who, proto, uid, ippstr, pinnedpid, pidc, totalStalledSec, err, iscircle, noroute, canth3)
 			}
 			// check for circular route before other checks
 			if iscircle {
@@ -624,7 +627,7 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 
 	defer func() {
 		logev(err)("proxy: pin: %s: %s: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v; noh3: %v; circular: %v",
-			who, proto, uid, ippstr, idstr(theone), stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies, circular)
+			who, proto, uid, ippstr, idstr(theone), totalStalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies, circular)
 	}()
 
 retrySearch:
@@ -686,7 +689,10 @@ retrySearch:
 	// can route but not healthy; choose any one on random
 	if len(notok) > 0 || len(noh3) > 0 {
 		// stall to allow a non-healthy proxy to recover
-		stalledSec = px.stall(uid + ippstr)
+		if totalStalledSec < minWaitPeriodSec {
+			stalledSec = px.stall(uid + ippstr)
+			totalStalledSec += stalledSec
+		}
 		if one := core.ChooseOne(notok); one != nil {
 			if log.Verbose {
 				log.V("proxy: pin: %s: %s: %s+%s; pinned: %s; from notok: %v",
@@ -709,13 +715,12 @@ retrySearch:
 	if len(missproxies) > 0 && !waitedForMissingProxy {
 		// wait for the missing proxy to be added before returning error
 		waitedForMissingProxy = true
-		stalledSec = px.stall(uid + ippstr)
-		if stalledSec < minWaitPeriodSec {
-			time.Sleep(time.Duration(minWaitPeriodSec-stalledSec) * time.Second)
-			stalledSec = minWaitPeriodSec
+		if totalStalledSec < minWaitPeriodSec {
+			stalledSec = px.stall(uid + ippstr)
+			totalStalledSec += stalledSec
 		}
 		log.W("proxy: pin: %s: %s: %s+%s; missing: %v; notok: %v; noroute: %v; paused: %v; ended: %v; waited: %ds",
-			who, proto, uid, ippstr, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, stalledSec)
+			who, proto, uid, ippstr, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, totalStalledSec)
 		pids = missproxies
 		clear(missproxies)
 		goto retrySearch
@@ -763,7 +768,7 @@ func (px *proxifier) stall(k string) (secs uint32) {
 		w := time.Duration(secs) * time.Second
 		time.Sleep(w)
 	}
-	return
+	return secs
 }
 
 // pinID pins uid+ipp to proxy id, if found, and returns the proxy.
