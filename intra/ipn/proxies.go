@@ -217,7 +217,7 @@ type ProxyProvider interface {
 	// ProxyFor returns a transport from this multi-transport.
 	ProxyFor(id string) (Proxy, error)
 	// ProxyTo returns the proxy to use for ipp from given pids.
-	ProxyTo(ipp netip.AddrPort, proto, uid string, pids []string) (Proxy, error)
+	ProxyTo(who string, ipp netip.AddrPort, proto, uid string, pids []string) (Proxy, error)
 	// ProxyRef returns currently reachable reference to Proxy, if any.
 	ProxyRef(who, id string) (*core.WeakRef[Proxy], error)
 }
@@ -488,7 +488,7 @@ func (px *proxifier) ProxyRef(who, id string) (*core.WeakRef[Proxy], error) {
 // ProxyTo implements Proxies.
 // May return both a Proxy and an error, in which case, the error
 // denotes that while the Proxy is not healthy, it is still registered.
-func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []string) (theone Proxy, err error) {
+func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, pids []string) (theone Proxy, err error) {
 	waitedForMissingProxy := false
 
 	ippstr := ipp.String()
@@ -520,26 +520,37 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 				goto retryPin
 			}
 		}
-		logev(err)("proxy: pin: %s: %s+%s; pin pid0: %s (stalled? %ds / waited? %t); err? %v",
-			proto, uid, ippstr, pids[0], stalledSec, waitedForMissingProxy, err)
+		logev(err)("proxy: pin: single: 1 %s: %s: %s+%s; pin pid0: %s (stalled? %ds / waited? %t); err? %v",
+			who, proto, uid, ippstr, pids[0], stalledSec, waitedForMissingProxy, err)
 		if p != nil {
-			if iscircular(p, ippstr) {
-				circular = append(circular, pids[0])
+			pid0 := p.ID()
+			iscircle := iscircular(p, ippstr)
+			noroute := !hasroute(p, ippstr)
+			canth3 := uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID())
+			notok := p.Status() == TNT
+
+			if log.Verbose {
+				log.V("proxy: pin: single: 2 %s: %s: %s+%s; pin pid0: (%s <> %s) (stalled? %ds / waited? %t); err? %v; circular? %t; noroute? %t; canth3? %t; notok? %t",
+					who, proto, uid, ippstr, pid0, pids[0], stalledSec, waitedForMissingProxy, err, iscircle, noroute, canth3, notok)
+			}
+
+			if iscircle {
+				circular = append(circular, pid0)
 				px.delpin(uid, ipp)
 				// circular route must be returned as-is (clients may check for equality)
 				return nil, ErrCircularRoute
 			}
-			if !hasroute(p, ippstr) {
+			if noroute {
 				px.delpin(uid, ipp)
 				return nil, e(core.JoinErr(err, errProxyRoute))
 			} // there is only one pid to route to
-			if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+			if canth3 {
 				// allow h3 like traffic from myuid, which could actually be rpn/wg on 443
 				err = errProxyProtoH3
 				px.delpin(uid, ipp)
 				return nil, e(core.JoinErr(err, errProxyProtoH3))
 			}
-			if p.Status() == TNT { // proxy not ok
+			if notok { // proxy not ok
 				stalledSec = px.stall(uid + ippstr)
 			}
 			// wipe out err; return p, even if err is not nil
@@ -555,9 +566,10 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 	chosen := has(pids, pinnedpid)
 	lo := local(pinnedpid)
 
-	log.VV("proxy: pin: %s: %s+%s; pinned: %s (ok? %t); chosen? %t / local? %t; from pids: %v",
-		proto, uid, ippstr, pinnedpid, pinok, chosen, lo, pids)
-
+	if log.Verbose {
+		log.VV("proxy: pin: %s: %s: %s+%s; pinned: %s (ok? %t); chosen? %t / local? %t; from pids: %v",
+			who, proto, uid, ippstr, pinnedpid, pinok, chosen, lo, pids)
+	}
 	if !pinok { // discard pinnedpid if pin has expired
 		pinnedpid = ""
 	}
@@ -567,24 +579,33 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 		lopinned = pinnedpid
 	} else if pinok && chosen {
 		p, err := px.pinID(uid, ipp, pinnedpid) // repin & health check
-
+		pidc := idstr(p)
 		hasp := core.IsNotNil(p)
+
 		if hasp && p != nil && err != nil {
+			iscircle := iscircular(p, ippstr)
+			noroute := !hasroute(p, ippstr)
+			canth3 := uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pidc)
+
+			if log.Verbose {
+				log.V("proxy: pin: %s: %s: %s+%s; chosen and pinned: 1 (%s <> %s) (stalled? %ds); err? %v; circular? %t; noroute? %t; canth3? %t",
+					who, proto, uid, ippstr, pinnedpid, pidc, stalledSec, err, iscircle, noroute, canth3)
+			}
 			// check for circular route before other checks
-			if iscircular(p, ippstr) {
+			if iscircle {
 				circular = append(circular, pinnedpid)
 				px.delpin(uid, ipp)
-			} else if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID()) {
+			} else if canth3 {
 				// allow h3 like egress from myuid, which could actually be rpn/wg on 443
 				err = core.JoinErr(err, errProxyProtoH3)
-			} else if hasroute(p, ippstr) {
+			} else if !noroute { // hasroute
 				return p, nil
 			} else {
 				px.delpin(uid, ipp) // del pin if no route
 			}
 		} // else: pinnedpid not ok (ex: END/TPU/TNT) or no route
-		logev(err)("proxy: pin: %s: %s+%s; chosen and pinned: %s (but err? %v); hasproxy? %t (or no route)",
-			proto, uid, ippstr, pinnedpid, err, hasp)
+		logev(err)("proxy: pin: %s: %s: %s+%s; chosen and pinned: 2 %s <> %s (but err? %v); hasproxy? %t (or no route)",
+			who, proto, uid, ippstr, pinnedpid, pidc, err, hasp)
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
 	}
@@ -602,8 +623,8 @@ func (px *proxifier) ProxyTo(ipp netip.AddrPort, proto, uid string, pids []strin
 	}
 
 	defer func() {
-		logev(err)("proxy: pin: %s: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v; noh3: %v; circular: %v",
-			proto, uid, ipp, idstr(theone), stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies, circular)
+		logev(err)("proxy: pin: %s: %s: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v; noh3: %v; circular: %v",
+			who, proto, uid, ippstr, idstr(theone), stalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies, circular)
 	}()
 
 retrySearch:
@@ -652,8 +673,7 @@ retrySearch:
 
 			err := px.pin(uid, ipp, p) // repin & ping if needed
 			if err == nil {
-				log.VV("proxy: pin: %s: %s+%s; pinned: %s; from pids: %v",
-					proto, uid, ippstr, pid, pids)
+				log.VV("proxy: pin: %s: %s: %s+%s; pinned: %s; from pids: %v", who, proto, uid, ippstr, pid, pids)
 				return p, nil
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
@@ -669,16 +689,16 @@ retrySearch:
 		stalledSec = px.stall(uid + ippstr)
 		if one := core.ChooseOne(notok); one != nil {
 			if log.Verbose {
-				log.V("proxy: pin: %s: %s+%s; pinned: %s; from notok: %v",
-					proto, uid, ippstr, idstr(one), notokproxies)
+				log.V("proxy: pin: %s: %s: %s+%s; pinned: %s; from notok: %v",
+					who, proto, uid, ippstr, idstr(one), notokproxies)
 			}
 			return one, nil
 		}
 		for i, one := range noh3 {
 			err := px.pin(uid, ipp, one) // repin & ping if needed
 			if err != nil || log.Verbose {
-				logev(err)("proxy: pin: %s: %s+%s; pinned: %s #%d; from noh3: %v; err? %v",
-					proto, uid, ippstr, idstr(one), i, noh3proxies, err)
+				logev(err)("proxy: pin: %s: %s: %s+%s; pinned: %s #%d; from noh3: %v; err? %v",
+					who, proto, uid, ippstr, idstr(one), i, noh3proxies, err)
 			}
 			if err == nil {
 				return one, nil
@@ -705,8 +725,8 @@ retrySearch:
 			time.Sleep(time.Duration(minWaitPeriodSec-stalledSec) * time.Second)
 			stalledSec = minWaitPeriodSec
 		}
-		log.W("proxy: pin: %s: %s+%s; missing: %v; notok: %v; noroute: %v; paused: %v; ended: %v; waited: %ds",
-			proto, uid, ippstr, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, stalledSec)
+		log.W("proxy: pin: %s: %s: %s+%s; missing: %v; notok: %v; noroute: %v; paused: %v; ended: %v; waited: %ds",
+			who, proto, uid, ippstr, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, stalledSec)
 		pids = missproxies
 		missproxies = make([]string, 0)
 		goto retrySearch

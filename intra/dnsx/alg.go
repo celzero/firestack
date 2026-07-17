@@ -2517,7 +2517,7 @@ func ChooseHealthyProxy(who, proto string, ipps []netip.AddrPort, pids []string,
 		if !ipp.IsValid() {
 			continue
 		}
-		if p, err := px.ProxyTo(ipp, proto, protect.MyUid, pids); err == nil {
+		if p, err := px.ProxyTo(who, ipp, proto, protect.MyUid, pids); err == nil {
 			pid = proxyID(p)
 			foundProxy = pid != NetNoProxy
 			cipp = ipp

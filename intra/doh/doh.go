@@ -825,10 +825,10 @@ func (t *transport) Type() string {
 	return t.typ
 }
 
-func (t *transport) chooseProxy(pids ...string) string {
+func (t *transport) chooseProxy(fid string, pids ...string) string {
 	host, port := t.hostport()
 	// TODO: doh3 is udp?
-	return dnsx.ChooseHealthyProxyHostPort("doh: "+t.id, dnsx.NetTypeTCP, host, port, pids, t.proxies)
+	return dnsx.ChooseHealthyProxyHostPort(fid+" doh."+t.id, dnsx.NetTypeTCP, host, port, pids, t.proxies)
 }
 
 func (t *transport) hostport() (addr string, port uint16) {
@@ -856,10 +856,10 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 			pid = dnsx.NetBaseProxy
 		}
 	} else if r := t.relay; len(r) > 0 {
-		pid = t.chooseProxy(r)
+		pid = t.chooseProxy(smm.FID, r)
 	} else {
 		_, pids := xdns.Net2ProxyID(network)
-		pid = t.chooseProxy(pids...)
+		pid = t.chooseProxy(smm.FID, pids...)
 	}
 
 	if t.typ == dnsx.DOH {

@@ -326,7 +326,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		targetstr := dstipp.Addr().String()
 
 		var px ipn.Proxy = nil
-		px, err = h.prox.ProxyTo(dstipp, "tcp", uid, pids)
+		px, err = h.prox.ProxyTo(cid, dstipp, "tcp", uid, pids)
 
 		// TODO: wait to break circular route after going through all actualTargets?
 		if errors.Is(err, ipn.ErrCircularRoute) {
@@ -348,8 +348,8 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 		}
 
 		if h.loopDetected(smm) {
-			log.I("tcp: dial: loop: break2: %s => %s via %s for %s; exiting...", src, dstipp, smm.PID, uid)
-			px, err = h.prox.ProxyTo(dstipp, "tcp", uid, onlyExitPid)
+			log.I("tcp: dial: loop: break2: #%d %s %s => %s via %s for %s; exiting...", i, cid, src, dstipp, smm.PID, uid)
+			px, err = h.prox.ProxyTo(cid+"/loop", dstipp, "tcp", uid, onlyExitPid)
 			smm.PID = ipn.Exit
 			smm.RPID = ""
 		}
@@ -478,7 +478,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 		}
 	})
 
-	log.I("tcp: %s dialed %s proxy(%s) %s => %s [%v] (bind? %t / bindaddr? %s) for %s; rtt? %s",
+	log.I("tcp: %s dialed %s proxy(%s) %s => %v (bind? %t / bindaddr? %s) for %s; rtt? %s",
 		smm.ID, smm.PID, src, targetstr, dstlocal, dialbindOK, bindAddr, smm.UID, core.FmtMillis(smm.Rtt))
 
 	return cont, nil // handled; takes ownership of src

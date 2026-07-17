@@ -94,7 +94,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		return false // denied
 	}
 
-	if px, err = h.prox.ProxyTo(dst, "icmp", uid, pids); err != nil || px == nil {
+	if px, err = h.prox.ProxyTo(cid, dst, "icmp", uid, pids); err != nil || px == nil {
 		err = log.EE("t.icmp: egress: no proxy(%s); err %v", pids, err)
 		return false // denied
 	}
@@ -104,8 +104,8 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	smm.Target = dst.Addr().String()
 
 	if h.loopDetected(smm) {
-		log.I("t.icmp: loop: break %s => %s via %s for %s; exiting...", source, dst, pidstr(px), uid)
-		px, err = h.prox.ProxyTo(dst, "icmp", uid, onlyExitPid)
+		log.I("t.icmp: loop: break %s: %s => %s via %s for %s; exiting...", cid, source, dst, pidstr(px), uid)
+		px, err = h.prox.ProxyTo(cid, dst, "icmp", uid, onlyExitPid)
 		smm.PID = ipn.Exit
 		smm.RPID = ""
 	}

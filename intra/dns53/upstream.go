@@ -296,8 +296,8 @@ func (t *transport) send(network, pid string, q *dns.Msg) (ans *dns.Msg, rpid st
 	return
 }
 
-func (t *transport) chooseProxy(pids ...string) string {
-	return dnsx.ChooseHealthyProxyHostPort("dns53: "+t.id, dnsx.NetTypeUDP, t.addrport, t.port, pids, t.proxies)
+func (t *transport) chooseProxy(fid string, pids ...string) string {
+	return dnsx.ChooseHealthyProxyHostPort(fid+" dns53."+t.id, dnsx.NetTypeUDP, t.addrport, t.port, pids, t.proxies)
 }
 
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
@@ -305,9 +305,9 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	proto, pids := xdns.Net2ProxyID(network)
 
 	if r := t.relay; len(r) > 0 {
-		pid = t.chooseProxy(r)
+		pid = t.chooseProxy(smm.FID, r)
 	} else {
-		pid = t.chooseProxy(pids...)
+		pid = t.chooseProxy(smm.FID, pids...)
 	}
 
 	ans, rpid, elapsed, qerr := t.send(proto, pid, q)

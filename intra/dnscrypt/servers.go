@@ -495,8 +495,8 @@ func (s *server) dialpx(pid, proto string, addr string) (net.Conn, error) {
 }
 
 // TODO: choose proxy w/ proto "tcp" or "udp"
-func (s *server) chooseProxy(pids ...string) string {
-	return dnsx.ChooseHealthyProxy("dnscrypt: "+s.ID(), dnsx.NetTypeTCP, s.IPPorts(), pids, s.proxies)
+func (s *server) chooseProxy(fid string, pids ...string) string {
+	return dnsx.ChooseHealthyProxy(fid+" dnscrypt."+s.ID(), dnsx.NetTypeTCP, s.IPPorts(), pids, s.proxies)
 }
 
 func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {

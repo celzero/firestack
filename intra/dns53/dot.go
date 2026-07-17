@@ -318,9 +318,9 @@ func (t *dot) sendRequest(pid string, q *dns.Msg) (ans *dns.Msg, rpid string, ec
 	return
 }
 
-func (t *dot) chooseProxy(pids ...string) string {
+func (t *dot) chooseProxy(fid string, pids ...string) string {
 	// TODO: DoT could use DTLS which is udp?
-	return dnsx.ChooseHealthyProxyHostPort("dot: "+t.id, dnsx.NetTypeTCP, t.addrport, t.port, pids, t.proxies)
+	return dnsx.ChooseHealthyProxyHostPort(fid+" dot."+t.id, dnsx.NetTypeTCP, t.addrport, t.port, pids, t.proxies)
 }
 
 func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
@@ -330,10 +330,10 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	var ech bool
 
 	if r := t.relay; len(r) > 0 {
-		pid = t.chooseProxy(r)
+		pid = t.chooseProxy(smm.FID, r)
 	} else {
 		_, pids := xdns.Net2ProxyID(network)
-		pid = t.chooseProxy(pids...)
+		pid = t.chooseProxy(smm.FID, pids...)
 	}
 
 	ans, rpid, ech, elapsed, qerr = t.doQuery(pid, q)

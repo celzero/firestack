@@ -319,6 +319,7 @@ func resolve(network string, data *dns.Msg, si *server, smm *x.DNSSummary) (ans 
 	var qerr *dnsx.QueryError
 	var anonrelayaddr net.Addr
 
+	fid := smm.FID
 	before := time.Now()
 
 	proto, pids := xdns.Net2ProxyID(network)
@@ -326,9 +327,9 @@ func resolve(network string, data *dns.Msg, si *server, smm *x.DNSSummary) (ans 
 	pid := dnsx.NetNoProxy
 	if si != nil {
 		if r := si.relay; len(r) > 0 {
-			pid = si.chooseProxy(r)
+			pid = si.chooseProxy(fid, r)
 		} else {
-			pid = si.chooseProxy(pids...)
+			pid = si.chooseProxy(fid, pids...)
 		}
 	}
 
