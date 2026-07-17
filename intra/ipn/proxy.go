@@ -402,6 +402,8 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		}
 	}
 
+	loopingback := settings.Loopingback.Load()
+	defaultfallback := settings.DefaultDNSAsFallback.Load()
 	// Original logic for host:port or ip:port
 	hastcp := has(protos, "tcp") || has(protos, "tcp4") || has(protos, "tcp6")
 	hasudp := has(protos, "udp") || has(protos, "udp4") || has(protos, "udp6")
@@ -413,24 +415,41 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		hasicmp = false
 		protos = []string{"tcp", "udp"}
 	}
-	// upstream := dnsx.Default
-	// if pdns := p.DNS(); len(pdns) > 0 {
-	//	upstream = pdns
-	// }
+
+	// use preferred when proxy does not have dns
+	dnsid := x.Preferred
+	if hasDNS := len(p.DNS()) > 0; hasDNS {
+		dnsid = pid
+	} else if p.Type() == INTERNET { // Exit or Exit64
+		dnsid = x.Default // TODO: should it be x.System for DNS64/NAT64?
+	} else if local(pid) && !loopingback { // Base
+		dnsid = x.Default
+	}
+
 	ipps := make([]netip.AddrPort, 0)
-	for _, x := range hostportOrIPPort {
-		host, port, err := net.SplitHostPort(x)
+	for _, h := range hostportOrIPPort {
+		host, port, err := net.SplitHostPort(h)
 		if err != nil {
 			port = "80"
 		} else {
-			x = host
+			h = host
 		}
 		on, _ := strconv.ParseUint(port, 10, 16)
 		if on == 0 {
 			on = 80
 		}
-		if len(x) > 0 { // x may be ip, host
-			ips := dialers.For(x)
+		if len(h) > 0 { // x may be ip, host
+			ips, err := dialers.Resolve(host, dnsid)
+			if err != nil {
+				if dnsid != x.Default && defaultfallback {
+					if log.Debug {
+						log.D("proxy: reaches: %s resolve %s err %s: %v; using Default", pid, dnsid, host, err)
+					}
+					ips = dialers.For(host)
+				}
+			} else {
+				log.E("proxy: reaches: %s resolve %s err %s: %v", pid, dnsid, host, err)
+			}
 			for _, ip := range ips {
 				ipp := netip.AddrPortFrom(ip, uint16(on))
 				ipps = append(ipps, ipp)
@@ -439,7 +458,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	}
 
 	if log.Verbose {
-		log.V("proxy: %s reaches: testing for %s", pid, ipps)
+		log.V("proxy: reaches: %s (dns: %s) ip testing for %s: %v", pid, dnsid, ipps, protos)
 	}
 
 	n := 0
@@ -461,8 +480,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	}
 
 	if n <= 0 {
-		log.W("proxy: reaches: %s %v / %v; no tests for %s",
-			pid, urlOrHostPortOrIPPortCsv, ipps, protos)
+		log.W("proxy: reaches: %s %v / %v; no tests for %s", pid, urlOrHostPortOrIPPortCsv, ipps, protos)
 		return false
 	}
 
