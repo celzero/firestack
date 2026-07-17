@@ -206,7 +206,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		}
 	}
 
-	if log.Debug {
+	if log.Verbose {
 		log.VV("com: %s: onFlow: preflow: has? %t, preuid: %s for %s => %s", h.proto, hasPre, preuid, src, dst)
 	}
 
@@ -220,7 +220,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 			for d := range strings.SplitSeq(doms, ",") {
 				nodomain := len(d) <= 0
 				if nodomain {
-					if log.Debug {
+					if log.Verbose {
 						logwif(len(d) <= 0)("com: %s: onFlow: preflow: %v from %v => %v for %s; nodomain? %t",
 							h.proto, doms, src, target, preuid, nodomain)
 					}
@@ -396,7 +396,7 @@ func (h *baseHandler) sendSummary(s *FlowSummary, after time.Duration) {
 		time.Sleep(after)
 	}
 
-	if log.Debug {
+	if log.Verbose {
 		log.VV("com: %s: end? sendNotif: %s", h.proto, s)
 	}
 	h.listener.Postflow(s) // s.Duration may be uninitialized (zero)
@@ -641,7 +641,7 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool
 		} // else: discard ip
 	}
 
-	if log.Debug {
+	if log.Verbose {
 		log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
 			use4, use6, origipp, len(ips), ips, r)
 	}
