@@ -54,6 +54,7 @@ import (
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
 	"github.com/miekg/dns"
+	"golang.org/x/net/http2"
 )
 
 const (
@@ -304,16 +305,29 @@ func asDialContext(d protect.DialFn) func(context.Context, string, string) (net.
 }
 
 func h2(d protect.DialFn, c *tls.Config) *http.Transport {
-	return &http.Transport{
-		DialContext:         asDialContext(d),
-		ForceAttemptHTTP2:   true,
-		IdleConnTimeout:     3 * time.Minute,
+	tr := &http.Transport{
+		DialContext:       asDialContext(d),
+		ForceAttemptHTTP2: true,
+		// Some resolvers close idle DoH connections well under 30s (Quad9 measured at <=30s
+		// from a fixed network; Cloudflare survives >240s). With the previous 3m pool, any DNS
+		// lull longer than the server's idle window left only dead connections in the pool, and
+		// subsequent queries were written into them — hanging ~10s and dying with
+		// "unexpected EOF" / http-status 502 bursts (maxEOFTries retries often just pick the next
+		// corpse). Keep pooled connections shorter-lived than any observed server-side idle window.
+		IdleConnTimeout:     10 * time.Second,
 		TLSHandshakeTimeout: 7 * time.Second,
 		// Android's DNS-over-TLS sets it to 30s
 		ResponseHeaderTimeout: 20 * time.Second,
 		// SNI (hostname) must always be inferred from http-request
 		TLSClientConfig: c,
 	}
+	// Health-check h2 connections with PING frames so half-dead ones are evicted instead of
+	// eating a query first (net/http does not do this by default).
+	if t2, err := http2.ConfigureTransports(tr); err == nil && t2 != nil {
+		t2.ReadIdleTimeout = 10 * time.Second
+		t2.PingTimeout = 5 * time.Second
+	}
+	return tr
 }
 
 // always called from a go-routine
