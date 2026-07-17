@@ -15,6 +15,7 @@
 package xdns
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"net/http"
@@ -32,6 +33,8 @@ const paddingBlockSize = 128 // RFC8467 recommendation
 
 // OPTION-CODE + OPTION-LENGTH
 const optPaddingHeaderLen int = 2 + 2
+
+var zeroprefix = net.IPNet{}
 
 func AsMsg(packet []byte) *dns.Msg {
 	msg, err := AsMsg2(packet)
@@ -1211,12 +1214,20 @@ func MakeAAAARecord(name string, ip6 string, ttl uint32) *dns.AAAA {
 	return rec
 }
 
+func IsZeroPrefix(pfx net.IPNet) bool {
+	return bytes.Equal(pfx.IP, zeroprefix.IP) && bytes.Equal(pfx.Mask, zeroprefix.Mask)
+}
+
 // MaybeToQuadA translates an A record to a AAAA record if the prefix is not nil.
 // The ttl of the new record is the max of the original ttl and minttl.
 // If the prefix is nil or answer has an empty A record, it returns nil.
-func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
+func MaybeToQuadA(answer dns.RR, prefix net.IPNet) *dns.AAAA {
+	if IsZeroPrefix(prefix) {
+		log.W("dnsutil: maybeToQuadA: prefix missing?")
+		return nil
+	}
 	header := answer.Header()
-	if prefix == nil || header.Rrtype != dns.TypeA {
+	if header.Rrtype != dns.TypeA {
 		return nil
 	}
 	ipxx, aok := answer.(*dns.A)
@@ -1229,7 +1240,13 @@ func MaybeToQuadA(answer dns.RR, prefix *net.IPNet) *dns.AAAA {
 	}
 	ttl := max(ansTTL, header.Ttl)
 
-	ipv6 := ip4to6(*prefix, ipv4)
+	// if prefix is empty IP, ipv6 will be all zeros?
+	ipv6 := ip4to6(prefix, ipv4)
+
+	if ipv6 == nil || len(ipv6) != net.IPv6len || ipv6.Equal(net.IPv6zero) {
+		log.W("dnsutil: maybeToQuadA: invalid ipv6 %s from %s/%s", ipv6, ipv4, prefix.String())
+		return nil
+	}
 
 	trec := new(dns.AAAA)
 	trec.Hdr = dns.RR_Header{

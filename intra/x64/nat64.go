@@ -20,11 +20,6 @@ func newNat64(_ context.Context) *nat64 {
 	return &nat64{}
 }
 
-// IsNat64 Implements NAT64.
-func (n *nat64) IsNat64(prefix64 *net.IPNet, ip6 net.IP) bool {
-	return prefix64.Contains(ip6)
-}
-
 // xAddr translates ip6 to IPv4 discarding prefix64.
 // If prefix64 or ip6 is not valid, it returns zerovalueaddr.
 // If ip6 is unspecified, it returns unspecified IPv4.

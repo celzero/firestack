@@ -62,8 +62,8 @@ type dns64 struct {
 	sync.RWMutex
 
 	ctx context.Context
-	// dns-resolver -> nat64-ips
-	ip64 map[string][]*net.IPNet
+	// dns-resolver -> nat64-ips (never contains zero net.IPNet)
+	ip64 map[string][]net.IPNet
 	// dns-resolver -> unique nat64-ips
 	uniqIP64 map[string]map[string]struct{}
 
@@ -73,7 +73,7 @@ type dns64 struct {
 func newDns64(ctx context.Context) *dns64 {
 	d := &dns64{
 		ctx:      ctx,
-		ip64:     make(map[string][]*net.IPNet),
+		ip64:     make(map[string][]net.IPNet),
 		uniqIP64: make(map[string]map[string]struct{}),
 	}
 	settings.PtMode.On(ctx, func(_ int32) {
@@ -115,12 +115,10 @@ func (d *dns64) init() {
 	}
 }
 
-func (d *dns64) allIP64s() map[string][]*net.IPNet {
+func (d *dns64) allIP64s() map[string][]net.IPNet {
 	d.RLock()
-	all := make(map[string][]*net.IPNet, len(d.ip64))
-	maps.Copy(all, d.ip64)
-	d.RUnlock()
-	return all
+	defer d.RUnlock()
+	return maps.Clone(d.ip64)
 }
 
 func questionArpa64() *dns.Msg {
@@ -135,7 +133,7 @@ func (d *dns64) register(id string) (paused bool) {
 	if l, ok := d.ip64[id]; ok {
 		log.W("dns64: overwrite existing ip64(%v) for resolver(%s)", l, id)
 	}
-	d.ip64[id] = make([]*net.IPNet, 0)
+	d.ip64[id] = make([]net.IPNet, 0)
 	d.uniqIP64[id] = make(map[string]struct{})
 	d.Unlock()
 
@@ -149,10 +147,10 @@ func (d *dns64) isPaused() bool {
 func (d *dns64) AddResolver(r string) (ok bool) {
 	id := id64(r)
 	switch id {
-	case dnsx.OverlayResolver:
-		return d.ofOverlay() == nil
 	case dnsx.Local464Resolver:
 		return d.ofLocal464() == nil
+	case dnsx.OverlayResolver:
+		return d.ofOverlay() == nil
 	}
 
 	if !d.register(id) { // re-register to start with a clean slate
@@ -205,6 +203,7 @@ func (d *dns64) AddResolver(r string) (ok bool) {
 }
 
 func (d *dns64) RemoveResolver(id string) bool {
+	id = id64(id)
 	d.Lock()
 	defer d.Unlock()
 	delete(d.ip64, id)
@@ -242,6 +241,8 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 	if len(ip64) <= 0 {
 		if ip64 = d.get(dnsx.UnderlayResolver); len(ip64) <= 0 {
 			if ip64 = d.get(dnsx.OverlayResolver); len(ip64) <= 0 {
+				// 64 prefix from Local646Resolver to be removed before egressing tunnel
+				// see: natpt.go:X64 and alg.go:maybeUndoLocalNat64Locked
 				ip64 = d.get(dnsx.Local464Resolver)
 			}
 		}
@@ -329,6 +330,8 @@ func (d *dns64) ofOverlay() error {
 		return nil
 	}
 
+	// TODO: handle Loopback mode
+	// AAAA query for ipv4only.arpa to overlay resolver
 	ips, err := net.DefaultResolver.LookupIP(d.ctx, "ip6", dnsx.Rfc7050WKN)
 	log.I("dns64: ipv4only.arpa w underlying network resolver")
 
@@ -388,7 +391,7 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 		}
 
 		endBit := endByte * 8
-		ipxx := new(net.IPNet)
+		ipxx := net.IPNet{}
 		// prefix ipv6 until the endByte, followed by all-zeros
 		// 64:ff9b:1::WKA -> 64:ff9b:1::
 		ipxx.IP = append(ipv6[:endByte], net.IPv6zero[endByte:]...)
@@ -409,13 +412,18 @@ func (d *dns64) add(serverid string, nat64 []net.IP) error {
 	}
 }
 
-func (d *dns64) get(serverid string) []*net.IPNet {
+func (d *dns64) get(serverid string) []net.IPNet {
 	d.RLock()
 	defer d.RUnlock()
 	return d.ip64[serverid]
 }
 
-func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {
+func (d *dns64) addNat64Prefix(id string, ipxx net.IPNet) error {
+	if xdns.IsZeroPrefix(ipxx) {
+		log.W("dns64: id(%s) has zero nat64 prefix", id)
+		return errEmpty
+	}
+
 	d.Lock()
 	defer d.Unlock()
 
@@ -432,9 +440,9 @@ func (d *dns64) addNat64Prefix(id string, ipxx *net.IPNet) error {
 	if !exists {
 		ip64 = append(ip64, ipxx)
 		uniq[ipxxstr] = emptyStruct
-		log.I("dns64: add ipnet [%s] for server(%s)", ipxx, id)
+		log.I("dns64: add ipnet [%s] for server(%s)", ipxxstr, id)
 	} else {
-		log.D("dns64: prefix6(%v) for server(%s) exists!", id, ipxx)
+		log.D("dns64: prefix6(%v) for server(%s) exists!", ipxxstr, id)
 	}
 	// nil / empty lists are valid values in map[string][]*net.IP
 	d.ip64[id] = ip64

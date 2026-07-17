@@ -66,7 +66,9 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 	}
 	// no lookups when host is already an IP
 	if ip, err := str2ip(host); err == nil {
-		log.V("ipmapper: lookup: no-op; host %s is ipaddr", host)
+		if log.Verbose {
+			log.V("ipmapper: lookup: no-op; host %s is ipaddr", host)
+		}
 		return []netip.Addr{ip}, nil
 	}
 

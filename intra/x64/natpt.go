@@ -81,7 +81,6 @@ func (n *natPt) IsNat64(id string, ip netip.Addr) bool {
 
 // X64 Implements NAT64.
 func (n *natPt) X64(id string, ip6 netip.Addr) (ip4 netip.Addr) {
-	id = id64(id)
 	if !ip6.Is6() {
 		log.D("natpt: not ip6: %v", ip6)
 		return
@@ -140,7 +139,7 @@ func (n *natPt) ResetNat64Prefix(ip6prefix string) bool {
 	var ipnet *net.IPNet
 	if _, ipnet, err = net.ParseCIDR(ip6prefix); err == nil {
 		n.dns64.register(dnsx.UnderlayResolver) // wipe the slate clean
-		if err = n.dns64.addNat64Prefix(dnsx.UnderlayResolver, ipnet); err == nil {
+		if err = n.dns64.addNat64Prefix(dnsx.UnderlayResolver, *ipnet); err == nil {
 			return true
 		}
 	}
@@ -164,15 +163,16 @@ func (n *natPt) UIP(network string) []byte {
 	}
 }
 
-func (n *natPt) nat64PrefixForResolver(id string) []*net.IPNet {
+func (n *natPt) nat64PrefixForResolver(id string) []net.IPNet {
+	id = id64(id)
 	return n.get(id)
 }
 
 // match returns the first matching prefix for ip in nets.
-func match(nets []*net.IPNet, ip net.IP) *net.IPNet {
+func match(nets []net.IPNet, ip net.IP) *net.IPNet {
 	for _, p := range nets {
 		if p.Contains(ip) {
-			return p
+			return &p
 		}
 	}
 	return nil

@@ -2143,9 +2143,9 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	if !hasrealips { // algip is probably origip / realip
 		// unnat origip as it itself may have been synthesized from
 		// our DNS responses by apps doing funky things; like FreeFire
-		unnated = t.maybeUndoNat64Locked(unmapped)
+		unnated = t.maybeUndoLocalNat64Locked(unmapped)
 	} else {
-		unnated = t.maybeUndoNat64Locked(realips...)
+		unnated = t.maybeUndoLocalNat64Locked(realips...)
 	} // else: send realips as is
 
 	logeif(!hasrealips && (!usestale && (!undidAlg || !undidPtr)))("alg: dns64: for %v[%s] (didnotAlg? %t / fresh? %t / undidAlg? %t / undidPtr? %t / staleok? %t) maybealgip(%v) => realips(%v) => unnated(%v); until: %s",
@@ -2173,7 +2173,7 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 	return copyUniq(realips), undidAlg
 }
 
-func (t *dnsgateway) maybeUndoNat64Locked(realips ...netip.Addr) (unnateds []netip.Addr) {
+func (t *dnsgateway) maybeUndoLocalNat64Locked(realips ...netip.Addr) (unnateds []netip.Addr) {
 	for _, nip := range realips {
 		unmapped := nip.Unmap()
 		if !unmapped.Is6() {
