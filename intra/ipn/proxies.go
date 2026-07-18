@@ -562,7 +562,7 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 				return nil, e(core.JoinErr(err, errProxyRoute))
 			} // there is only one pid to route to
 			if canth3 {
-				noh3 = append(noh3, p)
+				// not required: noh3 = append(noh3, p)
 				noh3proxies = append(noh3proxies, pid0)
 				// allow h3 like traffic from myuid, which could actually be rpn/wg on 443
 				err = errProxyProtoH3
@@ -571,7 +571,7 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 			}
 			if pxnotok { // proxy not ok
 				notokproxies = append(notokproxies, pid0)
-				notok = append(notok, p)
+				// not required: notok = append(notok, p)
 				stalledSec = px.stall(uid + ippstr)
 				totalStalledSec += stalledSec
 			}
