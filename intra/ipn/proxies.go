@@ -602,15 +602,16 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 		p, err := px.pinID(uid, ipp, pinnedpid) // repin & health check
 		pidc := idstr(p)
 		hasp := core.IsNotNil(p)
-		noroute := true
-		if hasp && p != nil && err != nil {
-			iscircle := iscircular(p, ippstr)
-			noroute = !hasroute(p, who, ippstr)
+		pxnoroute := true
+		iscircle := false
+		if hasp && err == nil {
+			iscircle = iscircular(p, ippstr)
+			pxnoroute = !hasroute(p, who, ippstr)
 			canth3 := uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pidc)
 
 			if log.Verbose {
 				log.V("proxy: pin: %s: %s: %s+%s; chosen and pinned: 1 (%s <> %s) (stalled? %ds); err? %v; circular? %t; noroute? %t; canth3? %t",
-					who, proto, uid, ippstr, pinnedpid, pidc, totalStalledSec, err, iscircle, noroute, canth3)
+					who, proto, uid, ippstr, pinnedpid, pidc, totalStalledSec, err, iscircle, pxnoroute, canth3)
 			}
 			// check for circular route before other checks
 			if iscircle {
@@ -622,15 +623,29 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 				// allow h3 like egress from myuid, which could actually be rpn/wg on 443
 				err = core.JoinErr(err, errProxyProtoH3)
 				px.delpin(uid, ipp)
-			} else if !noroute { // hasroute
+			} else if !pxnoroute { // hasroute
 				return p, nil
 			} else {
-				missproxies = append(missproxies, pinnedpid)
+				norouteproxies = append(norouteproxies, pinnedpid)
 				px.delpin(uid, ipp) // del pin if no route
 			}
-		} // else: pinnedpid not ok (ex: END/TPU/TNT) or no route
+		} else if err != nil { // pinnedpid found but unhealthy; keep as notok fallback
+			notokproxies = append(notokproxies, pinnedpid)
+			notok = append(notok, p)
+		} else if !hasp {
+			missproxies = append(missproxies, pinnedpid)
+		} // else: pinnedpid not ok (ex: END/TPU/TNT)
+
 		logev(err)("proxy: pin: %s: %s: %s+%s; chosen and pinned: 2 %s <> %s (but err? %v); hasproxy? %t (or noroute? %t)",
-			who, proto, uid, ippstr, pinnedpid, pidc, err, hasp, noroute)
+			who, proto, uid, ippstr, pinnedpid, pidc, err, hasp, pxnoroute)
+
+		if !iscircle && !pxnoroute {
+			// wipe out pinned pid so it is re-considered below; and is chosen
+			// over local proxies, if required
+			pinnedpid = ""
+			pinok = false
+			chosen = false
+		}
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
 	}
@@ -645,6 +660,9 @@ retrySearch:
 			continue
 		}
 		if local(pid) { // skip local; prefer remote
+			if pid == lopinned { // already tracked via lopinned; avoid duplicate
+				continue
+			}
 			loproxies = append(loproxies, pid)
 			continue // process later
 		}
@@ -690,6 +708,7 @@ retrySearch:
 			} // else: proxy not ok
 			notokproxies = append(notokproxies, pid)
 			notok = append(notok, p)
+			continue
 		} else { // else: proxy cannot route; split-tunnel
 			norouteproxies = append(norouteproxies, pid)
 		}
