@@ -80,7 +80,7 @@ func (w *GW) Self(ip string) bool {
 }
 
 // Contains implements x.Router.
-func (w *GW) Contains(ippOrCidr string) bool {
+func (w *GW) Contains(who, ippOrCidr string) bool {
 	prefix, err := core.IP2Cidr2(ippOrCidr)
 	if err != nil {
 		return false

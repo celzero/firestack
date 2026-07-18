@@ -584,10 +584,10 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 		p, err := px.pinID(uid, ipp, pinnedpid) // repin & health check
 		pidc := idstr(p)
 		hasp := core.IsNotNil(p)
-
+		noroute := true
 		if hasp && p != nil && err != nil {
 			iscircle := iscircular(p, ippstr)
-			noroute := !hasroute(p, ippstr)
+			noroute = !hasroute(p, who, ippstr)
 			canth3 := uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pidc)
 
 			if log.Verbose {
@@ -665,7 +665,7 @@ retrySearch:
 			circular = append(circular, pid)
 			continue
 		}
-		if hasroute(p, ippstr) {
+		if hasroute(p, who, ippstr) {
 			// TODO: myuid check only required for loopback mode?
 			// allow h3 like egress from myuid, which could actually be rpn/wg on 443
 			if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pid) {
@@ -1353,7 +1353,7 @@ func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
 }
 
 // Contains implements x.Router.
-func (px *proxifier) Contains(ipprefix string) bool {
+func (px *proxifier) Contains(who, ipprefix string) bool {
 	px.RLock()
 	defer px.RUnlock()
 
@@ -1363,7 +1363,7 @@ func (px *proxifier) Contains(ipprefix string) bool {
 		if local(idstr(p)) || noop(typstr(p)) {
 			continue
 		}
-		if r := p.Router(); r != nil && r.Contains(ipprefix) {
+		if r := p.Router(); r != nil && r.Contains(who, ipprefix) {
 			return true
 		}
 	}

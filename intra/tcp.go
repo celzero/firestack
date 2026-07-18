@@ -386,7 +386,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	targetstr := target.String()
 
 	if errOnNoRoute {
-		if canroute := px.Router().Contains(targetstr); !canroute {
+		if canroute := px.Router().Contains(smm.ID, targetstr); !canroute {
 			// make sure to not delay in HappyEyeballs scenario?
 			return cont, log.WE("proxy(%s) has no route to %s (<= %s)", pidstr(px), targetstr, src)
 		}

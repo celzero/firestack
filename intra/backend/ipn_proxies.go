@@ -356,7 +356,8 @@ type Router interface {
 	// Reaches returns true if any host:port or ip:port is dialable.
 	Reaches(hostportOrIPPortCsv string) (y bool)
 	// Contains returns true if this router can route ipprefix.
-	Contains(ipprefix string) (y bool)
+	// who is a free-form identifier for the caller, useful for logging.
+	Contains(who, ipprefix string) (y bool)
 	// Self returns true if the given ip is one of this router's own exit IPs.
 	Self(ip string) (y bool)
 }

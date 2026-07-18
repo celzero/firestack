@@ -1630,7 +1630,7 @@ func (h *wgtun) IP4() bool { return h.hasV4.Load() }
 func (h *wgtun) IP6() bool { return h.hasV6.Load() }
 
 // Contains implements x.Router.
-func (h *wgtun) Contains(ippOrCidr string) bool {
+func (h *wgtun) Contains(who, ippOrCidr string) bool {
 	var err error
 	y1, y2 := false, false
 	canroute6 := h.IP6()
@@ -1646,8 +1646,8 @@ func (h *wgtun) Contains(ippOrCidr string) bool {
 		} // fallback onto y1 on errs.
 	} // y2 is also false.
 
-	logev(err)("wg: %s router: (4/6? %t/%t) %s; allowed? %t / contains? %t; err? %v",
-		h.tag(), canroute4, canroute6, ippOrCidr, y1, y2, err)
+	logev(err)("wg: %s router: (%s) (4/6? %t/%t) %s; allowed? %t / contains? %t; err? %v",
+		h.tag(), who, canroute4, canroute6, ippOrCidr, y1, y2, err)
 
 	return y1 && y2
 }
@@ -1887,7 +1887,7 @@ func (w *wgtun) viaCanRoute(via Proxy, dryrun bool) error {
 	for _, p := range multihost.Flatten(all) {
 		ip := p.Addr()
 		if (ip.Is4() && check4) || (ip.Is6() && check6) {
-			if !viaRouter.Contains(ip.String()) {
+			if !viaRouter.Contains(w.who(), ip.String()) {
 				return log.EE("wg: %s proxy: viaCanRoute: via %s cannot route peer %s; dryrun? %t",
 					w.tag(), idstr(via), p, dryrun)
 			}

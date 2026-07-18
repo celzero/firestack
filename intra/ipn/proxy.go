@@ -729,11 +729,11 @@ func viaSupportsIPFamily(orig Proxy, hop Proxy) error {
 	return nil
 }
 
-func hasroute(p Proxy, ipp string) bool {
+func hasroute(p Proxy, who, ipp string) bool {
 	if p == nil {
 		return false
 	}
-	return p.Router().Contains(ipp)
+	return p.Router().Contains(who, ipp)
 }
 
 func iscircular(p Proxy, ip string) bool {
