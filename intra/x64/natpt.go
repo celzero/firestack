@@ -170,9 +170,9 @@ func (n *natPt) nat64PrefixForResolver(id string) []net.IPNet {
 
 // match returns the first matching prefix for ip in nets.
 func match(nets []net.IPNet, ip net.IP) *net.IPNet {
-	for _, p := range nets {
-		if p.Contains(ip) {
-			return &p
+	for _, netip := range nets {
+		if netip.Contains(ip) {
+			return &netip
 		}
 	}
 	return nil
