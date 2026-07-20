@@ -1015,12 +1015,13 @@ func domainsFor(base *baseans, tid, uid string, forIP netip.Addr, s xaddrstatus)
 }
 
 type dnsgateway struct {
-	sync.RWMutex                         // protects alg, nat, octets, hexes
-	alg          map[string]*algans      // domain+type => ans
-	nat          map[netip.Addr]*baseans // algip => baseans
-	ptr          map[netip.Addr]*baseans // primaryip => baseans
-	octets       []uint8                 // ip4 octets, 100.x.y.z
-	hexes        []uint16                // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
+	sync.RWMutex                           // protects alg, nat, octets, hexes
+	alg          map[string]*algans        // domain+type => ans
+	nat          map[netip.Addr]*baseans   // algip => baseans
+	ptr          map[netip.Addr][]*baseans // primaryip => []baseans (multiple domains may share an IP)
+
+	octets []uint8  // ip4 octets, 100.x.y.z
+	hexes  []uint16 // ip6 hex, 64:ff9b:1:da19:0100.x.y.z
 
 	// fields below are never reassigned
 
@@ -1042,7 +1043,7 @@ var _ Gateway = (*dnsgateway)(nil)
 func NewDNSGateway(pctx context.Context, fakeaddrs []netip.AddrPort, outer RdnsResolver, dns64 NatPt) (t *dnsgateway) {
 	alg := make(map[string]*algans)
 	nat := make(map[netip.Addr]*baseans)
-	ptr := make(map[netip.Addr]*baseans)
+	ptr := make(map[netip.Addr][]*baseans)
 
 	t = &dnsgateway{
 		alg:    alg,
@@ -1763,7 +1764,12 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 		x.ips.each(func(ip netip.Addr) {
 			// existing am is merged into am4/am6 by t.alg above
 			// register mapping from realip -> algip+qname (ptr)
-			t.ptr[ip] = x.baseans
+			// multiple domains may share the same real IP (e.g. CDNs),
+			// so append to the slice instead of overwriting.
+			existing := t.ptr[ip]
+			if !slices.Contains(existing, x.baseans) {
+				t.ptr[ip] = append(existing, x.baseans)
+			}
 		})
 		didRegister = true
 	}
@@ -1785,9 +1791,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 			delete(t.alg, k)
 			delete(t.nat, ip)
 			ans.ips.each(func(ip netip.Addr) {
-				if pans := t.ptr[ip]; pans == ans.baseans {
-					delete(t.ptr, ip)
-				}
+				t.ptrRemoveLocked(ip, ans.baseans)
 			})
 			log.E("alg: gen: take4: found %s but not ip4 %s; removed: %s", k, ip, ans)
 		}
@@ -1829,9 +1833,7 @@ func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 				delete(t.alg, kx)
 				delete(t.nat, ent.algip)
 				ent.ips.each(func(ip netip.Addr) {
-					if pans := t.ptr[ip]; pans == ent.baseans {
-						delete(t.ptr, ip)
-					}
+					t.ptrRemoveLocked(ip, ent.baseans)
 				})
 				return ent.algip, true
 			}
@@ -1877,9 +1879,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 			delete(t.alg, k)
 			delete(t.nat, ip)
 			ans.ips.each(func(ip netip.Addr) {
-				if pans := t.ptr[ip]; pans == ans.baseans {
-					delete(t.ptr, ip)
-				}
+				t.ptrRemoveLocked(ip, ans.baseans)
 			})
 			log.E("alg: gen: take6: found %s but not ip6 %s; removed: %s", k, ip, ans)
 		}
@@ -1920,9 +1920,7 @@ func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 				delete(t.alg, kx)
 				delete(t.nat, ent.algip)
 				ent.ips.each(func(ip netip.Addr) {
-					if pans := t.ptr[ip]; pans == ent.baseans {
-						delete(t.ptr, ip)
-					}
+					t.ptrRemoveLocked(ip, ent.baseans)
 				})
 				return ent.algip, true
 			}
@@ -2122,20 +2120,28 @@ func (t *dnsgateway) xLocked(maybeAlg netip.Addr, usestale bool, uid string, tid
 				}
 			}
 			until, fresh = ans.fresh()
-		} else if ans, undidPtr = t.ptr[unmapped]; undidPtr {
+		} else if ansList, ok := t.ptr[unmapped]; ok && len(ansList) > 0 {
+			undidPtr = true
 			// for IPs (unlike domains), it is okay to fallback on ptr as the
 			// maybeAlg may be an algip OR realip (latter in the case where an
 			// app is connecting to a cached IP addr from before t.mod was set)
 			// nb: both realips & secondaryips may be nil, but that's okay:
 			// go.dev/play/p/fSjRjMSAS2m
-			if len(tids) <= 0 {
-				realips = ans.ips.realips(uid, xst)
-			} else {
-				for _, tid := range tids {
-					realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
+			for _, ans := range ansList {
+				if len(tids) <= 0 {
+					realips = append(realips, ans.ips.realips(uid, xst)...)
+				} else {
+					for _, tid := range tids {
+						realips = append(realips, ans.ips.realipsFor(tid, uid, xst)...)
+					}
+				}
+				if rem, y := ans.fresh(); y {
+					if !fresh || rem < until {
+						until = rem
+						fresh = true
+					}
 				}
 			}
-			until, fresh = ans.fresh()
 		}
 	}
 
@@ -2220,13 +2226,18 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 		hasdoms = hasnatdoms
 	}
 	if useptr && !hasnatdoms {
-		if ans, ok := t.ptr[unmapped]; ok {
+		if ansList, ok := t.ptr[unmapped]; ok {
 			// translate from realip only if not in mod mode
 			// for useptr, s/xalive/xall/
-			domains = domainsFor(ans, tid, uid, unmapped, xalive /*prefer fresh mapping */)
+			// multiple domains may share the same real IP; aggregate from all entries.
+			for _, ans := range ansList {
+				domains = append(domains, domainsFor(ans, tid, uid, unmapped, xalive /*prefer fresh mapping */)...)
+			}
 			hasdoms = len(domains) > 0
 			if !hasdoms {
-				domains = domainsFor(ans, tid, uid, unmapped, xall /*useptr == true */)
+				for _, ans := range ansList {
+					domains = append(domains, domainsFor(ans, tid, uid, unmapped, xall /*useptr == true */)...)
+				}
 				alivedoms = false
 			}
 		}
@@ -2371,11 +2382,36 @@ func (t *dnsgateway) rdnsblLocked(algip netip.Addr, useptr bool) (bcsv string) {
 	unmapped := algip.Unmap()
 	if ans, ok := t.nat[unmapped]; ok {
 		bcsv = ans.blocklists
-	} else if ans, ok := t.ptr[unmapped]; useptr && ok {
+	} else if ansList, ok := t.ptr[unmapped]; useptr && ok {
 		// translate from realip only if not in mod mode
-		bcsv = ans.blocklists
+		// multiple domains may share the same real IP; aggregate blocklists.
+		var bl strings.Builder
+		for _, ans := range ansList {
+			if len(ans.blocklists) > 0 {
+				if bl.Len() > 0 {
+					bl.WriteByte(',')
+				}
+				bl.WriteString(ans.blocklists)
+			}
+		}
+		bcsv = bl.String()
 	}
 	return
+}
+
+// ptrRemoveLocked removes target from the slice of baseans mapped to ip in t.ptr.
+// Caller must hold t.Lock().
+func (t *dnsgateway) ptrRemoveLocked(ip netip.Addr, target *baseans) {
+	existing := t.ptr[ip]
+	if len(existing) == 0 {
+		return
+	}
+	out := slices.DeleteFunc(existing, func(e *baseans) bool { return e == target })
+	if len(out) == 0 {
+		delete(t.ptr, ip)
+	} else {
+		t.ptr[ip] = out
+	}
 }
 
 // xor fold fnv to 22 bits: www.isthe.com/chongo/tech/comp/fnv
