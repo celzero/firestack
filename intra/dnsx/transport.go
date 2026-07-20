@@ -171,8 +171,6 @@ type Resolver interface {
 	RdnsResolver
 	NatPt
 
-	// IsDnsAddr returns true if the ip:port is resolver's fake endpoint
-	IsDnsAddr(ipport netip.AddrPort) bool
 	// Serve reads DNS query from conn and writes DNS answer to conn.
 	// fid is the flow ID that spawned this DNS query, if Origin is "tunnel".
 	Serve(proto string, conn protect.Conn, uid, fid string) (rx, tx int64, errs []error)

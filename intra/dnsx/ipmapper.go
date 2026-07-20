@@ -213,7 +213,7 @@ func (m *resolver) lookupfor(q []byte, uid string) func() (answer, error) {
 // uid may be protect.MyUid or unknown
 func (m *resolver) lookupon(q []byte, uid string, tids ...string) func() (answer, error) {
 	return func() (answer, error) {
-		a, tid, err := m.LookupFor2(q, uid, tids...)
+		a, tid, err := m.LookupFor(q, uid, tids...)
 		return answer{a, tid, uid}, err
 	}
 }

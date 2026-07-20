@@ -282,7 +282,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 	// in other cases, routing Rethink via remote proxies is probably a bug.
 	if !loopback && preuid == SELF_UID && !ipn.IsAnyLocalProxy(strings.Split(fm.PIDCSV, ",")...) {
 		egress := ipn.Exit
-		if h.resolver.IsDnsAddr(target) {
+		if h.resolver.IsDnsAddrPort(target) {
 			egress = ipn.Base // see: udp.go:dnsOverride
 		}
 		log.W("com: %s: onFlow: preflow: preuid %s (%s => %s) is rethink (loopback? %t)! override %s to %s!",
@@ -519,7 +519,7 @@ func (h *baseHandler) loopUnassoc(smm *FlowSummary) (y bool) {
 }
 
 func (h *baseHandler) isDNS(addr netip.AddrPort) bool {
-	return addr.IsValid() && h.resolver.IsDnsAddr(addr)
+	return addr.IsValid() && h.resolver.IsDnsAddrPort(addr)
 }
 
 func (h *baseHandler) dnsOverride(conn net.Conn, uid string, smm *FlowSummary) bool {

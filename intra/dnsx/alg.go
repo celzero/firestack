@@ -2204,6 +2204,7 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 	hasnatdoms := false
 	hasdoms := false
 
+	isfakedns := t.rdns.IsDnsAddr(maybeAlg)
 	// alg ips are always unmapped; see take4Locked
 	unmapped := maybeAlg.Unmap()
 	if len(uid) <= 0 {
@@ -2230,8 +2231,9 @@ func (t *dnsgateway) ptrLocked(maybeAlg netip.Addr, uid, tid string, useptr bool
 		}
 		hasdoms = len(domains) > 0
 	}
-	if log.Debug || !hasdoms {
-		loged(!hasdoms)("alg: ptr: in nat? (natdoms? %t / doms? %t) for %v[%s@%s] => in ptr? (useptr? %t / gotalive? %t)? (%v)",
+	if log.Debug || (!isfakedns && !hasdoms) {
+		// fake dns is never alg'd; avoid error logs, if so.
+		loged(!hasdoms && !isfakedns)("alg: ptr: in nat? (natdoms? %t / doms? %t) for %v[%s@%s] => in ptr? (useptr? %t / gotalive? %t)? (%v)",
 			hasnatdoms, hasdoms, unmapped, tid, uid, useptr, hasdoms && alivedoms, domains)
 	}
 	return copyUniq(domains)

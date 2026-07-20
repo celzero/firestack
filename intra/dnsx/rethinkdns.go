@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -65,7 +66,13 @@ var (
 
 type RdnsResolver interface {
 	x.RDNSResolver
+	// IsDnsAddrPort returns true if the ip:port is resolver's fake endpoint
+	IsDnsAddrPort(ipport netip.AddrPort) bool
+	// IsDnsAddr returns true if the ip is resolver's fake endpoint
+	IsDnsAddr(ip netip.Addr) bool
+	// blockQ determines if a DNS query is blocked by chosen RethinkDNS blocklist.
 	blockQ(Transport, Transport, *dns.Msg) (*dns.Msg, string, error)
+	// blockA determines if a DNS answer is blocked by chosen RethinkDNS blocklist.
 	blockA(Transport, Transport, *dns.Msg, *dns.Msg, string) (*dns.Msg, string, string)
 }
 

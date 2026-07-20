@@ -45,6 +45,15 @@ func (h *resolver) isDns(ipp netip.AddrPort) bool {
 	return false
 }
 
+func (h *resolver) isDnsIp(addr netip.Addr) bool {
+	for _, dnsaddr := range h.dnsaddrs {
+		if addr.Compare(dnsaddr.Addr()) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *resolver) addDnsAddrs(csvaddr string) {
 	addrs := strings.Split(csvaddr, ",")
 	dnsaddrs := make([]netip.AddrPort, 0)
