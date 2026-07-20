@@ -498,36 +498,38 @@ func (r *resolver) Remove(tid string) (ok bool) {
 	return hasTransport
 }
 
-func (r *resolver) IsDnsAddr(ipport netip.AddrPort) bool {
+// Implements [RdnsResolver].
+func (r *resolver) IsDnsAddrPort(ipport netip.AddrPort) bool {
 	return r.isDns(ipport)
 }
 
-// LookupFor2 implements [ResolverSelf].
-func (r *resolver) LookupFor2(q []byte, uid string, tids ...string) ([]byte, string, error) {
-	if len(q) <= 0 {
-		return nil, NoDNS, errNoQuestion
-	}
-	// uid may be UNKNOWN_UID_STR if set so by gateway.q()/alg.q()
-	// treat it as an internal lookup
-	if uid == core.UNKNOWN_UID_STR {
-		uid = protect.MyUid
-	}
-	if uid == protect.MyUid {
-		return r.lookupinternal(q)
-	}
-	// if len(tids) == 0, use transport from preferences
-	return r.forward(q, OriginInternal, core.Rand64(), uid, tids...)
+// Implements [RdnsResolver].
+func (r *resolver) IsDnsAddr(ip netip.Addr) bool {
+	return r.isDnsIp(ip)
 }
 
 // LookupFor implements [ResolverSelf].
-func (r *resolver) LookupFor(q []byte, uid string) ([]byte, string, error) {
+func (r *resolver) LookupFor(q []byte, uid string, tids ...string) ([]byte, string, error) {
 	if len(q) <= 0 {
 		return nil, NoDNS, errNoQuestion
 	}
 
+	if len(tids) > 0 {
+		// uid may be UNKNOWN_UID_STR if set so by gateway.q()/alg.q();
+		// treat it as an internal lookup for protect.MyUid and
+		// ignore prechosen tids for Default instead
+		if uid == core.UNKNOWN_UID_STR {
+			return r.lookupinternal(q)
+		} else {
+			return r.forward(q, OriginInternal, core.Rand64(), uid, tids...)
+		}
+	}
+
+	// ignore tids provided; lookupinternal always uses Default
 	if uid == protect.MyUid {
 		return r.lookupinternal(q)
 	}
+
 	// prechose tids preferred & fixed when uid is set to 0, -1, or 1051 (common
 	// android system components that send DNS requests on behalf of actual apps/uids)
 	// to use "fixed" transport to later uncover the actual requesting app/uid during

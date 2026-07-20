@@ -80,10 +80,11 @@ type RdnsResolver interface {
 type ResolverSelf interface {
 	ipmap.IPMapper
 
-	// LookupFor performs resolution for uid.
-	LookupFor(q []byte, uid string) (a []byte, tid string, err error)
-	// Lookup performs resolution on chosen Transport for uid.
-	LookupFor2(q []byte, uid string, chosen ...string) (a []byte, tid string, err error)
+	// LookupFor performs resolution for uid, optionally on chosen transports.
+	// If tids are provided, resolution uses those transports directly.
+	// If no tids are provided, resolution uses preferences (and may fall back
+	// through Preferred/Fixed for system UIDs).
+	LookupFor(q []byte, uid string, tids ...string) (a []byte, tid string, err error)
 }
 
 type RDNS interface {
