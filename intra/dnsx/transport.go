@@ -532,6 +532,7 @@ func (r *resolver) LookupFor(q []byte, uid string, tids ...string) ([]byte, stri
 		}
 	}
 
+	// TODO: handle cloned / private space MyUid?
 	// ignore tids provided; lookupinternal always uses Default
 	if uid == protect.MyUid {
 		return r.lookupinternal(q)
