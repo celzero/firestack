@@ -447,8 +447,6 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 					}
 					ips = dialers.For(host)
 				}
-			} else {
-				log.E("proxy: reaches: %s resolve %s err %s: %v", pid, dnsid, host, err)
 			}
 			for _, ip := range ips {
 				ipp := netip.AddrPortFrom(ip, uint16(on))
@@ -457,8 +455,9 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		}
 	}
 
-	if log.Verbose {
-		log.V("proxy: reaches: %s (dns: %s) ip testing for %s: %v", pid, dnsid, ipps, protos)
+	noipps := len(ipps) <= 0
+	if noipps || log.Verbose {
+		logeif(noipps)("proxy: reaches: %s (dns: %s / usefallback? %t) ip testing for %s: %v", pid, dnsid, defaultfallback, ipps, protos)
 	}
 
 	n := 0

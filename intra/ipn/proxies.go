@@ -749,7 +749,10 @@ retrySearch:
 		}
 		log.W("proxy: pin: %s: %s: %s+%s; missing: %v; notok: %v; noroute: %v; paused: %v; ended: %v; waited: %ds",
 			who, proto, uid, ippstr, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, totalStalledSec)
-		pids = missproxies
+		// Save the missing proxy IDs for retry, then reset missproxies
+		// so it can be repopulated in the retry loop. pids and missproxies
+		// must not share the same backing array.
+		pids = slices.Clone(missproxies)
 		clear(missproxies)
 		goto retrySearch
 	}
@@ -900,6 +903,7 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 		} else if id == Rpn64 {
 			return px.exit64, nil
 		} // Ingress do not have a fast path
+		// Ingress (dummy): no fast path, fall through to general lookup
 	}
 
 	timeout := getproxytimeout
@@ -1024,6 +1028,7 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 		return errHopDefaultRoutes
 	}
 
+	// remove current hop regardless of whether the new hop succeeds
 	_ = px.unmapHop(oldViaPx, origPx, dryrun)
 	// create a WeakRef for the via proxy to pass to Hop
 	viaRef, rerr := px.ProxyRef("hop."+via+"."+origin, via)
@@ -1031,8 +1036,9 @@ func (px *proxifier) hop(via, origin string, dryrun bool) error {
 		return core.JoinErr(rerr, errProxyNotFound, errHopProxyRoutes)
 	}
 	err = origPx.Hop(viaRef, dryrun)
-	_ = px.mapHop(viaPx, origPx, err != nil || dryrun)
-
+	if err == nil {
+		_ = px.mapHop(viaPx, origPx, dryrun)
+	}
 	return err
 }
 
