@@ -453,6 +453,13 @@ func (r *resolver) Get(id string) (x.DNSTransport, error) {
 	return r.GetInternal(id)
 }
 
+func (r *resolver) GetIPs(id string) string {
+	if t, err := r.GetInternal(id); err == nil {
+		return GetIPCsv(t)
+	}
+	return ""
+}
+
 func (r *resolver) Remove(tid string) (ok bool) {
 	if r.closed.Load() {
 		log.W("dns: remove: closed for business")
@@ -1889,4 +1896,23 @@ func clos(c io.Closer) {
 
 func firstEmpty(arr []string) bool {
 	return len(arr) <= 0 || len(arr[0]) <= 0
+}
+
+// GetIPCsv converts a slice of AddrPort to a csv string.
+func GetIPCsv(t Transport) string {
+	ipp := t.IPPorts()
+	if len(ipp) <= 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for i, p := range ipp {
+		if !p.IsValid() {
+			continue
+		}
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(p.Addr().String())
+	}
+	return sb.String()
 }

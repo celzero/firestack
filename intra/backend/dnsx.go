@@ -124,6 +124,8 @@ type DNSTransportMult interface {
 type DNSTransportProvider interface {
 	// Get returns a transport from this multi-transport.
 	Get(id string) (DNSTransport, error)
+	// GetIPs returns a csv of IPs for the transport identified by id.
+	GetIPs(id string) string
 }
 
 type RDNS interface {

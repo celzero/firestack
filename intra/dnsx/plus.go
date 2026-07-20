@@ -328,6 +328,13 @@ func (t *plus) IPPorts() []netip.AddrPort {
 	return t.ipports
 }
 
+func (t *plus) GetIPs(id string) string {
+	if tr, err := t.GetInternal(id); err == nil {
+		return GetIPCsv(tr)
+	}
+	return ""
+}
+
 func (t *plus) Status() int32 {
 	if l := t.latest(); l != nil {
 		return l.Status()

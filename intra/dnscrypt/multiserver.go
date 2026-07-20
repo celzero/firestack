@@ -727,6 +727,13 @@ func (p *DcMulti) IPPorts() []netip.AddrPort {
 	return dnsx.NoIPPort
 }
 
+func (p *DcMulti) GetIPs(id string) string {
+	if tr, err := p.GetInternal(id); err == nil {
+		return dnsx.GetIPCsv(tr)
+	}
+	return ""
+}
+
 // Status implements dnsx.TransportMult
 func (p *DcMulti) Status() int32 {
 	// TODO? Does it transition out of dnsx.Paused correctly?
