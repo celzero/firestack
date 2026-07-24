@@ -1729,6 +1729,8 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 		return false
 	}
 
+	totptrs := 0
+	newptrs := 0
 	newEntry := false
 	didRegister := false
 	// register mapping from qname -> algip+realip (alg) and algip -> qname+realip (nat)
@@ -1736,7 +1738,7 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 		var k string
 		var x *algans
 		if ip.IsValid() && ip.Is4() {
-			k = q + key4 + strconv.Itoa(0)
+			k = q + key4 + strconv.Itoa(0) // idx for now fixed to 0
 			x = &algans{
 				algip:   ip,
 				baseans: am4,
@@ -1769,16 +1771,19 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 			existing := t.ptr[ip]
 			if !slices.Contains(existing, x.baseans) {
 				t.ptr[ip] = append(existing, x.baseans)
+				newptrs += 1
 			}
+			totptrs += len(t.ptr[ip])
 		})
 		didRegister = true
 	}
-	logeif(!didRegister)("alg: reg: algips (reg? %t / new? %t) (alg: %s+%s => real: %s) for %s@%s[%s] %s; real? %d, sec? %d; until (ans: %s / xips: %s)",
-		didRegister, newEntry, algip4, algip6, realips, q, tid, uid, fid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
+	logeif(!didRegister)("alg: reg: algips (reg? %t / new? %t / totptrs %d / newptrs %d) (alg: %s+%s => real: %s) for %s@%s[%s] %s; real? %d, sec? %d; until (ans: %s / xips: %s)",
+		didRegister, newEntry, totptrs, newptrs, algip4, algip6, realips, q, tid, uid, fid, len(realips), len(secres.ips), time.Until(ansttl), time.Until(xipsttl))
 
 	return didRegister
 }
 
+// idx, for now, must always be 0 (see also registerLocked)
 func (t *dnsgateway) take4Locked(q string, idx int) (netip.Addr, bool) {
 	k := q + key4 + strconv.Itoa(idx)
 	if ans, ok := t.alg[k]; ok {
@@ -1867,6 +1872,7 @@ func gen4Locked(k string, salt int) netip.Addr {
 	return netip.AddrFrom4(b4).Unmap()
 }
 
+// idx, for now, must always be 0 (see also registerLocked)
 func (t *dnsgateway) take6Locked(q string, idx int) (netip.Addr, bool) {
 	k := q + key6 + strconv.Itoa(idx)
 	if ans, ok := t.alg[k]; ok {
