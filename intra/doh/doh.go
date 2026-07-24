@@ -304,16 +304,18 @@ func asDialContext(d protect.DialFn) func(context.Context, string, string) (net.
 }
 
 func h2(d protect.DialFn, c *tls.Config) *http.Transport {
-	return &http.Transport{
-		DialContext:         asDialContext(d),
-		ForceAttemptHTTP2:   true,
-		IdleConnTimeout:     3 * time.Minute,
+	t := &http.Transport{
+		DialContext:       asDialContext(d),
+		ForceAttemptHTTP2: true,
+		// some resolvers close idle DoH connections in 30s (Quad9)
+		IdleConnTimeout:     30 * time.Second,
 		TLSHandshakeTimeout: 7 * time.Second,
 		// Android's DNS-over-TLS sets it to 30s
 		ResponseHeaderTimeout: 20 * time.Second,
 		// SNI (hostname) must always be inferred from http-request
 		TLSClientConfig: c,
 	}
+	return t
 }
 
 // always called from a go-routine
