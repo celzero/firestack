@@ -218,7 +218,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// doesn't exist outside of firestack's tunnel).
 	targetIsLocalNat64 := h.resolver.IsNat64(dnsx.Local464Resolver, target.Addr())
 
-	filtered, _, fallingback := filterFamilyForDialingWithFailSafe(realips)
+	filtered, excluded, fallingback := filterFamilyForDialingWithFailSafe(realips)
 	actualTargets := makeIPPorts(filtered, target, !undidAlg && !targetIsLocalNat64, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 
@@ -304,8 +304,8 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 
 	if log.Verbose {
-		log.V("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t",
-			cid, uid, src, target, actualTargets, pids, mux, canportfwd, targetIsLocalNat64)
+		log.V("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t / excluded? %v",
+			cid, uid, src, target, actualTargets, pids, mux, canportfwd, targetIsLocalNat64, excluded)
 	}
 
 	// note: fake-dns-ips shouldn't be un-nated / un-alg'd

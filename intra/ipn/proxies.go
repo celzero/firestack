@@ -1379,8 +1379,13 @@ func accStats(a, b *x.RouterStats) (c *x.RouterStats) {
 	c.LastGoodRx = max(a.LastGoodRx, b.LastGoodRx)
 	c.LastGoodTx = max(a.LastGoodTx, b.LastGoodTx)
 	c.LastRefresh = max(a.LastRefresh, b.LastRefresh)
-	// todo: a.Since or b.Since may be zero
-	c.Since = min(a.Since, b.Since)
+	if a.Since > 0 && b.Since > 0 {
+		c.Since = min(a.Since, b.Since)
+	} else if a.Since > 0 {
+		c.Since = a.Since
+	} else {
+		c.Since = b.Since
+	}
 	c.Status = strings.Join([]string{a.Status, b.Status}, ";")
 	c.StatusReason = strings.Join([]string{a.StatusReason, b.StatusReason}, ";")
 	return c

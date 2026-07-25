@@ -155,8 +155,6 @@ type RDNSInfo struct {
 	NewWireGuard            string
 	Transparency            bool
 	HappyEyeballs           bool
-	PanicTest               bool
-	FatalTest               bool
 	SystemDNSForUndelegated bool
 	DefaultDNSAsFallback    bool
 	SetUserAgent            bool

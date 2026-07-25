@@ -367,7 +367,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 			caching = true
 		}
 		r.Unlock()
-		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
+		core.Go("r.onAdd."+tid, func() { r.listener.OnDNSAdded(tid) })
 		ok = true
 	case DNS53, DOH, DOT, ODOH:
 		r.Lock()
@@ -391,10 +391,10 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		if tid == System || tid == Goos {
 			// TODO: add other resolvers?
 			// always add64 after having added the system transport
-			core.Gx("r.Add64", func() { r.Add64(tid) })
+			core.Gx("r.Add64."+tid, func() { r.Add64(tid) })
 		}
 
-		core.Go("r.onAdd", func() { r.listener.OnDNSAdded(tid) })
+		core.Go("r.onAdd."+tid, func() { r.listener.OnDNSAdded(tid) })
 		ok = true
 	default:
 		log.E("dns: unknown transport(%s) type: %s", t.ID(), t.Type())
@@ -478,7 +478,7 @@ func (r *resolver) Remove(tid string) (ok bool) {
 
 	if hasTransport {
 		if id == System || id == Goos {
-			core.Gx("r.Remove64", func() { r.Remove64(id) })
+			core.Gx("r.Remove64."+tid, func() { r.Remove64(id) })
 		}
 		r.Lock()
 		r.stopIfExistsLocked(id)
@@ -499,7 +499,7 @@ func (r *resolver) Remove(tid string) (ok bool) {
 	}
 
 	if hasTransport {
-		core.Go("r.onRemove", func() { r.listener.OnDNSRemoved(id) })
+		core.Go("r.onRemove."+tid, func() { r.listener.OnDNSRemoved(id) })
 	}
 
 	return hasTransport
@@ -616,7 +616,34 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 		return nil, NoDNS, errMissingQueryName
 	}
 
-	pref, oqcompleted := core.Grx("r.onQuery", func(_ context.Context) (*x.DNSOpts, error) {
+	// when PtMode forces protocol translation, resolve AAAA in parallel
+	// so that dns64/nat64 caches are warm for subsequent translations.
+	pt := settings.PtMode.Load()
+	if who == OriginTunnel && xdns.IsAQType(uint16(qtyp)) && ptmodeIsForce(pt) {
+		msg6 := xdns.Request6FromRequest4(msg)
+		smm6 := copySummary(ogsmm)
+		smm6.QType = int(dns.TypeAAAA)
+		fid6 := core.Rand64()
+
+		if log.Verbose {
+			log.V("dns: fwd: for %s; force6 for %s:%s:%d; ptmode=%s", uid, fid6, qname, qtyp, pt)
+		}
+
+		core.Gx("r.fwd.aaaa."+fid6+"."+qname, func() {
+			_, _, _ = r.forwardInner(msg6, smm6, who, fid6, uid, chosenids...)
+		})
+	}
+
+	return r.forwardInner(msg, ogsmm, who, fid, uid, chosenids...)
+}
+
+func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid string, chosenids ...string) ([]byte, string, error) {
+	starttime := time.Now()
+
+	qname := ogsmm.QName
+	qtyp := ogsmm.QType
+
+	pref, oqcompleted := core.Grx("r.onQuery."+fid+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 		return r.listener.OnQuery(who, uid, qname, qtyp), nil
 	}, listenerTimeout)
 	if !oqcompleted || pref == nil {
@@ -799,7 +826,7 @@ runagain:
 	}
 
 	if run == 1 {
-		pref2, ouacompleted := core.Grx("r.onUA."+qname, func(_ context.Context) (*x.DNSOpts, error) {
+		pref2, ouacompleted := core.Grx("r.onUA."+fid+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 			return r.listener.OnUpstreamAnswer(who, smm, pref.Copy(), realips), nil
 		}, answerTimeout)
 		if !ouacompleted {
@@ -1086,7 +1113,7 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid, fid string) (rx, tx int64, 
 		frees := free
 		cnts := cnt
 		wg.Add(1)
-		core.Gx("r.accept.do", func() {
+		core.Gx("r.accept.do."+fid, func() {
 			defer wg.Done()
 			defer frees()
 			m, err := r.dnstcp(qs, c, uid, fid)
@@ -1916,4 +1943,8 @@ func GetIPCsv(t Transport) string {
 		sb.WriteString(p.Addr().String())
 	}
 	return sb.String()
+}
+
+func ptmodeIsForce(pt int32) bool {
+	return pt == settings.PtModeForce || pt == settings.PtModeForce46 || pt == settings.PtModeForce64
 }

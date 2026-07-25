@@ -1293,9 +1293,9 @@ func (w *wgproxy) Stat() (out *x.RouterStats) {
 		out.LastOK = stat.LatestRecentHandshake()
 	}
 
-	if settings.Debug {
-		out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String() + "\nallowed:" + fmt.Sprintf("%v", *w.allowed.Load())
+	out.Extra = w.remote.Load().String() + "\n" + w.dns.Load().String() + "\nallowed:" + fmt.Sprintf("%v", *w.allowed.Load())
 
+	if log.Verbose {
 		log.VV("proxy: wg: %s stats: rx: %d, tx: %d, r: %s (rlastok: %s), w: %s (wlastok: %s), lastok: %s",
 			w.tag(), out.Rx, out.Tx,
 			core.FmtUnixMillisAsPeriod(out.LastRx), core.FmtUnixMillisAsPeriod(out.LastGoodRx),

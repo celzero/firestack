@@ -94,6 +94,15 @@ func Request4FromRequest6(msg6 *dns.Msg) *dns.Msg {
 	return msg4
 }
 
+func Request6FromRequest4(msg4 *dns.Msg) *dns.Msg {
+	if !HasAnyQuestion(msg4) {
+		return nil
+	}
+	msg6 := msg4.Copy()
+	msg6.SetQuestion(QName(msg4), dns.TypeAAAA)
+	return msg6
+}
+
 func EmptyResponseFromMessage(srcMsg *dns.Msg) *dns.Msg {
 	if !HasAnyQuestion(srcMsg) {
 		return nil

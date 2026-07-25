@@ -64,10 +64,10 @@ func NewNatPt2(ctx context.Context) *natPt {
 }
 
 // D64 Implements DNS64.
-func (pt *natPt) D64(network, id, uid string, ans6 *dns.Msg) *dns.Msg {
+func (pt *natPt) D64(network, id, uid string, ans6 *dns.Msg) (ans4 *dns.Msg) {
 	ptmode := settings.PtMode.Load()
 	if ptmode != settings.PtModeNo46 { // do64
-		force64 := ptmode == settings.PtModeForce64
+		force64 := ptmode == settings.PtModeForce64 || ptmode == settings.PtModeForce
 		return pt.dns64.eval(network, force64, ans6, id, uid)
 	}
 	return nil

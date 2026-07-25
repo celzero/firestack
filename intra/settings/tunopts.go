@@ -44,6 +44,10 @@ const (
 	PtModeForce64 int32 = 1
 	// Android implements 464Xlat out-of-the-box, so this zero userspace impl
 	PtModeNo46 int32 = 2
+	// PtModeForce46 enforces 4 via 6 protocol translation.
+	PtModeForce46 int32 = 3
+	// PtModeForce enforces both PtModeForce64 or PtModeForce46.
+	PtModeForce int32 = 4
 )
 
 // Converts a given DNS/Block/Pt mode to its string representation.
@@ -77,6 +81,10 @@ func Mode2String(typ string, mode int32) string {
 				return "auto"
 			case PtModeForce64:
 				return "force64"
+			case PtModeForce46:
+				return "force46"
+			case PtModeForce:
+				return "force"
 			case PtModeNo46:
 				return "no46"
 			}
@@ -93,7 +101,7 @@ var DNSMode atomic.Int32
 var BlockMode atomic.Int32
 
 // PtMode determines 6to4 translation heuristics.
-var PtMode = core.NewForeverFlow[int32](PtModeAuto)
+var PtMode = core.NewForeverFlow(PtModeAuto)
 
 // SetMode re-assigns d to DNSMode, b to BlockMode, pt to PtMode.
 func SetTunMode(d, b, pt int32) {

@@ -94,6 +94,8 @@ func (d *dns64) pauseOrResume() {
 			log.I("dns64: flow: disabled; pausing...")
 		}
 	} else if pt == settings.PtModeAuto && !has6 {
+		// in auto mode, but no v6; pause 6to4 translations
+		// in force 4 via 6 mode; 6to4 does not make sense
 		if d.paused.CompareAndSwap(false, true) {
 			log.I("dns64: flow: auto; no ipv6; pausing...")
 		}
@@ -358,7 +360,6 @@ func (d *dns64) ofLocal464() error {
 
 // add adds the nat64 prefixes to the dns64 map; thread-safe.
 func (d *dns64) add(serverid string, nat64 []net.IP) error {
-
 	if len(nat64) <= 0 {
 		log.W("dns64: no nat64 ips for %s", serverid)
 		return errEmpty

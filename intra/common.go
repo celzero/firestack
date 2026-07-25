@@ -700,8 +700,17 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 func filterFamilyForDialingWithFailSafe(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
 	included, excluded, excludedIsIncluded = filterFamilyForDialing(ipcsv)
 	if !excludedIsIncluded && len(excluded) > 0 && len(included) > 0 {
-		// if not falling back, then include one excluded ip as a fail-safe
-		included = append(included, core.ChooseOne(excluded))
+		ptmode := settings.PtMode.Load()
+		if ptmode == settings.PtModeForce || ptmode == settings.PtModeForce46 {
+			// when PtMode forces protocol translation, include up to len(included)
+			// excluded IPs so that both families are available for Happy Eyeballs
+			n := min(len(included), len(excluded))
+			included = append(included, excluded[:n]...)
+			excluded = nil
+		} else {
+			// if not falling back, then include one excluded ip as a fail-safe
+			included = append(included, core.ChooseOne(excluded))
+		}
 	}
 	return included, excluded, excludedIsIncluded
 }
