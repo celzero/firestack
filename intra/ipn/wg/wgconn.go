@@ -182,7 +182,7 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *atomic.Pointer
 		observer: f,
 		obsCh:    make(chan obsMsg, 8), // buffered for async delivery
 		amnezia:  a,
-		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](ctx, "wg.floodba", minFloodInterval),
+		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](ctx, "wg.flood."+id, minFloodInterval),
 		eps:      make(map[string]StdNetEndpoint),
 	}
 	core.Go("wg.obs."+s.id, s.processObsMsg)
