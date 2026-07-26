@@ -194,43 +194,6 @@ func (g *GTCPConn) complete(rst bool) {
 	})
 }
 
-// maxHandshakeRetries bounds the number of times a passive-open TCP handshake
-// (CreateEndpoint) is retried when it fails with ErrConnectionRefused shortly
-// after a tun fd swap (see: seamless.go's Swap/recentlySwapped). A fd swap can
-// transiently drop or reorder packets already in-flight on the old fd (ex: the
-// client's final ACK completing the handshake), which netstack's TCP state
-// machine surfaces as a RST (ErrConnectionRefused) even though the client
-// never actually refused the connection. Retrying sends a fresh SYN-ACK with
-// a new ISN, giving the handshake another chance once the new fd has settled.
-const maxHandshakeRetries = 2
-const handshakeRetryDelay = 50 * time.Millisecond
-
-// swapGraceWindow is how long after a tun fd swap a connection-refused seen
-// during a handshake is treated as suspect; see: maxHandshakeRetries.
-const swapGraceWindow = 3 * time.Second
-
-// createEndpointWithRetry calls g.req.CreateEndpoint, retrying a bounded
-// number of times if it fails with ErrConnectionRefused shortly after a tun
-// fd swap; see: maxHandshakeRetries. g.req must be non-nil.
-func (g *GTCPConn) createEndpointWithRetry() (ep tcpip.Endpoint, wq *waiter.Queue, err tcpip.Error) {
-	for i := 0; ; i++ {
-		wq = new(waiter.Queue)
-		ep, err = g.req.CreateEndpoint(wq)
-		if err == nil && ep != nil {
-			return ep, wq, nil
-		}
-
-		if _, refused := err.(*tcpip.ErrConnectionRefused); !refused ||
-			i >= maxHandshakeRetries || !recentlySwapped(swapGraceWindow) {
-			return nil, nil, err
-		}
-
-		log.W("ns: tcp: %s: connect: (outbound) synack: retry #%d after tun swap; src(%v) => dst(%v); err(%v)",
-			g.o, i+1, g.LocalAddr(), g.RemoteAddr(), err)
-		time.Sleep(handshakeRetryDelay)
-	}
-}
-
 func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 	if g.ok() { // already setup
 		return false, nil // open, err free
@@ -251,8 +214,9 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 	}()
 
 	if g.req != nil { // egressing (process netstack's req from tun)
+		wq := new(waiter.Queue)
 		// the passive-handshake (SYN) may not successful for a non-existent route (say, ipv6)
-		if ep, wq, err := g.createEndpointWithRetry(); err != nil || ep == nil {
+		if ep, err := g.req.CreateEndpoint(wq); err != nil || ep == nil {
 			log.E("ns: tcp: %s: connect: (outbound) synack(complete? %t / ep? %t) src(%v) => dst(%v); err(%v)",
 				g.o, complete, ep != nil, g.LocalAddr(), g.RemoteAddr(), err)
 			// prevent potential half-open TCP connection leak.

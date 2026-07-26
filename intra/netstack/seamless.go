@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -79,21 +78,6 @@ var _ stack.GSOEndpoint = (*magiclink)(nil)
 var _ SeamlessEndpoint = (*magiclink)(nil)
 
 var errMissingSink = errors.New("magic: pcap sink is nil")
-
-// lastSwapMillis records the unix-millis timestamp of the most recent tun fd
-// swap (Swap, below). A swap can transiently drop or reorder packets already
-// in-flight on the old fd (ex: the client's final ACK completing a TCP
-// handshake), which surfaces in netstack's TCP state machine as a spurious
-// ErrConnectionRefused even though the peer never actually refused the
-// connection. tcp.go uses recentlySwapped as a heuristic to retry such
-// handshakes instead of tearing down the connection outright.
-var lastSwapMillis atomic.Int64
-
-// recentlySwapped reports whether a tun fd swap completed within d.
-func recentlySwapped(d time.Duration) bool {
-	last := lastSwapMillis.Load()
-	return last > 0 && time.Since(time.UnixMilli(last)) < d
-}
 
 type emitter struct{}
 
@@ -194,8 +178,6 @@ func PcapModes() string {
 
 // Swap implements SeamlessEndpoint.
 func (l *magiclink) Swap(fd, mtu int) (err error) {
-	lastSwapMillis.Store(time.Now().UnixMilli())
-
 	e := l.e.Load()
 	hasSwappedFd := false
 	needsNewEndpoint := e == nil
