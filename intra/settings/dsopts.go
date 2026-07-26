@@ -31,3 +31,15 @@ func L3(engine int) string {
 		return IP4
 	}
 }
+
+// Engine returns the engine constant for given l3 string.
+func Engine(l3 string) int {
+	switch l3 {
+	case IP46:
+		return Ns46
+	case IP6:
+		return Ns6
+	default:
+		return Ns4
+	}
+}

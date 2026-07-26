@@ -192,6 +192,7 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		l3 = settings.IP46 // always dual-stack
 		log.W("tun: new netstack(%d) l3 is %s needed %s", fd, l3, settings.IP46)
 	}
+	// set route before calling Up
 	netstack.Route(stack, l3)
 	// Enabled() may temporarily return false when Up() is in progress.
 	if nic, err = netstack.Up(stack, ep, hdl); err != nil { // attach new endpoint
@@ -213,8 +214,8 @@ func NewGTunnel(pctx context.Context, fd, mtu int, l3 string, hdl netstack.GConn
 		closed: atomic.Bool{},
 		once:   sync.Once{},
 	}
-	t.sid.Store(int64(fd)) // fd is the og tun device
-
+	t.sid.Store(int64(fd))          // fd is the og tun device
+	t.setRoute(settings.Engine(l3)) // sets happy eyeballs
 	core.Go("tun.awaiter", t.waitForEndpoint)
 
 	return
