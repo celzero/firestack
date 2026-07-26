@@ -583,11 +583,11 @@ func download(id string, local, remote net.Conn) (n int64, err error) {
 }
 
 // oneRealIPPort returns the first valid AddrPort from realips, or origipp if none are valid.
-func oneRealIPPort(realips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool) netip.AddrPort {
+func (h *baseHandler) oneRealIPPort(realips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool) netip.AddrPort {
 	if len(realips) <= 0 {
 		return origipp
 	}
-	if first := makeIPPorts(realips, origipp, maybeIncludeOrig, 1); len(first) > 0 {
+	if first := makeIPPorts(h.resolver, realips, origipp, maybeIncludeOrig, 1); len(first) > 0 {
 		return first[0]
 	}
 	return origipp
@@ -606,7 +606,7 @@ func makeAnyAddrPort(origipp netip.AddrPort) netip.AddrPort {
 // makeIPPorts returns a slice of valid, non-zero at most cap AddrPorts.
 // The first element may be origipp AddrPort, if realips is empty or contains only unspecified IPs.
 // or maybeIncludeOrig is true and origipp's IP family is included in dialer's current config.
-func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool, cap int) []netip.AddrPort {
+func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool, cap int) []netip.AddrPort {
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
 	orig4 := origipp.Addr().Is4()
@@ -625,34 +625,59 @@ func makeIPPorts(ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool
 
 	origip := origipp.Addr()
 	origport := origipp.Port()
+
+	var origipp6 netip.AddrPort
+	if v := origipp.Addr(); v.Is4() {
+		if v6 := r.X46(dnsx.System, v); candial(v6) {
+			origipp6 = netip.AddrPortFrom(v6, origport)
+		}
+	}
+
 	willIncludeOrig := maybeIncludeOrig && ((use4 && orig4) || (use6 && orig6))
-	r := make([]netip.AddrPort, 0, cap)
+	out := make([]netip.AddrPort, 0, cap)
 	// override alg-ip with the first real-ip
 	for _, v := range ips { // may contain unspecifed ips
-		if len(r) >= cap {
+		if len(out) >= cap {
 			break
 		}
 		if v == origip && willIncludeOrig {
 			// skip duplicate of origipp which will be included later
 			continue
 		}
-		if v.IsValid() && !v.IsUnspecified() {
-			r = append(r, netip.AddrPortFrom(v, origport))
+		if candial(v) {
+			if v.Is4() {
+				if v6 := r.X46(dnsx.UnderlayResolver, v); candial(v6) {
+					v = v6
+				}
+			}
+			out = append(out, netip.AddrPortFrom(v, origport))
 		} // else: discard ip
 	}
 
 	if log.Verbose {
-		log.VV("com: makeIPPorts(v4? %t, v6? %t) for %v; tot: %d; in: %v, out: %v",
-			use4, use6, origipp, len(ips), ips, r)
+		log.V("com: makeIPPorts(v4? %t, v6? %t) for %v [dns64? %v]; tot: %d; in: %v, out: %v",
+			use4, use6, origipp, origipp6, len(ips), ips, out)
 	}
-	if len(r) > 0 {
-		s := core.ShuffleInPlace(r)
+	if len(out) > 0 {
+		s := core.ShuffleInPlace(out)
 		if willIncludeOrig {
-			s = append([]netip.AddrPort{origipp}, s...)
+			if candial(origipp6.Addr()) {
+				s = append([]netip.AddrPort{origipp6}, s...)
+			} else {
+				s = append([]netip.AddrPort{origipp}, s...)
+			}
 		}
 		return s
 	}
+
+	if candial(origipp6.Addr()) {
+		return []netip.AddrPort{origipp6}
+	}
 	return []netip.AddrPort{origipp}
+}
+
+func candial(v netip.Addr) bool {
+	return v.IsValid() && !v.IsUnspecified()
 }
 
 // algip may or may not be an actual alg ip.

@@ -219,7 +219,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	targetIsLocalNat64 := h.resolver.IsNat64(dnsx.Local464Resolver, target.Addr())
 
 	filtered, excluded, fallingback := filterFamilyForDialingWithFailSafe(realips)
-	actualTargets := makeIPPorts(filtered, target, !undidAlg && !targetIsLocalNat64, 0)
+	actualTargets := makeIPPorts(h.resolver, filtered, target, !undidAlg && !targetIsLocalNat64, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 
 	if len(actualTargets) <= 0 { // unlikely
