@@ -1473,11 +1473,15 @@ func (r *resolver) chooseOne(who string, chooseRandom bool, ids ...string) (theo
 
 	miss := make([]string, 0)
 	trs := make([]Transport, 0, len(ids))
+	hasPlus := false
 	r.RLock()
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if t := r.transports[id]; t != nil {
 			trs = append(trs, t)
+			if isPlus(id) {
+				hasPlus = true
+			}
 		} else {
 			miss = append(miss, id)
 		}
@@ -1506,7 +1510,7 @@ func (r *resolver) chooseOne(who string, chooseRandom bool, ids ...string) (theo
 		return idstr(rerecov[0])
 	}
 
-	if isAnyPlus(ids...) { // or, prefer Plus
+	if hasPlus { // prefer Plus when its transport was found and nothing better is available
 		return Plus
 	}
 
@@ -1569,10 +1573,6 @@ func Categorize(ts []Transport) (remote, rerecov, best, preferred, recoverables,
 	}
 	best = core.Sort(best, Fastest)
 	preferred = core.Sort(preferred, Fastest)
-	// all transports are remote; use categories instead
-	if len(remote) == len(ts) {
-		remote = nil
-	}
 	return
 }
 
