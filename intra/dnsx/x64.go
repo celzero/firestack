@@ -16,7 +16,7 @@ import (
 const Rfc7050WKN = "ipv4only.arpa."
 const AnyResolver = "__anyresolver"
 const UnderlayResolver = "__underlay" // used by transport dnsx.System
-const OverlayResolver = "__overlay"   // "net.DefaultResolver" dnsx.Goos
+const StdlibResolver = "__stdlib"     // "net.DefaultResolver" dnsx.Goos
 const Local464Resolver = "__local464" // preset "forced" DNS64/NAT64
 
 type NatPt interface {
@@ -38,9 +38,14 @@ type DNS64 interface {
 }
 
 type NAT64 interface {
-	// Returns true if ip is a NAT64 address from transport id.
-	IsNat64(id string, ip netip.Addr) bool
-	// Translates ip to IPv4 using the NAT64 prefix for transport id.
-	// As a special case, ip is zero addr, output is always IPv4 zero addr.
-	X64(id string, ip netip.Addr) netip.Addr
+	// Returns true if ip6 is a NAT64 address from transport id.
+	IsNat64(id string, ip6 netip.Addr) bool
+	// Returns true if transport id has a NAT64 prefix.
+	WillNat64(id string) bool
+	// Translates ip6 to IPv4 using the NAT64 prefix for transport id.
+	// As a special case, ip6 is zero addr, output is always IPv4 zero addr.
+	X64(id string, ip6 netip.Addr) (ip4 netip.Addr)
+	// Translates ip4 to IPv6 using the NAT64 prefix for transport id.
+	// As a special case, ip4 is zero addr, output is always IPv6 zero addr.
+	X46(id string, ip4 netip.Addr) (ip6 netip.Addr)
 }

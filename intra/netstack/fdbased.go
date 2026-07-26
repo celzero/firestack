@@ -239,8 +239,8 @@ func (e *endpoint) Stat() (zz EpStat) {
 		Fd:        fds.tunFd, // f.tun() returns invalidfd if f.tunFd is closed
 		Alive:     !fds.closed.Load(),
 		Age:       core.FmtPeriod(age),
-		Read:      core.FmtBytes(uint64(fds.read.Load())),
-		Written:   core.FmtBytes(uint64(fds.written.Load())),
+		Read:      core.FmtBytes(fds.read.Load()),
+		Written:   core.FmtBytes(fds.written.Load()),
 		LastRead:  core.FmtUnixMillisAsPeriod(fds.lastRead.Load()),
 		LastWrite: core.FmtUnixMillisAsPeriod(fds.lastWrite.Load()),
 	}
@@ -481,7 +481,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	total := pkts.Len()
 
 	defer func() {
-		fds.written.Add(int64(written)) // update written bytes
+		fds.written.Add(uint64(written)) // update written bytes
 		fds.lastWrite.Store(time.Now().UnixMilli())
 	}()
 
@@ -613,7 +613,7 @@ func (e *endpoint) InjectOutbound(dest tcpip.Address, packet *buffer.View) tcpip
 	}
 
 	b := packet.AsSlice()
-	sz := int64(len(b))
+	sz := uint64(len(b))
 	defer f.written.Add(sz) // update written bytes
 	defer f.lastWrite.Store(time.Now().UnixMilli())
 

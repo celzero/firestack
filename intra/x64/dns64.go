@@ -151,8 +151,12 @@ func (d *dns64) AddResolver(r string) (ok bool) {
 	switch id {
 	case dnsx.Local464Resolver:
 		return d.ofLocal464() == nil
-	case dnsx.OverlayResolver:
-		return d.ofOverlay() == nil
+	case dnsx.StdlibResolver:
+		return d.ofStdlib() == nil
+	case dnsx.UnderlayResolver:
+		// stdlib must be re-calc on network changes; addition of a new
+		// dnsx.System resolver is a proxy for a network change, so re-calc stdlib
+		d.ofStdlib()
 	}
 
 	if !d.register(id) { // re-register to start with a clean slate
@@ -242,7 +246,7 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 	ip64 := d.get(id)
 	if len(ip64) <= 0 {
 		if ip64 = d.get(dnsx.UnderlayResolver); len(ip64) <= 0 {
-			if ip64 = d.get(dnsx.OverlayResolver); len(ip64) <= 0 {
+			if ip64 = d.get(dnsx.StdlibResolver); len(ip64) <= 0 {
 				// 64 prefix from Local646Resolver to be removed before egressing tunnel
 				// see: natpt.go:X64 and alg.go:maybeUndoLocalNat64Locked
 				ip64 = d.get(dnsx.Local464Resolver)
@@ -326,16 +330,21 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r, uid string) (*dns.Msg,
 	return res, err
 }
 
-func (d *dns64) ofOverlay() error {
-	if d.register(dnsx.OverlayResolver) {
-		log.VV("dns64: skipping query phase for overlay; paused...")
+func (d *dns64) ofStdlib() error {
+	if d.register(dnsx.StdlibResolver) {
+		log.VV("dns64: skipping query phase for stdlib; paused...")
+		return nil
+	}
+	// in loopback mode, net.DefaultResolver will be routed back into
+	// the tunnel and not in fact sent out to the default gateway
+	if settings.Loopingback.Load() {
+		log.I("dns64: skipping query phase for stdlib; looping back...")
 		return nil
 	}
 
-	// TODO: handle Loopback mode
-	// AAAA query for ipv4only.arpa to overlay resolver
+	// AAAA query for ipv4only.arpa to stdlib resolver
 	ips, err := net.DefaultResolver.LookupIP(d.ctx, "ip6", dnsx.Rfc7050WKN)
-	log.I("dns64: ipv4only.arpa w underlying network resolver")
+	log.I("dns64: ipv4only.arpa w stdlib network resolver")
 
 	if err != nil {
 		return err
@@ -345,7 +354,7 @@ func (d *dns64) ofOverlay() error {
 		return errNotFound
 	}
 
-	return d.add(dnsx.OverlayResolver, ips)
+	return d.add(dnsx.StdlibResolver, ips)
 }
 
 func (d *dns64) ofLocal464() error {

@@ -277,7 +277,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 		return abort, new(tcpip.ErrBadBuffer)
 	}
 
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("ns: tun(%d): dispatch: start; iov: %d", fds.tun(), len(iov))
 	}
 
@@ -288,7 +288,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 
 	fds.lastRead.Store(time.Now().UnixMilli()) // update last read time
 
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("ns: tun(%d): dispatch: after %s, got(iov: %d / bytes: %d / tot: %d), err(%v)",
 			fds.tun(), core.FmtPeriod(time.Since(start)), len(iov), n, fds.read.Load(), errno)
 	}
@@ -300,7 +300,7 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 		return abort, tcpip.TranslateErrno(errno)
 	}
 
-	fds.read.Add(int64(n)) // update read bytes
+	fds.read.Add(uint64(n)) // update read bytes
 
 	b, ok := d.buf.pullBuffer(n) // not thread safe
 	if !ok {
@@ -322,14 +322,14 @@ func (d *readVDispatcher) io(fds *fds) (bool, tcpip.Error) {
 	}
 
 	start = time.Now()
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("ns: tun(%d): dispatch: pkt sz: %d", fds.tun(), pkt.Size())
 	}
 
 	d.mgr.queuePacket(pkt, iseth)
 	d.mgr.wakeReady()
 
-	if settings.Debug {
+	if log.Verbose {
 		log.VV("ns: tun(%d): dispatch: done after %s; pkt sz: %d",
 			fds.tun(), core.FmtPeriod(time.Since(start)), pkt.Size())
 	}

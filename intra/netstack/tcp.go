@@ -73,7 +73,7 @@ func InboundTCP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort
 	if !settings.HappyEyeballs.Load() {
 		open, err := newgc.tryConnect()
 
-		if settings.Debug {
+		if log.Debug {
 			logeif(err)("ns: tcp: %s: inbound: tryConnect err src(%v) => dst(%v); open? %t / retry? %t, err(%v)",
 				newgc.o, to, from, open, retryLateConnect, err)
 		}
@@ -129,7 +129,7 @@ func tcpForwarder(who string, s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder 
 		if !settings.HappyEyeballs.Load() { // syn-ack before delivering to handler?
 			opened, err := gtcp.tryConnect()
 
-			if settings.Debug {
+			if log.Debug {
 				logeif(err)("ns: tcp: %s: forwarder: tryConnect err src(%v) => dst(%v); open? %t, err(%v)",
 					who, src, dst, opened, err)
 			}
@@ -222,7 +222,7 @@ func (g *GTCPConn) synack(complete bool) (rst bool, err error) {
 			g.c.Store(conn)
 		}
 	} else { // ingressing (process a conn into tun)
-		if settings.Debug {
+		if log.Verbose {
 			log.V("ns: tcp: %s: dial: (inbound) creating endpoint for %v => %v", g.o, g.LocalAddr(), g.RemoteAddr())
 		}
 		src, proto := addrport2nsaddr(g.dst) // remote addr is local addr in netstack
