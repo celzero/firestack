@@ -680,7 +680,7 @@ runagain:
 
 	log.V("dns: fwd: 1 for %s (fid: %s / %s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, fid, who, qname, qtyp, run, pref, chosenids)
 
-	id, sid, pids, spids, diag, presetIPs := r.preferencesFrom(qname, uint16(qtyp), pref, chosenids...)
+	id, sid, pids, spids, diag, presetIPs := r.preferencesFrom(fid, qname, uint16(qtyp), pref, chosenids...)
 
 	t := r.determineTransport(id)         // id may be empty if pref is nil
 	t2 := r.determineTransport(sid)       // sid may be empty
@@ -1272,8 +1272,9 @@ func parseAllIPOpts(qtyp uint16, qname, ipcsv string) (ips []netip.Addr, badip, 
 }
 
 // parse TIDCSV: <tid>, <tid:pid>, <tid:pid1:pid2>, or csv of such
-func parseAllTidOpts(tidcsv string) (tids []string, pidmap map[string]string) {
-	pidmap = make(map[string]string)
+func parseAllTidOpts(tidcsv string) ([]string, map[string]string) {
+	tids := []string{}
+	pidmap := make(map[string]string)
 	for v := range strings.SplitSeq(tidcsv, ",") {
 		v = strings.TrimSpace(v)
 		if len(v) <= 0 {
@@ -1286,7 +1287,7 @@ func parseAllTidOpts(tidcsv string) (tids []string, pidmap map[string]string) {
 			}
 		}
 	}
-	return
+	return tids, pidmap
 }
 
 // parseTidOpt parses a TID entry in the format <tid>, <tid:pid>, or <tid:pid1:pid2>.
@@ -1296,13 +1297,15 @@ func parseTidOpt(entry string) (tid string, pids []string) {
 		return
 	}
 	tid = strings.TrimSpace(parts[0])
-	if len(parts) > 1 {
-		pids = parts[1:]
+	for _, p := range parts[1:] {
+		if p = strings.TrimSpace(p); len(p) > 0 {
+			pids = append(pids, p)
+		}
 	}
 	return
 }
 
-func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv, spidcsv, diag string, ips []netip.Addr) {
+func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts, chosenids ...string) (id1, id2, pidcsv, spidcsv, diag string, ips []netip.Addr) {
 	var x []string               // primary tids parsed from TIDCSV
 	var xx []string              // secondary tids parsed from TIDSECCSV
 	var t1pids map[string]string // tid -> pidcsv (from TIDCSV)
@@ -1316,7 +1319,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 
 	if s == nil { // should never happen; but it has during testing (on End())
 		diags = append(diags, "nil prefs")
-		log.W("dns: pref: no ns opts for %s", qname)
+		log.W("dns: pref: %s no ns opts for %s", fid, qname)
 		return // no-op
 	} else {
 		x, t1pids = parseAllTidOpts(s.TIDCSV)
@@ -1326,16 +1329,24 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if badips > 0 || badfam > 0 {
 			diags = append(diags, fmt.Sprintf("%d invalid ips / %d invalid fam", badips, badfam))
 		}
+		if log.Verbose {
+			log.VV("dns: pref: %s tids for %s: p=%v s=%v", fid, qname, x, xx)
+		}
 	}
 
+	// TODO: ok if len(ips) > 0?
 	if len(x) <= 0 { // x may be nil
-		log.W("dns: pref: no tids for %s", qname)
+		log.W("dns: pref: %s no tids for %s (sec? %v)", fid, qname, xx)
 		diags = append(diags, "no tids")
 		// no-op
 	} else {
 		// TODO: fallback on all id1s
-		id1 = r.chooseOne(true /*at random*/, x...)
-		id2 = r.chooseOne(true /*at random*/, xx...) // mostly, just 0 or 1 secondary
+		id1 = r.chooseOne(qname+fid, true /*at random*/, x...)
+		id2 = r.chooseOne(qname+fid, true /*at random*/, xx...) // mostly, just 0 or 1 secondary
+		if log.Verbose {
+			log.VV("dns: pref: %s chosen tids for %s: p=%s s=%s / chosen=%v", fid, qname, id1, id2, chosenids)
+			diags = append(diags, fmt.Sprintf("selected(%s,%s)", id1, id2))
+		}
 	}
 
 	if !firstEmpty(chosenids) && len(chosenids) > 0 {
@@ -1347,7 +1358,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			id2 = ""
 			diags = append(diags, "plus over default")
 			if log.Debug {
-				log.D("dns: pref: use Plus instead of Default for %s", qname)
+				log.D("dns: pref: %s use Plus instead of Default for %s", fid, qname)
 			}
 		} else {
 			id1 = chosenids[0] // never empty
@@ -1357,12 +1368,12 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			}
 			diags = append(diags, fmt.Sprintf("chosen(%s,%s)", id1, id2))
 			if log.Debug {
-				log.D("dns: pref: use chosen tr(%s, %s) for %s", id1, id2, qname)
+				log.D("dns: pref: %s use chosen tr(%s, %s) for %s", fid, id1, id2, qname)
 			}
 		}
 	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 {
 		// use approp transport given a qname
-		log.D("dns: pref: use suggested tr(%s) for %s", reqid, qname)
+		log.D("dns: pref: %s use suggested tr(%s) for %s", fid, reqid, qname)
 		id1 = reqid
 		id2 = ""
 		diags = append(diags, fmt.Sprintf("local(%s)", qname))
@@ -1378,7 +1389,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 			id2 = Preferred
 		}
 		if log.Verbose {
-			log.VV("dns: pref: use fixed tr(%s, %s) for %s", id1, id2, qname)
+			log.VV("dns: pref: %s use fixed tr(%s, %s) for %s", fid, id1, id2, qname)
 		}
 		// s.NOBLOCK must be respected
 		// as must be the pids
@@ -1397,13 +1408,13 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 	reqblock := isAnyBlockAll(x...) || isAnyBlockAll(xx...)
 	if isAnyBlockFree(id1, id2) {
 		if !s.NOBLOCK {
-			log.W("dns: pref: tr for %s over %s+%s; override NOBLOCK", qname, id1, id2)
+			log.W("dns: pref: %s tr for %s over %s+%s; override NOBLOCK", fid, qname, id1, id2)
 			s.NOBLOCK = true
 		}
 	} else if ipblock || trblock || reqblock {
 		diags = append(diags, fmt.Sprintf("block(ip?%t, tr?%t, req?%t)", ipblock, trblock, reqblock))
-		log.D("dns: pref: tr for %s over %s+%s; block ip? %t, pref? %t, chose? %t",
-			qname, id1, id2, ipblock, trblock, reqblock)
+		log.D("dns: pref: %s tr for %s over %s+%s; block ip? %t, pref? %t, chose? %t",
+			fid, qname, id1, id2, ipblock, trblock, reqblock)
 		// BlockAll must appear in primary TIDCSV
 		id1 = BlockAll // just one transport, BlockAll, if set
 		id2 = ""
@@ -1419,7 +1430,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if pidcsv != pid {
 			diags = append(diags, fmt.Sprintf("pid %s <> %s", pidcsv, pid))
 			if log.Debug {
-				log.D("dns: pref: override pidcsv to %s for %s; tr(%s, %s)", pidcsv, qname, id1, id2)
+				log.D("dns: pref: %s override pidcsv to %s for %s; tr(%s, %s)", fid, pidcsv, qname, id1, id2)
 			}
 		}
 	} else {
@@ -1430,7 +1441,7 @@ func (r *resolver) preferencesFrom(qname string, qtyp uint16, s *x.DNSOpts, chos
 		if spidcsv != pid {
 			diags = append(diags, fmt.Sprintf("pid %s <> %s", spidcsv, pid))
 			if log.Debug {
-				log.D("dns: pref: override spid to %s for %s; tr(%s, %s)", spidcsv, qname, id1, id2)
+				log.D("dns: pref: %s override spid to %s for %s; tr(%s, %s)", fid, spidcsv, qname, id1, id2)
 			}
 		}
 	} else {
@@ -1452,7 +1463,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	return
 }
 
-func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
+func (r *resolver) chooseOne(who string, chooseRandom bool, ids ...string) (theone string) {
 	if len(ids) <= 0 {
 		return ""
 	}
@@ -1475,10 +1486,10 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 
 	// TODO: prefer proxy DNS (wg) when available
 	remote, rerecov, best, preferred, recoverables, errored, ended := Categorize(trs)
-	if settings.Debug {
+	if log.Debug {
 		defer func() {
-			loged(len(theone) <= 0)("dns: pref: chose: %s from remote(%v) best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
-				theone, tr2csv2(remote), tr2csv2(best), tr2csv2(preferred), tr2csv2(recoverables), tr2csv2(errored), tr2csv2(ended), strings.Join(miss, ","))
+			loged(len(theone) <= 0)("dns: pref: %s chose: %s from remote(%v) remoterecov(%v) best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
+				who, theone, tr2csv2(remote), tr2csv2(rerecov), tr2csv2(best), tr2csv2(preferred), tr2csv2(recoverables), tr2csv2(errored), tr2csv2(ended), strings.Join(miss, ","))
 		}()
 	}
 
@@ -1520,7 +1531,7 @@ func (r *resolver) chooseOne(chooseRandom bool, ids ...string) (theone string) {
 		}
 		return idstr(errored[0])
 	}
-	log.E("dns: pref: no transports for %v [all ended? %v]", ids, ended)
+	log.E("dns: pref: %s no transports for %v (%d) [missed? %v / ended? %v]", who, ids, len(ids), miss, ended)
 	return ""
 }
 
