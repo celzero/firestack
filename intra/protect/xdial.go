@@ -98,25 +98,25 @@ func (d *RDial) ID() string {
 	if d.owner != "" {
 		return d.owner
 	}
-	return "xdial" // ownerless
+	return core.LocStr(d) // ownerless
 }
 
 // Dial implements RDialer.
 func (d *RDial) Dial(network, addr string) (net.Conn, error) {
+	if d.dialer == nil {
+		return nil, errNoDialer
+	}
 	return d.dialer.DialContext(d.context(), network, addr)
-}
-
-func (d *RDial) cloneDialer() *net.Dialer {
-	var rd *net.Dialer = new(net.Dialer)
-	// shallow copy: go.dev/play/p/tuadSFN3glj
-	*rd = *d.dialer
-	return rd
 }
 
 // DialBind implements RDialer.
 func (d *RDial) DialBind(network, local, remote string) (net.Conn, error) {
+	if d.dialer == nil {
+		return nil, errNoDialer
+	}
 	var onlyport netip.AddrPort
-	rd := d.cloneDialer()
+	// shallow copy: go.dev/play/p/tuadSFN3glj
+	rd := *d.dialer
 
 	if _, port, err := net.SplitHostPort(local); err == nil {
 		// uport may be 0, which is "valid"
@@ -143,7 +143,7 @@ func (d *RDial) DialBind(network, local, remote string) (net.Conn, error) {
 		onlyport = netip.AddrPortFrom(anyaddr, uint16(uport))
 	} else { // okay for local to be invalid; called by retrier.DialTCP
 		log.VV("xdial: DialBind: (o: %s); %s %s=>%s; why: laddr nil",
-			d.owner, network, local, remote)
+			d.ID(), network, local, remote)
 	}
 
 	switch network {
@@ -154,7 +154,7 @@ func (d *RDial) DialBind(network, local, remote string) (net.Conn, error) {
 		if onlyport.IsValid() { // valid even when port is 0
 			rd.LocalAddr = net.TCPAddrFromAddrPort(onlyport)
 			log.V("xdial: DialBind: (o: %s); %s %s=>%s",
-				d.owner, network, rd.LocalAddr, remote)
+				d.ID(), network, rd.LocalAddr, remote)
 		}
 	case "udp", "udp4", "udp6":
 		if alwaysDualStack {
@@ -163,11 +163,11 @@ func (d *RDial) DialBind(network, local, remote string) (net.Conn, error) {
 		if onlyport.IsValid() { // valid even when port is 0
 			rd.LocalAddr = net.UDPAddrFromAddrPort(onlyport)
 			log.V("xdial: DialBind: (o: %s); %s %s=>%s",
-				d.owner, network, rd.LocalAddr, remote)
+				d.ID(), network, rd.LocalAddr, remote)
 		}
 	default:
 		log.W("xdial: DialBind: (o: %s); %s %s=>%s; err: unsupported network",
-			d.owner, network, local, remote)
+			d.ID(), network, local, remote)
 	}
 
 	// equivalent to d.dial() if LocalAddr is not set
@@ -176,6 +176,9 @@ func (d *RDial) DialBind(network, local, remote string) (net.Conn, error) {
 
 // Accept implements RDialer interface.
 func (d *RDial) Accept(network, local string) (net.Listener, error) {
+	if d.listen == nil {
+		return nil, errAccept
+	}
 	if network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return nil, errAccept
 	}
@@ -184,10 +187,14 @@ func (d *RDial) Accept(network, local string) (net.Listener, error) {
 
 // Announce implements RDialer.
 func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
-	if network != "udp" && network != "udp4" && network != "udp6" {
-		log.T("xdial: Announce: invalid network %s", network)
+	if d.listen == nil {
 		return nil, errAnnounce
 	}
+	if network != "udp" && network != "udp4" && network != "udp6" {
+		log.T("xdial: (o: %s) Announce: invalid network %s", d.ID(), network)
+		return nil, errAnnounce
+	}
+	// skip alwaysDualStack and honor client's Announce request network as-is
 	// todo: check if local is a local address or empty (any)
 	// diailing (proxy.Dial/net.Dial/etc) on wildcard addresses (ex: ":8080" or "" or "localhost:1025")
 	// is not equivalent to listening/announcing. see: github.com/golang/go/issues/22827
@@ -196,8 +203,8 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 		case *net.UDPConn:
 			return x, nil
 		default:
-			log.T("xdial: Announce (o: %s): addr(%s) failed; %T is not net.UDPConn; other errs: %v",
-				d.owner, local, x, err)
+			log.T("xdial: Announce (o: %s): addr(%s) failed; %T is not net.UDPConn",
+				d.ID(), local, x)
 			clos(pc)
 			return nil, errNoUDPMux
 		}
@@ -208,13 +215,22 @@ func (d *RDial) Announce(network, local string) (net.PacketConn, error) {
 
 // Probe implements RDialer.
 func (d *RDial) Probe(network, local string) (PacketConn, error) {
+	if d.listenICMP == nil {
+		return nil, errAnnounce
+	}
 	if network == "udp" {
-		ip, _ := netip.ParseAddrPort(local)
-		ipok := ip.IsValid()
-		if ipok && ip.Addr().Is4() {
-			network = "udp4"
-		} else if ipok && ip.Addr().Is6() {
-			network = "udp6"
+		if ip, err := netip.ParseAddr(local); err == nil && ip.IsValid() {
+			if ip.Is4() {
+				network = "udp4"
+			} else {
+				network = "udp6"
+			}
+		} else if ipp, err := netip.ParseAddrPort(local); err == nil && ipp.IsValid() {
+			if ipp.Addr().Is4() {
+				network = "udp4"
+			} else if ipp.Addr().Is6() {
+				network = "udp6"
+			}
 		}
 	}
 	if network != "udp4" && network != "udp6" {
