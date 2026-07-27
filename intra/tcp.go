@@ -257,7 +257,7 @@ func (h *tcpHandler) Proxy(gconn *netstack.GTCPConn, src, target netip.AddrPort)
 	targetIsLocalNat64 := h.resolver.IsNat64(dnsx.Local464Resolver, target.Addr())
 
 	// TODO: use res.IP only if set
-	filtered, excluded, fallingback := filterFamilyForDialingWithFailSafe(realips)
+	filtered, excluded, fallingback := h.filterFamilyForDialingWithFailSafe(realips)
 	actualTargets := makeIPPorts(h.resolver, filtered, target, !undidAlg && !targetIsLocalNat64, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 

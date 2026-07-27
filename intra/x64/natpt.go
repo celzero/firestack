@@ -10,7 +10,9 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"strings"
 
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/settings"
@@ -66,7 +68,7 @@ func NewNatPt2(ctx context.Context) *natPt {
 // D64 implements [dnsx.DNS64].
 func (pt *natPt) D64(network, id, uid string, ans6 *dns.Msg) (ans4 *dns.Msg) {
 	ptmode := settings.PtMode.Load()
-	if ptmode != settings.PtModeNo46 { // do64
+	if ptmode != settings.PtModeNone { // do64
 		force64 := ptmode == settings.PtModeForce64 || ptmode == settings.PtModeForce
 		return pt.dns64.eval(network, force64, ans6, id, uid)
 	}
@@ -79,10 +81,10 @@ func (n *natPt) IsNat64(id string, ip netip.Addr) bool {
 	return match(prefixes, addr2ip(ip)) != nil
 }
 
-// WillNat64 implements [dnsx.NAT64].
-func (n *natPt) WillNat64(id string) bool {
-	prefixes := n.nat64PrefixForResolver(id)
-	return len(prefixes) > 0
+// GetNat64 implements [dnsx.NAT64].
+func (n *natPt) GetNat64(id string) string {
+	tostr := core.Map(n.nat64PrefixForResolver(id), func(p net.IPNet) string { return p.String() })
+	return strings.Join(tostr, ",")
 }
 
 // X46 implements [dnsx.NAT64].
@@ -218,7 +220,7 @@ func ID64(t dnsx.Transport) string {
 }
 
 func id64(tid string) string {
-	switch tid { // may be dnsx.UnderlayResolver or dnsx.OverlayResolver
+	switch tid { // may be dnsx.UnderlayResolver or dnsx.StdlibResolver
 	case dnsx.System:
 		return dnsx.UnderlayResolver
 	case dnsx.Goos:

@@ -142,17 +142,15 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 		}
 	}
 
-	if len(clients) == 0 && err != nil {
+	if len(clients) == 0 || err != nil {
 		defer done()
-		log.W("proxy: err creating socks5 for %v (opts: %v): %v",
-			mh, po, err)
+		err = log.EE("proxy: err creating socks5 for %v (opts: %v): %v", mh, po, err)
 		return nil, err
 	}
 
 	h.outbound = clients
 
-	log.D("proxy: socks5: created %s with clients(%d), opts(%s)",
-		h.id, len(clients), po)
+	log.I("proxy: socks5: created %s with clients(%d), opts(%s)", h.id, len(clients), po)
 
 	return h, nil
 }

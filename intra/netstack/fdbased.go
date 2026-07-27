@@ -508,7 +508,7 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	}
 	if len(batch) > 0 {
 		if errno := rawfile.NonBlockingWriteIovec(fd, batch); errno != 0 {
-			log.W("ns: tun(%d): WritePackets (to tun): err(%v), sent(%d)/total(%d)", fd, errno, packets, total)
+			log.W("ns: tun(%d): WritePackets (to tun): err(%v), sent(%d)/total(%d)", fd, errno, written, total)
 			return written, tcpip.TranslateErrno(errno)
 		}
 		written += packets

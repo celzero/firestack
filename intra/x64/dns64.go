@@ -89,7 +89,7 @@ func newDns64(ctx context.Context) *dns64 {
 func (d *dns64) pauseOrResume() {
 	pt := settings.PtMode.Load()
 	has6 := dialers.Use6()
-	if pt == settings.PtModeNo46 {
+	if pt == settings.PtModeNone {
 		if d.paused.CompareAndSwap(false, true) {
 			log.I("dns64: flow: disabled; pausing...")
 		}
@@ -253,8 +253,6 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 			}
 		}
 		log.D("dns64: attempt underlay/local464 resolver [%s@%s] ip64 (ad? %t) w len(%d)", r, uid, hasauth, len(ip64))
-	} else {
-		log.V("dns64: for %s, no resolver id(%s[%s]) registered (ad? %t)", uid, r, id, hasauth)
 	}
 
 	ans4, err := d.query64(network, ansin, r, uid)

@@ -43,7 +43,7 @@ const (
 	// PtModeForce64 enforces 6to4 protocol translation.
 	PtModeForce64 int32 = 1
 	// Android implements 464Xlat out-of-the-box, so this zero userspace impl
-	PtModeNo46 int32 = 2
+	PtModeNone int32 = 2
 	// PtModeForce46 enforces 4 via 6 protocol translation.
 	PtModeForce46 int32 = 3
 	// PtModeForce enforces both PtModeForce64 or PtModeForce46.
@@ -85,8 +85,8 @@ func Mode2String(typ string, mode int32) string {
 				return "force46"
 			case PtModeForce:
 				return "force"
-			case PtModeNo46:
-				return "no46"
+			case PtModeNone:
+				return "nopt"
 			}
 		}
 		return "unknown"
@@ -116,7 +116,7 @@ func SetTunMode(d, b, pt int32) {
 // is captured and replayed to the remote DoH server)
 // and with firewall disabled.
 func DefaultTunMode() {
-	SetTunMode(DNSModeIP, BlockModeNone, PtModeNo46)
+	SetTunMode(DNSModeIP, BlockModeNone, PtModeNone)
 }
 
 // DupTunFd instructs whether the TUN fd should be duplicated

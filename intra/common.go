@@ -675,43 +675,43 @@ func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, mayb
 		return s
 	}
 
-	if candial(origipp6.Addr()) {
-		return []netip.AddrPort{origipp6}
+	if useOrig46 {
+		return []netip.AddrPort{origipp46}
 	}
 	return []netip.AddrPort{origipp}
 }
 
-func candial(v netip.Addr) bool {
+func ipok(v netip.Addr) bool {
 	return v.IsValid() && !v.IsUnspecified()
 }
 
 // algip may or may not be an actual alg ip.
 // returned realips may be incoming algip itself or translated from algip,
 // depending on whether alg is enabled (ref: undidAlg).
-func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+func (h *baseHandler) undoAlg(maybeAlg netip.Addr, uid string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	const forcePTR = true // force PTR (realip => algans) translation?
 	anyTransport := dnsx.NoDNS
 	r := h.resolver
 	gw := r.Gateway()
 
-	ipok := !algip.IsUnspecified() && algip.IsValid()
+	ipok := ipok(maybeAlg)
 	didForce := false
 	hasreal := false
 	if ipok && gw != nil {
-		domains, didForce = gw.PTR(algip, uid, anyTransport, !forcePTR) // does NAT (algip => algans) translation
+		domains, didForce = gw.PTR(maybeAlg, uid, anyTransport, !forcePTR) // does NAT (algip => algans) translation
 		if !didForce && len(domains) <= 0 {
-			probableDomains, _ = gw.PTR(algip, uid, anyTransport, forcePTR)
+			probableDomains, _ = gw.PTR(maybeAlg, uid, anyTransport, forcePTR)
 		}
 		var ips []netip.Addr
 		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
-		ips, undidAlg = gw.X(algip, uid)
+		ips, undidAlg = gw.X(maybeAlg, uid)
 		realips = dnsx.Netip2Csv(ips)
 		hasreal = len(realips) > 0
-		blocklists = gw.RDNSBL(algip)
+		blocklists = gw.RDNSBL(maybeAlg)
 	}
 	// pick up corresponding domains from dialer's ipmap cache if none from gw.PTR
 	if ipok && len(domains) <= 0 && len(probableDomains) <= 0 {
-		if hosts := dialers.Ptr(algip); len(hosts) > 0 {
+		if hosts := dialers.Ptr(maybeAlg); len(hosts) > 0 {
 			probableDomains = strings.Join(hosts, ",")
 		}
 		if uid == SELF_UID {

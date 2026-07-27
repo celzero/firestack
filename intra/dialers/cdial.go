@@ -16,7 +16,6 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect/ipmap"
-	"github.com/celzero/firestack/intra/settings"
 )
 
 const dialRetryTimeout = 35 * time.Second
@@ -31,7 +30,7 @@ func reorderIPs(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool)
 	front := make([]netip.Addr, 0, len(ips))
 	back := make([]netip.Addr, 0, len(ips))
 	for _, ip := range ips {
-		if ip.Compare(alwaysExclude) == 0 || !ip.IsValid() {
+		if ip.Compare(alwaysExclude) == 0 || !ipok(ip) {
 			continue
 		} else if use4 && ip.Is4() {
 			front = append(front, ip)
@@ -65,7 +64,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	local, lerr := netip.ParseAddrPort(laddr) // okay if local is invalid
 	domain, portstr, err := net.SplitHostPort(raddr)
 
-	if settings.Debug {
+	if log.Debug {
 		log.D("commondial: dialing (host:port) %s=>%s; errs? %v %v",
 			laddr, raddr, lerr, err)
 	}
@@ -93,7 +92,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 
 	defer func() {
 		dur := time.Since(start)
-		if settings.Debug {
+		if log.Debug {
 			log.D("commondial: duration: %s; addr %s; confirmed? %s, sz: %d",
 				core.FmtPeriod(dur), raddr, confirmed, ips.Size())
 		}
@@ -103,7 +102,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 	// TODO: confirmedIPOK must be used depending on network type "tcp4", "udp4", "tcp6", "udp6" etc
 	if confirmedIPOK {
 		remote := netip.AddrPortFrom(confirmed, uint16(port))
-		if settings.Debug {
+		if log.Verbose {
 			log.V("commondial: dialing confirmed ip %s for %s", confirmed, remote)
 		}
 		conn, err = connect(d, network, local, remote)
@@ -112,7 +111,7 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 			err = core.OneErr(err, errNoConn)
 		}
 		if err == nil {
-			if settings.Debug {
+			if log.Verbose {
 				log.V("commondial: ip %s works for %s", confirmed, remote)
 			}
 			return conn, nil
@@ -141,15 +140,20 @@ func commondial2[D rdials, C rconns](d D, network, laddr, raddr string, connect 
 			ipset = ips.Addrs()
 			ordered, failingopen = reorderIPs(ipset, confirmed)
 		}
-		log.D("commondial: renew ips for %s; renewed? %t, failingopen? %t", raddr, renewed, failingopen)
+		if log.Debug {
+			log.D("commondial: renew ips for %s; renewed? %t, failingopen? %t", raddr, renewed, failingopen)
+		}
 	}
-	log.D("commondial: trying all ips %d/%d %v for %s, failingopen? %t",
-		len(ordered), len(ipset), ordered, raddr, failingopen)
+
+	if log.Debug {
+		log.D("commondial: trying all ips %d/%d %v for %s, failingopen? %t",
+			len(ordered), len(ipset), ordered, raddr, failingopen)
+	}
 	for _, ip := range ordered {
 		end := time.Since(start)
 		if end > dialRetryTimeout {
 			errs = core.JoinErr(errs, errRetryTimeout)
-			log.D("commondial: timeout %s for %s", end, raddr)
+			log.W("commondial: timeout %s for %s", end, raddr)
 			break
 		}
 		if ipok(ip) {

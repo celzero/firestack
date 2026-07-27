@@ -112,7 +112,7 @@ func (h *exit) dial(network, local, remote string) (protect.Conn, error) {
 	return c, err
 }
 
-// Announce implements Proxy.
+// Announce implements [Proxy].
 func (h *exit) Announce(network, local string) (protect.PacketConn, error) {
 	if err := candial(&h.status); err != nil {
 		return nil, err

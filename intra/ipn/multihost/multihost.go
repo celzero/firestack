@@ -197,6 +197,22 @@ func (h *MH) PreferredAddrs() []netip.AddrPort {
 	return out
 }
 
+// PreferredAddrs returns the list of IPs per the dialer's preference.
+func (h *MH) PreferredAddr2() (ip4, ip6 netip.AddrPort) {
+	if h == nil {
+		return zeroaddr, zeroaddr
+	}
+
+	out4, out6, _ := h.splitFamily()
+	if len(out4) > 0 {
+		ip4 = out4[0]
+	}
+	if len(out6) > 0 {
+		ip6 = out6[0]
+	}
+	return
+}
+
 // prefers v4; see: github.com/WireGuard/wireguard-android/blob/4ba87947a/tunnel/src/main/java/com/wireguard/config/InetEndpoint.java#L97
 func (h *MH) PreferredAddr() netip.AddrPort {
 	if h == nil {

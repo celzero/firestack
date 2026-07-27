@@ -218,7 +218,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	// doesn't exist outside of firestack's tunnel).
 	targetIsLocalNat64 := h.resolver.IsNat64(dnsx.Local464Resolver, target.Addr())
 
-	filtered, excluded, fallingback := filterFamilyForDialingWithFailSafe(realips)
+	filtered, excluded, fallingback := h.filterFamilyForDialingWithFailSafe(realips)
 	actualTargets := makeIPPorts(h.resolver, filtered, target, !undidAlg && !targetIsLocalNat64, 0)
 	cid, uid, fid, pids := h.judge(res, domains, target.String())
 

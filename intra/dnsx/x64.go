@@ -40,8 +40,8 @@ type DNS64 interface {
 type NAT64 interface {
 	// Returns true if ip6 is a NAT64 address from transport id.
 	IsNat64(id string, ip6 netip.Addr) bool
-	// Returns true if transport id has a NAT64 prefix.
-	WillNat64(id string) bool
+	// Returns NAT64 prefixes as csv for transport id, if any.
+	GetNat64(id string) (csv string)
 	// Translates ip6 to IPv4 using the NAT64 prefix for transport id.
 	// As a special case, ip6 is zero addr, output is always IPv4 zero addr.
 	X64(id string, ip6 netip.Addr) (ip4 netip.Addr)

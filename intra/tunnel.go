@@ -500,6 +500,9 @@ func (t *rtunnel) stat() (*x.NetStat, error) {
 	out.RDNSIn.TunMode = fmt.Sprintf("%s;%s;%s", firewall, dns, pt)
 
 	if r := t.resolver; r != nil {
+		out.RDNSIn.DNS64Pfx = "System:" + csv2ssv(r.GetNat64(x.System)) +
+			"\nGoos:" + csv2ssv(r.GetNat64(x.Goos)) +
+			"\nPreferred:" + csv2ssv(r.GetNat64(x.Preferred))
 		out.RDNSIn.DNSPreferred = fetchDNSInfo(r, x.Preferred)
 		out.RDNSIn.DNSDefault = fetchDNSInfo(r, x.Default)
 		out.RDNSIn.DNSSystem = fetchDNSInfo(r, x.System)
