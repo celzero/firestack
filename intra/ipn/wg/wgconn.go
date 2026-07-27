@@ -192,7 +192,6 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *atomic.Pointer
 
 type StdNetEndpoint struct {
 	netip.AddrPort
-	addr *net.UDPAddr
 }
 
 var invalidStdNetEndpoint = StdNetEndpoint{}
@@ -222,12 +221,26 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 		return nil, err
 	}
 
+	ogep, _ := netip.ParseAddrPort(s)
+	is6 := ogep.Addr().Is6()
+
+	var ipport, altipport netip.AddrPort
+
 	all := d.Addrs()
-	// do what tailscale does, and share a preferred endpoint regardless of "s"
+	// do what tailscale does, and share a preferred endpoint regardless of "s"?
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
-	ipport := d.PreferredAddr()
+	ipp4, ipp6 := d.PreferredAddr2()
+	if is6 && ipp6.IsValid() {
+		// in cases where dialers.Use4() and dialers.Use6 return true, but only v6 route
+		// may in fact exist (v4 is over only DNS64 / NAT64), prefer v6 instead
+		ipport = ipp6
+		altipport = ipp4
+	} else {
+		ipport = ipp4
+		altipport = ipp6
+	}
 	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind: parse: %s invalid endpoint; chosen(%v) => in(%s) => out(%s, %s)", e.id, ipport, s, d.Names(), d.Addrs())
+		log.E("wg: bind: parse: %s invalid endpoint; (chosen: %v / alt: %v) => in(%s) => out(%s, %s)", e.id, ipport, altipport, s, d.Names(), all)
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
@@ -235,10 +248,18 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 
 	e.sendAddr.Store(&ipport)
 
-	log.I("wg: bind: %s new shared endpoint for %s %v [among: %s]", e.id, s, ipport, all)
+	log.I("wg: bind: %s new shared endpoint for %s %v [alt: %s / among: %s]", e.id, s, ipport, altipport, all)
 
 	// todo: add stdnetendpoint to s.eps
-	return StdNetEndpoint{ipport, udpaddr(ipport)}, nil
+	return StdNetEndpoint{ipport}, nil
+}
+
+func (e StdNetEndpoint) get() netip.AddrPort {
+	return e.AddrPort
+}
+
+func (e StdNetEndpoint) get2() *net.UDPAddr {
+	return udpaddr(e.get())
 }
 
 func (StdNetEndpoint) ClearSrc() {} // not supported
@@ -251,9 +272,9 @@ func (e StdNetEndpoint) SrcIP() netip.Addr {
 	return netip.Addr{} // not supported
 }
 
-func (e StdNetEndpoint) DstToBytes() []byte {
-	b, _ := e.MarshalBinary()
-	return b
+func (e StdNetEndpoint) DstToBytes() (b []byte) {
+	b, _ = e.MarshalBinary()
+	return
 }
 
 func (e StdNetEndpoint) DstToString() string {
@@ -599,7 +620,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		log.E("wg: bind: send: %s wrong endpoint type: %T", s.id, peer)
 		return conn.ErrWrongEndpointType
 	}
-	dstIpp := ep.AddrPort
+	dstIpp := ep.get()
 
 	s.mu.RLock()
 	blackhole := s.blackhole4
@@ -653,7 +674,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			}
 		}
 
-		n, serr := uc.WriteTo(data, ep.addr)
+		n, serr := uc.WriteTo(data, ep.get2())
 
 		anyTimedout = anyTimedout || timedout(serr)
 		if serr != nil { // TODO: &&  discard timeouts?
@@ -678,7 +699,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 // github.com/GFW-knocker/wireguard/blob/8bd9f582b4/device/send.go#L98
 func (s *StdNetBind) flood(fd int, c net.PacketConn, dst StdNetEndpoint, why floodkind) (int, error) {
-	return s.floodBa.DoIt(dst.AddrPort, func() (int, error) {
+	return s.floodBa.DoIt(dst.get(), func() (int, error) {
 		hdrlen := len(wgheader)
 		hdr := make([]byte, hdrlen)
 		copy(hdr, wgheader)
@@ -701,7 +722,7 @@ func (s *StdNetBind) flood(fd int, c net.PacketConn, dst StdNetEndpoint, why flo
 			_, _ = rand.Read(pkt[hdrlen:sz])
 			copy(pkt[0:], hdr)
 
-			sent, err := c.WriteTo(pkt, dst.addr)
+			sent, err := c.WriteTo(pkt, dst.get2())
 
 			expectedsent[i] = hdrlen + int(sz)
 			n += sent
@@ -797,12 +818,12 @@ func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
 
 	if tcp, ok := x.(*net.TCPAddr); ok {
 		ipp := tcp.AddrPort()
-		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
+		ep = StdNetEndpoint{ipp}
 	} else if udp, ok := x.(*net.UDPAddr); ok {
 		ipp := udp.AddrPort()
-		ep = StdNetEndpoint{ipp, udpaddr(ipp)} // copy udp addr
+		ep = StdNetEndpoint{ipp} // copy udp addr
 	} else if ipp, err := netip.ParseAddrPort(ap); err == nil {
-		ep = StdNetEndpoint{ipp, udpaddr(ipp)}
+		ep = StdNetEndpoint{ipp}
 	}
 	if len(s.eps) >= maxEpsSize { // evict all; entries repopulate as packets arrive
 		log.W("wg: bind: %s eps full; clearing %d", s.id, sz)

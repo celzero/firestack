@@ -1710,10 +1710,6 @@ func isAnyLocal(ids ...string) bool {
 	return isTransportID(Local, ids...)
 }
 
-func isAnyPlus(ids ...string) bool {
-	return slices.ContainsFunc(ids, isPlus)
-}
-
 func isAnyDefault(ids ...string) bool {
 	return isTransportID(Default, ids...)
 }
