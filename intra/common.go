@@ -606,9 +606,13 @@ func makeAnyAddrPort(origipp netip.AddrPort) netip.AddrPort {
 // makeIPPorts returns a slice of valid, non-zero at most cap AddrPorts.
 // The first element may be origipp AddrPort, if realips is empty or contains only unspecified IPs.
 // or maybeIncludeOrig is true and origipp's IP family is included in dialer's current config.
+// It may add DNS64 prefix of the local network to IPv4 addresses.
 func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, maybeIncludeOrig bool, cap int) []netip.AddrPort {
+	// client sets force46 is true if the dialers report v4 but the underlying network is v6
+	force46 := settings.PtMode.Load() == settings.PtModeForce || settings.PtMode.Load() == settings.PtModeForce46
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
+	only6 := !use4 && use6
 	orig4 := origipp.Addr().Is4()
 	orig6 := origipp.Addr().Is6()
 
@@ -626,13 +630,14 @@ func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, mayb
 	origip := origipp.Addr()
 	origport := origipp.Port()
 
-	var origipp6 netip.AddrPort
+	var origipp46 netip.AddrPort
 	if v := origipp.Addr(); v.Is4() {
-		if v6 := r.X46(dnsx.System, v); candial(v6) {
-			origipp6 = netip.AddrPortFrom(v6, origport)
+		if v6 := r.X46(dnsx.System, v); ipok(v6) {
+			origipp46 = netip.AddrPortFrom(v6, origport)
 		}
 	}
 
+	useOrig46 := orig4 && (only6 || force46) && ipok(origipp46.Addr())
 	willIncludeOrig := maybeIncludeOrig && ((use4 && orig4) || (use6 && orig6))
 	out := make([]netip.AddrPort, 0, cap)
 	// override alg-ip with the first real-ip
@@ -644,9 +649,9 @@ func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, mayb
 			// skip duplicate of origipp which will be included later
 			continue
 		}
-		if candial(v) {
-			if v.Is4() {
-				if v6 := r.X46(dnsx.UnderlayResolver, v); candial(v6) {
+		if ipok(v) {
+			if v.Is4() && (only6 || force46) {
+				if v6 := r.X46(dnsx.System, v); ipok(v6) {
 					v = v6
 				}
 			}
@@ -655,14 +660,14 @@ func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, mayb
 	}
 
 	if log.Verbose {
-		log.V("com: makeIPPorts(v4? %t, v6? %t) for %v [dns64? %v]; tot: %d; in: %v, out: %v",
-			use4, use6, origipp, origipp6, len(ips), ips, out)
+		log.V("com: makeIPPorts(v4? %t, v6? %t, 46? %t) for %v [orig46? %t %v]; tot: %d; in: %v, out: %v",
+			use4, use6, force46, origipp, useOrig46, origipp46, len(ips), ips, out)
 	}
 	if len(out) > 0 {
 		s := core.ShuffleInPlace(out)
 		if willIncludeOrig {
-			if candial(origipp6.Addr()) {
-				s = append([]netip.AddrPort{origipp6}, s...)
+			if useOrig46 {
+				s = append([]netip.AddrPort{origipp46}, s...)
 			} else {
 				s = append([]netip.AddrPort{origipp}, s...)
 			}
@@ -716,14 +721,14 @@ func (h *baseHandler) undoAlg(algip netip.Addr, uid string) (undidAlg bool, real
 	}
 
 	logwif(!hasreal)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
-		h.proto, uid, gw != nil, undidAlg, didForce, forcePTR, algip, realips, domains, probableDomains, blocklists)
+		h.proto, uid, gw != nil, undidAlg, didForce, forcePTR, maybeAlg, realips, domains, probableDomains, blocklists)
 	return
 }
 
 // filterFamilyForDialingWithFailSafe filters out invalid IPs and IPs that are not
 // of the family that the dialer is configured to use, and includes one excluded IP as a fail-safe if needed.
-func filterFamilyForDialingWithFailSafe(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
-	included, excluded, excludedIsIncluded = filterFamilyForDialing(ipcsv)
+func (h *baseHandler) filterFamilyForDialingWithFailSafe(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
+	included, excluded, excludedIsIncluded = filterFamilyForDialing(h.resolver, ipcsv)
 	if !excludedIsIncluded && len(excluded) > 0 && len(included) > 0 {
 		ptmode := settings.PtMode.Load()
 		if ptmode == settings.PtModeForce || ptmode == settings.PtModeForce46 {
@@ -742,7 +747,7 @@ func filterFamilyForDialingWithFailSafe(ipcsv string) (included []netip.Addr, ex
 
 // filterFamilyForDialing filters out invalid IPs and IPs that are not
 // of the family that the dialer is configured to use.
-func filterFamilyForDialing(ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
+func filterFamilyForDialing(r dnsx.Resolver, ipcsv string) (included []netip.Addr, excluded []netip.Addr, excludedIsIncluded bool) {
 	if len(ipcsv) <= 0 {
 		return
 	}
@@ -751,6 +756,8 @@ func filterFamilyForDialing(ipcsv string) (included []netip.Addr, excluded []net
 	// any of the 4to6 mechanisms like 464Xlat, DNS64/NAT64, Teredo etc.
 	use4 := dialers.Use4()
 	use6 := dialers.Use6()
+	has4 := false // filtered has v4?
+	has6 := false // filtered has v6?
 	invalids := 0
 	var filtered, unfiltered []netip.Addr
 	for _, ip := range ips {
@@ -758,24 +765,39 @@ func filterFamilyForDialing(ipcsv string) (included []netip.Addr, excluded []net
 			invalids++
 			continue
 		}
-		// TODO: always include unspecified IPs as it is used by the client to make block/no-block decisions?
-		// The above is not true anymore?
-		if use4 && ip.Is4() || use6 && ip.Is6() {
+		if use4 && ip.Is4() {
 			filtered = append(filtered, ip)
-		} else if ip.IsValid() && !ip.IsUnspecified() {
+			has4 = true
+		} else if use6 && ip.Is6() {
+			filtered = append(filtered, ip)
+			has6 = true
+		} else if ipok(ip) {
+			// TODO: always include unspecified IPs as it is used by the client to make block/no-block decisions?
+			// The above is not true anymore?
 			unfiltered = append(unfiltered, ip)
 		}
 	}
-	logger := log.VV
+	translated := true
+	cantranslate := settings.PtMode.Load() != settings.PtModeNone
+	if cantranslate && len(filtered) <= 0 && len(unfiltered) > 0 && !has6 {
+		// apply current dns64 prefix since there's no other v6 to dial
+		for _, ip := range ips {
+			if ip.Is4() {
+				if v6 := r.X46(dnsx.System, ip); ipok(v6) {
+					unfiltered = append(unfiltered, v6)
+					translated = true
+				}
+			}
+		}
+	}
 	// fail open: if no ipv4 then fallback to ipv6, and vice-versa.
 	if len(filtered) <= 0 {
 		excludedIsIncluded = true
 		filtered = unfiltered
 		unfiltered = nil
-		logger = log.W
 	}
-	logger("com: filterFamily(v4? %t, v6? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %d",
-		use4, use6, excludedIsIncluded, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
+	logwif(len(filtered) <= 0)("com: filterFamily(v4? %t / has4? %t, v6? %t / has6? %t, x? %t, fallback? %t): filtered: %d/%d; in: %v, out: %v, ignored: %v + %d",
+		use4, has4, use6, has6, translated, excludedIsIncluded, len(filtered), len(ips), ips, filtered, unfiltered, invalids)
 	return filtered, unfiltered, excludedIsIncluded
 }
 

@@ -166,6 +166,7 @@ type RDNSInfo struct {
 	Dialer6    bool
 	DialerOpts string
 	TunMode    string
+	DNS64Pfx   string
 
 	DNSPreferred string
 	DNSDefault   string
