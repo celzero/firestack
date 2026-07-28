@@ -1772,6 +1772,9 @@ func (h *wgtun) listener(op wg.PktDir, err error) (ended bool) {
 			// the other ones (one each per ip family) may be running just fine.
 			s = TKO
 			why = "TKO: closed " + string(op)
+		} else if errors.Is(err, wg.ErrPeerUnreachable) {
+			s = TNT
+			why = "TNT: peer unreachable"
 		}
 
 		if op == wg.Rcv && !timedout(err) { // read error

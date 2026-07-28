@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	mrand "math/rand/v2"
 	"net"
 	"net/netip"
@@ -43,9 +44,6 @@ import (
 // from: github.com/WireGuard/wireguard-go/blob/ebbd4a433/conn/bind_std.go
 
 const maxbindtries = 30
-
-// max cached source endpoints; excess cleared on eviction
-const maxEpsSize = 64
 
 // wireguard udp socket buffer sizes to 7mib by tailscale
 // github.com/tailscale/tailscale/blob/632293de7d/wgengine/magicsock/magicsock.go#L89
@@ -89,6 +87,8 @@ var (
 	errNotUDP          = errors.New("wg: bind: not a UDP conn")
 	errNoListen        = errors.New("wg: bind: listen failed")
 	errEnded           = errors.New("wg: bind: proxy ended")
+
+	ErrPeerUnreachable = errors.New("wg: bind: peer unreachable")
 )
 
 type floodkind int
@@ -155,7 +155,7 @@ type StdNetBind struct {
 	blackhole6 bool
 
 	epmu sync.RWMutex
-	eps  map[string]StdNetEndpoint // peer-addr => std-net-endpoint
+	eps  map[netip.AddrPort]*StdNetEndpoint // peer-addr => std-net-endpoint
 
 	observer rwobserver
 	obsCh    chan obsMsg // async observer delivery
@@ -164,6 +164,7 @@ type StdNetBind struct {
 
 	closed atomic.Bool // wgconn has been closed (can be reopened)
 	ended  atomic.Bool // observer / connector are done (wgconn must remain closed)
+	use6   atomic.Bool // default IP family for new endpoints; false = v4, true = v6
 }
 
 // obsMsg is a (op, err) pair sent to the observer goroutine.
@@ -183,7 +184,7 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *atomic.Pointer
 		obsCh:    make(chan obsMsg, 8), // buffered for async delivery
 		amnezia:  a,
 		floodBa:  core.NewKeyedBarrier[int, netip.AddrPort](ctx, "wg.flood."+id, minFloodInterval),
-		eps:      make(map[string]StdNetEndpoint),
+		eps:      make(map[netip.AddrPort]*StdNetEndpoint),
 	}
 	core.Go("wg.obs."+s.id, s.processObsMsg)
 	context.AfterFunc(ctx, s.quit)
@@ -191,14 +192,16 @@ func NewEndpoint(ctx context.Context, id string, d connector, pm *atomic.Pointer
 }
 
 type StdNetEndpoint struct {
-	netip.AddrPort
+	v4   netip.AddrPort // ipv4 peer address
+	v6   netip.AddrPort // ipv6 peer address
+	use6 *atomic.Bool   // tracks active IP family; nil for recv-only endpoints
 }
 
-var invalidStdNetEndpoint = StdNetEndpoint{}
+var invalidStdNetEndpoint = &StdNetEndpoint{}
 
 var (
 	_ conn.Bind     = (*StdNetBind)(nil)
-	_ conn.Endpoint = StdNetEndpoint{}
+	_ conn.Endpoint = (*StdNetEndpoint)(nil)
 )
 
 func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
@@ -222,66 +225,70 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	}
 
 	ogep, _ := netip.ParseAddrPort(s)
-	is6 := ogep.Addr().Is6()
-
-	var ipport, altipport netip.AddrPort
 
 	all := d.Addrs()
 	// do what tailscale does, and share a preferred endpoint regardless of "s"?
 	// github.com/tailscale/tailscale/blob/3a6d3f1a5b7/wgengine/magicsock/magicsock.go#L2568
 	ipp4, ipp6 := d.PreferredAddr2()
-	if is6 && ipp6.IsValid() {
-		// in cases where dialers.Use4() and dialers.Use6 return true, but only v6 route
-		// may in fact exist (v4 is over only DNS64 / NAT64), prefer v6 instead
-		ipport = ipp6
-		altipport = ipp4
-	} else {
-		ipport = ipp4
-		altipport = ipp6
-	}
-	if !ipport.IsValid() || ipport.Addr().IsUnspecified() {
-		log.E("wg: bind: parse: %s invalid endpoint; (chosen: %v / alt: %v) => in(%s) => out(%s, %s)", e.id, ipport, altipport, s, d.Names(), all)
+
+	// in cases where dialers.Use4() and dialers.Use6 return true, but only v6 route
+	// may in fact exist (v4 is over only DNS64 / NAT64), prefer v6 instead
+
+	if !ipok(ipp4) && !ipok(ipp6) {
+		log.E("wg: bind: parse: %s invalid endpoint; (chosen: %v / alt: %v) => in(%s) => out(%s, %s)", e.id, ipp4, ipp6, s, d.Names(), all)
 		// erroring out from here prevents PostConfig (handshake for this peer endpoint will always be zero)
 		// github.com/WireGuard/wireguard-go/blob/12269c276173/device/uapi.go#L183
 		return nil, errInvalidEndpoint
 	}
 
-	e.sendAddr.Store(&ipport)
+	ep := &StdNetEndpoint{v4: ipp4, v6: ipp6, use6: &e.use6}
+	active := ep.get()
+	e.sendAddr.Store(&active)
 
-	log.I("wg: bind: %s new shared endpoint for %s %v [alt: %s / among: %s]", e.id, s, ipport, altipport, all)
+	log.I("wg: bind: %s new shared endpoint for %s %v [alt: %v / among: %s]", e.id, s, ipp4, ipp6, all)
 
-	// todo: add stdnetendpoint to s.eps
-	return StdNetEndpoint{ipport}, nil
+	e.epmu.Lock()
+	e.eps[ogep] = ep
+	e.epmu.Unlock()
+	return ep, nil
 }
 
-func (e StdNetEndpoint) get() netip.AddrPort {
-	return e.AddrPort
+// get returns the currently active address (v4 or v6) based on use6.
+// Falls back to whichever is valid if the preferred family is not set.
+func (e *StdNetEndpoint) get() netip.AddrPort {
+	if e.use6 != nil && e.use6.Load() && e.v6.IsValid() {
+		return e.v6
+	}
+	if e.v4.IsValid() {
+		return e.v4
+	}
+	return e.v6 // fallback; may be invalid
 }
 
-func (e StdNetEndpoint) get2() *net.UDPAddr {
+func (e *StdNetEndpoint) get2() *net.UDPAddr {
 	return udpaddr(e.get())
 }
 
-func (StdNetEndpoint) ClearSrc() {} // not supported
+func (*StdNetEndpoint) ClearSrc() {} // not supported
 
-func (e StdNetEndpoint) DstIP() netip.Addr {
-	return e.Addr()
+func (e *StdNetEndpoint) DstIP() netip.Addr {
+	return e.get().Addr()
 }
 
-func (e StdNetEndpoint) SrcIP() netip.Addr {
+func (e *StdNetEndpoint) SrcIP() netip.Addr {
 	return netip.Addr{} // not supported
 }
 
-func (e StdNetEndpoint) DstToBytes() (b []byte) {
-	b, _ = e.MarshalBinary()
+func (e *StdNetEndpoint) DstToBytes() (b []byte) {
+	b, _ = e.get().MarshalBinary()
 	return
 }
 
-func (e StdNetEndpoint) DstToString() string {
-	return e.String()
+func (e *StdNetEndpoint) DstToString() string {
+	return e.get().String()
 }
 
-func (e StdNetEndpoint) SrcToString() string {
+func (e *StdNetEndpoint) SrcToString() string {
 	return ""
 }
 
@@ -400,8 +407,10 @@ again:
 		fns = append(fns, s.makeReceiveFn(s.fd6, ipv6))
 	}
 
-	log.I("wg: bind: open: %s opened port(requested %d => using %d) for v4? %t (%d) v6? %t (%d)",
-		s.id, uport, port, ipv4 != nil, s.fd4, ipv6 != nil, s.fd6)
+	s.probe()
+
+	log.I("wg: bind: open: %s opened port(requested %d => using %d) for v4? %t (%d) v6? %t (%d) use6? %t",
+		s.id, uport, port, ipv4 != nil, s.fd4, ipv6 != nil, s.fd6, s.use6.Load())
 	if len(fns) == 0 {
 		return nil, 0, syscall.EAFNOSUPPORT
 	}
@@ -411,6 +420,64 @@ again:
 		eerr = errEnded
 	}
 	return fns, uint16(port), eerr
+}
+
+// probe tests peer reachability over v4 and v6 using the
+// just-opened sockets, and sets the default IP family preference.
+// Prefers v4; falls back to v6 if v4 is unreachable.
+func (s *StdNetBind) probe() (use6 bool) {
+	s.epmu.RLock()
+	eps := maps.Clone(s.eps)
+	sz := len(eps)
+	s.epmu.RUnlock()
+
+	i, j := 0, 0
+	for _, ep := range eps {
+		v4 := ep.v4
+		v6 := ep.v6
+
+		if s.ipv4 != nil && v4.IsValid() {
+			i++
+			_, err := s.ipv4.WriteTo([]byte{}, udpaddr(v4))
+			if err == nil || !isUnreachable(err) {
+				s.use6.Store(false)
+				log.I("wg: bind: %s probe: %d v4 reachable %v; err? %v", s.id, i, v4, err)
+				return false
+			}
+		}
+
+		if s.ipv6 != nil && v6.IsValid() {
+			j++
+			_, err := s.ipv6.WriteTo([]byte{}, udpaddr(v6))
+			if err == nil || !isUnreachable(err) {
+				s.use6.Store(true)
+				log.I("wg: bind: %s probe: %d v6 reachable %v; err? %v", s.id, j, v6, err)
+				return true
+			}
+		}
+	}
+
+	// Both fail or neither available; default to v4
+	// TODO: settings.PtMode
+	s.use6.Store(false)
+	log.I("wg: bind: %s probe: default v4; v4:%d / v6:%d / tot: %d", s.id, i, j, sz)
+	return false
+}
+
+// getconn returns the UDP socket, fd, and blackhole state for the given address family.
+func (s *StdNetBind) getconn(ipp netip.AddrPort) (net.PacketConn, int, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	blackhole := s.blackhole4
+	uc := s.ipv4
+	fd := s.fd4
+	if ipp.Addr().Is6() {
+		blackhole = s.blackhole6
+		uc = s.ipv6
+		fd = s.fd6
+	}
+	return uc, fd, blackhole
 }
 
 // Pause implements wgconn
@@ -615,28 +682,24 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}()
 
 	// the peer endpoint
-	ep, ok := peer.(StdNetEndpoint)
+	ep, ok := peer.(*StdNetEndpoint)
 	if !ok {
 		log.E("wg: bind: send: %s wrong endpoint type: %T", s.id, peer)
 		return conn.ErrWrongEndpointType
 	}
 	dstIpp := ep.get()
-
-	s.mu.RLock()
-	blackhole := s.blackhole4
-	uc := s.ipv4
+	uc, fd, blackhole := s.getconn(dstIpp)
 	noconn := uc == nil
-	fd := s.fd4
-	if dstIpp.Addr().Is6() {
-		blackhole = s.blackhole6
-		uc = s.ipv6
-		noconn = uc == nil
-		fd = s.fd6
+
+	if blackhole {
+		return nil
 	}
-	s.mu.RUnlock()
+	if noconn || uc == nil {
+		return syscall.EAFNOSUPPORT
+	}
 
 	var floodWg = settings.FloodWireGuard.Load()
-	var flooded, overwritten bool
+	var flooded, overwritten, unreach bool
 	var nn int
 	var errs error
 
@@ -652,11 +715,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 				s.id, fd, dstIpp, floodWg, blackhole, noconn, bufok)
 		}
 
-		if blackhole || !bufok {
-			return nil
-		}
-		if noconn || uc == nil {
-			return syscall.EAFNOSUPPORT
+		if !bufok {
+			continue
 		}
 
 		anyProcessed = true
@@ -676,6 +736,11 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 		n, serr := uc.WriteTo(data, ep.get2())
 
+		if isUnreachable(serr) {
+			unreach = true
+			break
+		}
+
 		anyTimedout = anyTimedout || timedout(serr)
 		if serr != nil { // TODO: &&  discard timeouts?
 			errs = core.JoinErr(errs, serr)
@@ -686,9 +751,12 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 
 	s.sendAddr.Store(&dstIpp)
 
-	if err != nil || log.Debug {
-		loge(err)("wg: bind: send: %s (%d) addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); err? %v",
-			s.id, fd, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, errs)
+	if errs != nil || log.Debug {
+		loge(errs)("wg: bind: send: %s (%d) addr(%v) parcels(%d) tx(%d) (flooded? %t (enabled? %t) / overw? %t / trans? %t); unreach? %t, err? %v",
+			s.id, fd, dstIpp, len(buf), nn, flooded, floodWg, overwritten, anyTransportTyp, unreach, errs)
+	}
+	if unreach {
+		errs = ErrPeerUnreachable
 	}
 
 	return errs
@@ -698,7 +766,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 // this is okay to do because wireguard silently drops packets that won't decrypt.
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 // github.com/GFW-knocker/wireguard/blob/8bd9f582b4/device/send.go#L98
-func (s *StdNetBind) flood(fd int, c net.PacketConn, dst StdNetEndpoint, why floodkind) (int, error) {
+func (s *StdNetBind) flood(fd int, c net.PacketConn, dst *StdNetEndpoint, why floodkind) (int, error) {
 	return s.floodBa.DoIt(dst.get(), func() (int, error) {
 		hdrlen := len(wgheader)
 		hdr := make([]byte, hdrlen)
@@ -790,17 +858,29 @@ func (s *StdNetBind) SetMark(mark uint32) (err error) {
 	return err
 }
 
-// asEndpoint returns an Endpoint containing ap.
-// pooling disabled due to data race:
-// github.com/WireGuard/wireguard-go/commit/334b605e726
+// asEndpoint returns a cached Endpoint for the given source address.
+// Uses netip.AddrPort as map key to avoid string allocations in the hot recv path.
 func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
-	// TODO: avoid allocations
 	if x == nil {
 		return -1, invalidStdNetEndpoint
 	}
-	ap := x.String()
+
+	var key netip.AddrPort
+	switch a := x.(type) {
+	case *net.UDPAddr:
+		key = a.AddrPort()
+	case *net.TCPAddr:
+		key = a.AddrPort()
+	default:
+		ipp, err := netip.ParseAddrPort(x.String())
+		if err != nil {
+			return -1, invalidStdNetEndpoint
+		}
+		key = ipp
+	}
+
 	s.epmu.RLock()
-	ep, ok := s.eps[ap]
+	ep, ok := s.eps[key]
 	sz := len(s.eps)
 	s.epmu.RUnlock()
 
@@ -810,27 +890,20 @@ func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
 
 	s.epmu.Lock()
 	defer s.epmu.Unlock()
-	ep, ok = s.eps[ap]
+	ep, ok = s.eps[key]
 	sz = len(s.eps)
+
 	if ok {
 		return sz, ep
+	} // else: error out?
+
+	if key.Addr().Is4() {
+		ep = &StdNetEndpoint{v4: key}
+	} else {
+		ep = &StdNetEndpoint{v6: key}
 	}
 
-	if tcp, ok := x.(*net.TCPAddr); ok {
-		ipp := tcp.AddrPort()
-		ep = StdNetEndpoint{ipp}
-	} else if udp, ok := x.(*net.UDPAddr); ok {
-		ipp := udp.AddrPort()
-		ep = StdNetEndpoint{ipp} // copy udp addr
-	} else if ipp, err := netip.ParseAddrPort(ap); err == nil {
-		ep = StdNetEndpoint{ipp}
-	}
-	if len(s.eps) >= maxEpsSize { // evict all; entries repopulate as packets arrive
-		log.W("wg: bind: %s eps full; clearing %d", s.id, sz)
-		clear(s.eps)
-		sz = 0
-	}
-	s.eps[ap] = ep // ep may be zero value
+	s.eps[key] = ep
 	return sz + 1, ep
 }
 
@@ -858,6 +931,14 @@ func clos(c io.Closer) {
 	core.CloseOp(c, core.CopRW)
 }
 
+func isUnreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETUNREACH)
+}
+
 func transportType(unobs []byte) (y bool) {
 	return messageType(unobs, device.MessageTransportType)
 }
@@ -883,4 +964,8 @@ func messageType(unobs []byte, t uint32) (y bool) {
 	typ = binary.LittleEndian.Uint32(unobs)
 	y = typ == t
 	return
+}
+
+func ipok(ipp netip.AddrPort) bool {
+	return ipp.IsValid() && !ipp.Addr().IsUnspecified() && !ipp.Addr().IsMulticast()
 }
