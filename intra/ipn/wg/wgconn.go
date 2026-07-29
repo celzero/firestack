@@ -689,12 +689,11 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	dstIpp := ep.get()
 	uc, fd, blackhole := s.getconn(dstIpp)
-	noconn := uc == nil
 
 	if blackhole {
 		return nil
 	}
-	if noconn || uc == nil {
+	if uc == nil {
 		return syscall.EAFNOSUPPORT
 	}
 
@@ -711,8 +710,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		bufok := datalen > 0
 
 		if false && log.Verbose {
-			log.VV("wg: bind: send: %s (%d) addr(%v) floodwg? %t, blackhole? %t; noconn? %t; hasbuf? %t",
-				s.id, fd, dstIpp, floodWg, blackhole, noconn, bufok)
+			log.VV("wg: bind: send: %s (%d) addr(%v) floodwg? %t; hasbuf? %t",
+				s.id, fd, dstIpp, floodWg, bufok)
 		}
 
 		if !bufok {
@@ -725,10 +724,11 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		overwritten = amnezia.send(&data)
 
 		if !flooded && (floodWg || hasAmnezia) {
-			if datalen == device.MessageInitiationSize {
+			switch datalen {
+			case device.MessageInitiationSize:
 				s.flood(fd, uc, ep, fkHandshake) // was probably a handshake
 				flooded = true
-			} else if datalen == device.MessageKeepaliveSize {
+			case device.MessageKeepaliveSize:
 				s.flood(fd, uc, ep, fkKeepalive) // was probably a keepalive
 				flooded = true
 			}
@@ -766,8 +766,8 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 // this is okay to do because wireguard silently drops packets that won't decrypt.
 // github.com/WireGuard/wireguard-go/blob/19ac233cc6/wireguard/device/send.go#L96
 // github.com/GFW-knocker/wireguard/blob/8bd9f582b4/device/send.go#L98
-func (s *StdNetBind) flood(fd int, c net.PacketConn, dst *StdNetEndpoint, why floodkind) (int, error) {
-	return s.floodBa.DoIt(dst.get(), func() (int, error) {
+func (s *StdNetBind) flood(fd int, c net.PacketConn, dst *StdNetEndpoint, why floodkind) {
+	s.floodBa.Go(dst.get(), func() (int, error) {
 		hdrlen := len(wgheader)
 		hdr := make([]byte, hdrlen)
 		copy(hdr, wgheader)
