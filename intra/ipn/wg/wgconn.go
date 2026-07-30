@@ -458,10 +458,10 @@ func (s *StdNetBind) probe() (use6 bool) {
 	}
 
 	// Both fail or neither available; default to v4
-	// TODO: settings.PtMode
-	s.use6.Store(false)
-	log.I("wg: bind: %s probe: default v4; v4:%d / v6:%d / tot: %d", s.id, i, j, sz)
-	return false
+	prefer6 := settings.PtMode.Load() == settings.PtModeForce46
+	s.use6.Store(prefer6)
+	log.I("wg: bind: %s probe: default v6? %t; v4:%d / v6:%d / tot: %d", s.id, prefer6, i, j, sz)
+	return prefer6
 }
 
 // getconn returns the UDP socket, fd, and blackhole state for the given address family.

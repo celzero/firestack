@@ -16,6 +16,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect/ipmap"
+	"github.com/celzero/firestack/intra/settings"
 )
 
 const dialRetryTimeout = 35 * time.Second
@@ -24,17 +25,43 @@ var errRetryTimeout = errors.New("dialers: retry timeout")
 
 func reorderIPs(ips []netip.Addr, alwaysExclude netip.Addr) ([]netip.Addr, bool) {
 	failingopen := true
-	use4 := Use4()
-	use6 := Use6()
-
 	front := make([]netip.Addr, 0, len(ips))
 	back := make([]netip.Addr, 0, len(ips))
+
+	if len(ips) == 1 {
+		if alwaysExclude.Compare(ips[0]) == 0 || !ipok(ips[0]) {
+			return back, failingopen
+		}
+		return append(front, ips[0]), !failingopen
+	}
+
+	use4 := Use4()
+	use6 := Use6()
+	only4 := use4 && !use6
+	only6 := use6 && !use4
+
+	prefer4 := use4
+	prefer6 := use6
+	ptmode := settings.PtMode.Load()
+	switch ptmode {
+	case settings.PtModeForce46:
+		prefer6 = true
+	case settings.PtModeForce64:
+		prefer4 = true
+	case settings.PtModeForce:
+		if only4 {
+			prefer4 = true
+		} else if only6 {
+			prefer6 = true
+		} // else: prefer4, prefer6 retain use4, use6 values
+	}
+
 	for _, ip := range ips {
 		if ip.Compare(alwaysExclude) == 0 || !ipok(ip) {
 			continue
-		} else if use4 && ip.Is4() {
+		} else if prefer4 && ip.Is4() {
 			front = append(front, ip)
-		} else if use6 && ip.Is6() {
+		} else if prefer6 && ip.Is6() {
 			front = append(front, ip)
 		} else {
 			back = append(back, ip)
