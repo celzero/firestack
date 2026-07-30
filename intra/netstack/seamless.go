@@ -55,14 +55,16 @@ func (s EpStat) String() string {
 	if s.Fd == 0 {
 		return "<nil>"
 	}
-	return fmt.Sprintf("Fd: %d,Alive: %t,Age: %s,R: %s,W: %s,LastRead: %s,LastWrite: %s",
+	return fmt.Sprintf("Fd: %d,Alive: %t,Age: %s,R: %s,W: %s,LastRead: %s,LastWrite: %s, IOStart: %s,IOEnd: %s",
 		s.Fd,
 		s.Alive,
 		s.Age,
 		s.Read,
 		s.Written,
 		s.LastRead,
-		s.LastWrite)
+		s.LastWrite,
+		s.IOStart,
+		s.IOEnd)
 }
 
 type SeamlessEndpoint interface {
