@@ -39,10 +39,17 @@ type perfResult struct {
 // before the next batch starts. Returns a DNSMeasurement with latency statistics
 // (P50, P95, min, max, jitter) and success rate.
 func Perf(t Transport, mid string, n, seconds int32) *x.DNSMeasurement {
-	start := time.Now()
 	if len(mid) == 0 {
 		mid = core.Rand64()
 	}
+	
+	if t == nil {
+		return &x.DNSMeasurement{
+			MID:    mid,
+			Errors: errNoSuchTransport.Error(),
+		}
+	}
+	start := time.Now()
 	if n < 1 {
 		n = 1
 	} else if n > 20 {
@@ -192,6 +199,9 @@ func csvmap(m map[string]struct{}) string {
 }
 
 func addrscsv(t Transport) string {
+	if t == nil {
+		return ""
+	}
 	ipps := t.IPPorts()
 	if len(ipps) > 0 {
 		x := core.Map(ipps, func(ipp netip.AddrPort) string { return ipp.String() })
