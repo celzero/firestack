@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -243,6 +244,8 @@ func (e *endpoint) Stat() (zz EpStat) {
 		Written:   core.FmtBytes(fds.written.Load()),
 		LastRead:  core.FmtUnixMillisAsPeriod(fds.lastRead.Load()),
 		LastWrite: core.FmtUnixMillisAsPeriod(fds.lastWrite.Load()),
+		IOStart:   core.FmtUnixMillisAsPeriod(fds.dispatchStart.Load()),
+		IOEnd:     core.FmtUnixMillisAsPeriod(fds.dispatchEnd.Load()),
 	}
 }
 
@@ -307,7 +310,10 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 	if err == nil && hasDispatcher { // attached?
 		log.I("ns: tun(%s): (%s => %d) swap: restart looper %t for new fd",
 			prevfd, prevfd, fd, hasDispatcher)
-		go dispatchLoop(e.inboundDispatcher, f, &e.wg)
+		core.Go(
+			"ns.f.dispatch1."+strconv.Itoa(f.tun()),
+			func() { dispatchLoop(e.inboundDispatcher, f, &e.wg) },
+		)
 	} else { // wait for Attach to be called eventually
 		log.E("ns: tun(%s): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
 			prevfd, prevfd, fd, !hasDispatcher, err)
@@ -365,7 +371,10 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 			}
 			rx = e.inboundDispatcher
 		}
-		go dispatchLoop(rx, fds, &e.wg)
+		core.Go(
+			"ns.f.dispatch2."+strconv.Itoa(fds.tun()),
+			func() { dispatchLoop(rx, fds, &e.wg) },
+		)
 		return
 	}
 
@@ -473,7 +482,10 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 
 	if fd == invalidfd {
 		log.E("ns: tun(-1): WritePackets (to tun): fd invalid (pkts: %d)", pkts.Len())
-		return 0, &tcpip.ErrNoSuchFile{}
+		// do not error out (unsure if doing so results in all subsequent writes being dropped?)
+		// instead, let endpoint be closed / fd swapped
+		// return 0, &tcpip.ErrNoSuchFile{}
+		return 0, nil
 	}
 
 	batch := make([]unix.Iovec, 0, batchSz)
@@ -546,6 +558,7 @@ func dispatchLoop(inbound linkDispatcher, f *fds, wg *core.RollingWaitGroup) tcp
 	}
 
 	start := time.Now()
+	f.dispatchStart.Store(start.UnixMilli())
 	log.I("ns: tun(%d): dispatchLoop: start", f.tun())
 	for {
 		cont, err := inbound.dispatch(f)
@@ -555,6 +568,7 @@ func dispatchLoop(inbound linkDispatcher, f *fds, wg *core.RollingWaitGroup) tcp
 		}
 		if !cont {
 			defer f.stop()
+			f.dispatchEnd.Store(time.Now().UnixMilli())
 			return err
 		} // else: continue dispatching
 	}

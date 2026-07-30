@@ -45,6 +45,10 @@ type EpStat struct {
 	LastRead string
 	// LastWrite is the last time the endpoint was written to.
 	LastWrite string
+	// IOStart is the time the endpoint's dispatcher was started.
+	IOStart string
+	// IOEnd is the time the endpoint's dispatcher was stopped.
+	IOEnd string
 }
 
 func (s EpStat) String() string {

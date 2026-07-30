@@ -72,12 +72,16 @@ type fds struct {
 	stopFd stopFd
 	tunFd  int
 
+	since atomic.Int64 // when fd was created
+	death atomic.Int64 // age in millis
+
 	read      atomic.Uint64 // number of bytes read
 	written   atomic.Uint64 // number of bytes written
-	since     atomic.Int64  // when fd was created
-	death     atomic.Int64  // age in millis
 	lastRead  atomic.Int64  // last read time in millis
 	lastWrite atomic.Int64  // last write time in millis
+
+	dispatchStart atomic.Int64 // dispatcher start time in millis
+	dispatchEnd   atomic.Int64 // dispatcher end time in millis
 
 	closed atomic.Bool
 	once   sync.Once // ensures that stop() is called only once

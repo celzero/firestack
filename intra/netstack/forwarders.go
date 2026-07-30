@@ -27,6 +27,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -166,20 +167,23 @@ func (p *processor) deliverPackets() {
 	defer func() {
 		if locked {
 			p.mu.Unlock()
+			locked = false
 		}
 	}()
 	for p.pkts.Len() > 0 {
 		pkt := p.pkts.PopFront()
-		p.mu.Unlock()
-		locked = false
 		if pkt != nil {
+			p.mu.Unlock()
+			locked = false
+
 			if !p.icmp.respond(pkt) {
 				p.e.InjectInbound(pkt.NetworkProtocolNumber, pkt)
 			}
 			pkt.DecRef()
+
+			p.mu.Lock()
+			locked = true
 		}
-		p.mu.Lock()
-		locked = true
 	}
 }
 
@@ -238,9 +242,10 @@ func (m *supervisor) start() {
 	if m.canDeliverInline() {
 		return
 	}
+	sid := strconv.FormatInt(m.tunid(), 10)
 	for i := range m.processors {
 		p := &m.processors[i]
-		core.Gx1("ns.forwarder.start", p.start, &m.wg)
+		core.Gx1("ns.forwarder.start."+strconv.Itoa(i)+"."+sid, p.start, &m.wg)
 	}
 }
 
@@ -324,7 +329,8 @@ func (m *supervisor) stop() {
 		}
 		m.wg.Wait()
 	} // else: no goroutines to stop or wait for.
-	log.D("ns: tun(%d): forwarder: stopped %d procs in %s", sid, len(m.processors), core.FmtTimeAsPeriod(start))
+	log.D("ns: tun(%d): forwarder: stopped %d procs in %s",
+		sid, len(m.processors), core.FmtTimeAsPeriod(start))
 }
 
 // wakeReady wakes up all processors that have a packet queued. If there is only
