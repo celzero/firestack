@@ -400,6 +400,10 @@ func (t *dot) GetAddr() string {
 	return prefix0 + prefix1 + t.addrport
 }
 
+func (t *dot) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+	return dnsx.Perf(t, mid, n, seconds)
+}
+
 func (t *dot) IPPorts() (ipps []netip.AddrPort) {
 	for _, ip := range dialers.For(t.addrport) {
 		ipps = append(ipps, netip.AddrPortFrom(ip, t.port))

@@ -315,6 +315,10 @@ func (t *plus) GetAddr() string {
 	return TransportPrefix(t.ID()) + t.ipports[0].String()
 }
 
+func (t *plus) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+	return Perf(t, mid, n, seconds)
+}
+
 func (t *plus) GetRelay() x.Proxy {
 	return nil
 }

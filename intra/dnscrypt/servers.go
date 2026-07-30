@@ -410,6 +410,10 @@ func (s *server) getAddr() string {
 	return s.HostName
 }
 
+func (s *server) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+	return dnsx.Perf(s, mid, n, seconds)
+}
+
 func (s *server) GetRelay() x.Proxy {
 	return s.getRelay()
 }

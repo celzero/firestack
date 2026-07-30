@@ -720,6 +720,112 @@ func TestPinger(t *testing.T) {
 	t.Log("ping rtt", rtt)
 }
 
+func TestPerfReal(t *testing.T) {
+	netr := &fakeResolver{}
+	ctx := context.TODO()
+	ctl := &fakeCtl{}
+	obs := &fakeObs{}
+	pxr := ipn.NewProxifier(ctx, dualstack, minmtu, ctl, obs)
+	if pxr == nil {
+		t.Fatal("nil proxifier")
+	}
+	ilog.SetLevel(0)
+	settings.Debug = true
+	dialers.Mapper(netr)
+
+	bdg := &fakeBdg{Controller: ctl}
+
+	tr, _ := NewTLSTransport(ctx, "test0", "8.8.8.8", nil, pxr)
+	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
+
+	natpt := x64.NewNatPt()
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv.Add(tr)
+	resolv.Add(dtr)
+
+	m := dnsx.Perf(tr, "", 5, 5)
+
+	t.Logf("PerfReal: %+v", m)
+
+	if m.MID == "" {
+		t.Fatal("expected non-empty MID")
+	}
+	if m.Seconds < 3 {
+		t.Fatalf("expected >=3 seconds, got %d", m.Seconds)
+	}
+	if m.Success == 0 {
+		t.Fatalf("expected >0%% success, got %d%%", m.Success)
+	}
+	if m.P50 <= 0 {
+		t.Fatalf("expected P50 > 0, got %d", m.P50)
+	}
+	if m.Min <= 0 {
+		t.Fatalf("expected Min > 0, got %d", m.Min)
+	}
+	if m.Max <= 0 {
+		t.Fatalf("expected Max > 0, got %d", m.Max)
+	}
+	if m.Max < m.Min {
+		t.Fatalf("Max (%d) < Min (%d)", m.Max, m.Min)
+	}
+	if m.Domains == "" {
+		t.Fatal("expected non-empty Domains")
+	}
+	if m.Addrs == "" {
+		t.Fatal("expected non-empty Addrs")
+	}
+}
+
+func TestPerfRealDoH(t *testing.T) {
+	netr := &fakeResolver{}
+	ctx := context.TODO()
+	ctl := &fakeCtl{}
+	obs := &fakeObs{}
+	pxr := ipn.NewProxifier(ctx, dualstack, minmtu, ctl, obs)
+	if pxr == nil {
+		t.Fatal("nil proxifier")
+	}
+	ilog.SetLevel(0)
+	settings.Debug = true
+	dialers.Mapper(netr)
+
+	tr, err := doh.NewTransport(ctx, "perf-doh", "https://cloudflare-dns.com/dns-query", []string{"1.1.1.1", "2606:4700:4700::1111"}, pxr)
+	if err != nil || tr == nil {
+		t.Fatalf("nil doh transport: %v", err)
+	}
+
+	m := dnsx.Perf(tr, "", 5, 10)
+
+	if m.MID == "" {
+		t.Fatal("expected non-empty MID")
+	}
+	if m.Seconds < 10 {
+		t.Fatalf("expected >=10 seconds, got %d", m.Seconds)
+	}
+	if m.Success == 0 {
+		t.Fatalf("expected >0%% success, got %d%%", m.Success)
+	}
+	if m.P50 <= 0 {
+		t.Fatalf("expected P50 > 0, got %d", m.P50)
+	}
+	if m.Min <= 0 {
+		t.Fatalf("expected Min > 0, got %d", m.Min)
+	}
+	if m.Max <= 0 {
+		t.Fatalf("expected Max > 0, got %d", m.Max)
+	}
+	if m.Max < m.Min {
+		t.Fatalf("Max (%d) < Min (%d)", m.Max, m.Min)
+	}
+	if m.Domains == "" {
+		t.Fatal("expected non-empty Domains")
+	}
+	if m.Addrs == "" {
+		t.Fatal("expected non-empty Addrs")
+	}
+	t.Logf("PerfRealDoH: %+v", m)
+}
+
 func aquery(d string) *dns.Msg {
 	msg := &dns.Msg{}
 	msg.SetQuestion(dns.Fqdn(d), dns.TypeA)

@@ -294,6 +294,10 @@ func (b *bootstrap) GetAddr() string {
 	return dnsx.NoDNS
 }
 
+func (b *bootstrap) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+	return dnsx.Perf(b, mid, n, seconds)
+}
+
 func (b *bootstrap) GetRelay() x.Proxy {
 	if tr := b.tr; tr != nil {
 		return tr.GetRelay() // usually nil

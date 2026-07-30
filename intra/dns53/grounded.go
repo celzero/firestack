@@ -74,6 +74,10 @@ func (t *grounded) GetAddr() string {
 	return t.ipport
 }
 
+func (t *grounded) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+	return dnsx.Perf(t, mid, n, seconds)
+}
+
 func (t *grounded) GetRelay() x.Proxy {
 	return nil
 }

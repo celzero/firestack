@@ -380,6 +380,10 @@ func (t *transport) getAddr() string {
 	return s
 }
 
+func (t *transport) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+	return dnsx.Perf(t, mid, n, seconds)
+}
+
 func (t *transport) GetRelay() x.Proxy {
 	if t.relayref == nil {
 		return nil

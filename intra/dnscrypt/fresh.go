@@ -75,3 +75,8 @@ func (s *severbyid) ID() string {
 func (s *severbyid) GetAddr() string {
 	return s.t().GetAddr()
 }
+
+// Measure implements [dnsx.Transport].
+func (s *severbyid) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+	return dnsx.Perf(s, mid, n, seconds)
+}
