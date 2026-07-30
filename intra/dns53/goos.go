@@ -196,7 +196,7 @@ func (t *goosr) getAddr() string {
 	return protect.Localhost + ":53" // dummy
 }
 
-func (t *goosr) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+func (t *goosr) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(t, mid, n, seconds)
 }
 

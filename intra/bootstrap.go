@@ -294,7 +294,7 @@ func (b *bootstrap) GetAddr() string {
 	return dnsx.NoDNS
 }
 
-func (b *bootstrap) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+func (b *bootstrap) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(b, mid, n, seconds)
 }
 

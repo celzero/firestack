@@ -77,6 +77,6 @@ func (s *severbyid) GetAddr() string {
 }
 
 // Measure implements [dnsx.Transport].
-func (s *severbyid) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+func (s *severbyid) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(s, mid, n, seconds)
 }

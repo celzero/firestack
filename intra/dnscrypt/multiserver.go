@@ -712,7 +712,7 @@ func (p *DcMulti) getAddr() string {
 	return p.lastAddr
 }
 
-func (p *DcMulti) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+func (p *DcMulti) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(p, mid, n, seconds)
 }
 

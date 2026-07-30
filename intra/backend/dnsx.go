@@ -132,7 +132,7 @@ type DNSTransport interface {
 	// Returns nil if there isn't any.
 	GetRelay() Proxy
 	// Measure runs a DNSMeasurement for n number of concurrent queries for upto seconds duration, on this transport.
-	Measure(mid string, n, seconds int32) DNSMeasurement
+	Measure(mid string, n, seconds int32) *DNSMeasurement
 
 	DNSStatusProvider
 }

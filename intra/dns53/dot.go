@@ -400,7 +400,7 @@ func (t *dot) GetAddr() string {
 	return prefix0 + prefix1 + t.addrport
 }
 
-func (t *dot) Measure(mid string, n, seconds int32) x.DNSMeasurement {
+func (t *dot) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(t, mid, n, seconds)
 }
 
