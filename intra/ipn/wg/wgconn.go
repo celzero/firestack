@@ -656,7 +656,7 @@ func (s *StdNetBind) makeReceiveFn(fd int, uc net.PacketConn) conn.ReceiveFunc {
 		}
 
 		if err != nil || log.Debug { // log errors if in debug mode
-			loge(err)("wg: bind: recv: %s (%s) recvfrom(%v / %d): %d / ov? %t<=%t / trans? %t / err? %v",
+			loge(err)("wg: bind: recv: %s (%s) recvfrom(%v / %d): %d / ov? %t<=%t / transport? %t / err? %v",
 				s.id, who, addr, epsz, n, usingamz, overwritten, anyTransportTyp, err)
 		}
 		return numMsgs, err
