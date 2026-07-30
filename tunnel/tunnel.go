@@ -93,8 +93,6 @@ func (t *gtunnel) Mtu() int32 {
 }
 
 func (t *gtunnel) waitForEndpoint() {
-	defer core.Recover(core.Exit11, "g.wait")
-
 	const maxchecks = 5
 	const betweenChecks = 3 * time.Second
 	const uptimeThreshold = 3 * time.Second
@@ -153,7 +151,7 @@ func (t *gtunnel) Disconnect() {
 		t.closed.Store(true)
 		// go t.Unlink() // may block? takes more time?
 		t.stack.Destroy()
-		log.I("tun: netstack closed")
+		log.I("tun: %d netstack closed", t.sid.Load())
 	})
 }
 

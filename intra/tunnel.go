@@ -374,10 +374,10 @@ func (t *rtunnel) Restart(fd, linkmtu, tunmtu, engine int) error {
 		return core.OneErr(err, errMakeTunnel)
 	}
 
-	// TODO: CompareAndSwap
 	if !t.t.Cas(old, gt) { // gt never nil
 		gt.Disconnect() // close the new tunnel
-		log.W("tun: <<< restart >>>; for: %d (mtu: %d), cas failed; old %X, new %X", fd, tunmtu, old, gt)
+		log.E("tun: <<< restart >>>; for: %d (mtu: %d), cas failed; old %X, new %X", fd, tunmtu, old, gt)
+		return nil
 	}
 
 	// TODO: err on reverser errors too?
