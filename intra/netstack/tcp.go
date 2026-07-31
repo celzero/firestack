@@ -161,6 +161,13 @@ func tcpForwarder(who string, s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder 
 			if !retryLateConnect && (err != nil || !opened) {
 				h.Error(gtcp, src, dst, core.OneErr(err, errMissingEp)) // error
 			} else { // gtcp may be connected
+				if opened {
+					// endpoint is established (passive handshake done) and the
+					// conn is independent of the request; free the in-flight
+					// slot right away so that stalls in the handler (onFlow,
+					// dials) cannot leak slots (see watchdog above).
+					gtcp.complete(false)
+				}
 				h.Proxy(gtcp, src, dst)
 			}
 		} else {
