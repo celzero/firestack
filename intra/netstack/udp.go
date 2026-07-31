@@ -183,9 +183,16 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 			return InboundUDP(who, s, ingress, src, newdst, h)
 		}
 
+		defer func() {
+			mu.Lock()
+			delete(inFlight, id)
+			mu.Unlock()
+		}()
+
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if !settings.HappyEyeballs.Load() {
+
 			// Establish is a fast, local netstack op (bind + connect + register);
 			// do it inline so an error (ex: no route) is reported via ICMP
 			// port-unreachable (return false) as before.
@@ -196,10 +203,8 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 					who, err, src, dst)
 			}
 			if !retryLateConnect && err != nil {
+				// TODO: Error() w/ goroutine?
 				h.Error(gc, src, dst, err)
-				mu.Lock()
-				delete(inFlight, id) // no goroutine was launched
-				mu.Unlock()
 				return false // not handled
 			}
 			handle(h, gc, src, dst, demux) // gc may be connected
