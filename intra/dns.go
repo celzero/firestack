@@ -8,6 +8,7 @@ package intra
 
 import (
 	"context"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -24,35 +25,97 @@ import (
 	"github.com/celzero/firestack/intra/xdns"
 )
 
-// AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.
-func AddDNSProxy(t Tunnel, id, ippcsv string) error {
-	p, perr := t.internalProxies()
-	r, rerr := t.internalResolver()
-	if rerr != nil || perr != nil {
-		return core.JoinErr(rerr, perr)
+// MakeDoHTransport creates a DNS-over-HTTPS transport for id, dialing via the
+// tunnel's proxies. ipcsv, if any, is a csv of IP (or ip:port) addresses of the
+// DoH server, used to bypass the system resolver when dialing url.
+func MakeDoHTransport(t Tunnel, id, url, ipcsv string) (dnsx.Transport, error) {
+	px, perr := t.internalProxies()
+	if perr != nil {
+		return nil, perr
 	}
-	ctx := t.internalCtx()
-	specialHostname := protect.HostlessPrefix + id
-	if dns, err := dns53.NewTransportFromHostname(ctx, id, specialHostname, ippcsv, p); err != nil {
-		return err
-	} else {
-		return addDNSTransport(r, dns)
-	}
+	return doh.NewTransport(t.internalCtx(), id, url, csv2slice(ipcsv), px)
 }
 
-func newSystemDNSProxy(ctx context.Context, p ipn.ProxyProvider, ipcsv string) (d dnsx.Transport, err error) {
+// MakeODoHTransport creates an Oblivious-DoH transport for id, dialing via the
+// tunnel's proxies. endpoint is the entry / proxy for the ODoH server; resolver
+// is the URL of the target ODoH server. epipcsv, if any, is a csv of IP (or
+// ip:port) addresses of the endpoint, used to bypass the system resolver.
+func MakeODoHTransport(t Tunnel, id, endpoint, resolver, epipcsv string) (dnsx.Transport, error) {
+	px, perr := t.internalProxies()
+	if perr != nil {
+		return nil, perr
+	}
+	return doh.NewOdohTransport(t.internalCtx(), id, endpoint, resolver, csv2slice(epipcsv), px)
+}
+
+// MakeDoTTransport creates a DNS-over-TLS transport for id, dialing via the
+// tunnel's proxies. ipcsv, if any, is a csv of IP (or ip:port) addresses of the
+// DoT server, used to bypass the system resolver.
+func MakeDoTTransport(t Tunnel, id, url, ipcsv string) (dnsx.Transport, error) {
+	px, perr := t.internalProxies()
+	if perr != nil {
+		return nil, perr
+	}
+	return dns53.NewTLSTransport(t.internalCtx(), id, url, csv2slice(ipcsv), px)
+}
+
+// MakeDNS53Transport creates a DNS53 (plain DNS over UDP/TCP) transport for id,
+// serving from hostOrHostport (a host, host:port, or ip:port), dialing via the
+// tunnel's proxies. ipcsv, if any, is a csv of ip or ip:port addresses of the
+// server, bypassing the system resolver.
+func MakeDNS53Transport(t Tunnel, id, hostOrHostport, ipcsv string) (dnsx.Transport, error) {
+	px, perr := t.internalProxies()
+	if perr != nil {
+		return nil, perr
+	}
+	return dns53.NewTransportFromHostname(t.internalCtx(), id, hostOrHostport, ipcsv, px)
+}
+
+// MakeDNS53TransportFrom creates a DNS53 transport for id, serving from ipp,
+// dialing via the tunnel's proxies.
+func MakeDNS53TransportFrom(t Tunnel, id string, ipp netip.AddrPort) (dnsx.Transport, error) {
+	px, perr := t.internalProxies()
+	if perr != nil {
+		return nil, perr
+	}
+	return dns53.NewTransportFrom(t.internalCtx(), id, ipp, px)
+}
+
+// csv2slice splits a comma-separated csv into a slice; returns nil if csv is
+// empty (the underlying transports treat nil/empty the same).
+func csv2slice(csv string) (xs []string) {
+	if len(csv) > 0 {
+		xs = strings.Split(csv, ",")
+	}
+	return // nil for empty csv
+}
+
+// AddDNSProxy creates and adds a DNS53 transport to the tunnel's resolver.
+func AddDNSProxy(t Tunnel, id, ippcsv string) error {
+	r, rerr := t.internalResolver()
+	if rerr != nil {
+		return rerr
+	}
+	specialHostname := protect.HostlessPrefix + id
+	dns, err := MakeDNS53Transport(t, id, specialHostname, ippcsv)
+	if err != nil {
+		return err
+	}
+	return addDNSTransport(r, dns)
+}
+
+func newSystemDNSProxy(t Tunnel, ipcsv string) (d dnsx.Transport, err error) {
 	specialHostname := protect.Systemhost // never resolved by ipmap:LookupNetIP
-	return dns53.NewTransportFromHostname(ctx, dnsx.System, specialHostname, ipcsv, p)
+	return MakeDNS53Transport(t, dnsx.System, specialHostname, ipcsv)
 }
 
 // SetSystemDNS creates and adds a DNS53 transport of the specified IP addresses.
 func SetSystemDNS(t Tunnel, ipcsvx string) error {
 	r, rerr := t.internalResolver()
-	p, perr := t.internalProxies()
-	ctx := t.internalCtx()
+	_, perr := t.internalProxies()
 	ipcsv := ipcsvx
 	n := len(ipcsv)
-	if r == nil || p == nil {
+	if rerr != nil || perr != nil {
 		log.W("dns: sys: cannot set system dns; n: %d, errs: %v %v", n, rerr, perr)
 		return core.JoinErr(dnsx.ErrAddFailed, rerr, perr)
 	}
@@ -74,7 +137,7 @@ func SetSystemDNS(t Tunnel, ipcsvx string) error {
 	}
 
 	var ok bool
-	if sdns, err := newSystemDNSProxy(ctx, p, ipcsv); err == nil {
+	if sdns, err := newSystemDNSProxy(t, ipcsv); err == nil {
 		ok = r.Add(sdns)
 	} else {
 		return err
@@ -131,13 +194,11 @@ func AddDefaultTransport(t Tunnel, typ, ippOrUrl, ips string) error {
 
 // AddProxyDNS creates and adds a DNS53 transport as defined in Proxy's configuration.
 func AddProxyDNS(t Tunnel, p x.Proxy) error {
-	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
-	if rerr != nil || perr != nil {
-		return core.JoinErr(rerr, perr)
+	if rerr != nil {
+		return rerr
 	}
 	pid := p.ID()
-	ctx := t.internalCtx()
 	// TODO: create dns53.NewTransportForProxy() which is self-healing and
 	// uses updated DNS addresses if p.DNS() has changed/updated
 	ipOrHostCsv := p.DNS() // may return csv(host:port), csv(ip:port), csv(ips), csv(host)
@@ -152,81 +213,60 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 	}
 	first := ipsOrHost[0]
 	ipport, err := xdns.DnsIPPort(first)
-	hostOrHostport := first // could be multiple hostnames or host:ports, but choose the first
-	if err != nil {         // use hostname
-		if dns, err := dns53.NewTransportFromHostname(ctx, pid, hostOrHostport, "" /*ip or ip:port csv*/, pxr); err != nil {
-			return err
-		} else {
-			return addDNSTransport(r, dns)
+	if err != nil { // use hostname
+		dns, derr := MakeDNS53Transport(t, pid, first, "" /*ip or ip:port csv*/)
+		if derr != nil {
+			return derr
 		}
-		// use ipports; register with same id as the proxy p
-	} else if dns, err := dns53.NewTransportFrom(ctx, pid, ipport, pxr); err != nil {
-		return err
-	} else {
 		return addDNSTransport(r, dns)
 	}
+	// use ipports; register with same id as the proxy p
+	dns, derr := MakeDNS53TransportFrom(t, pid, ipport)
+	if derr != nil {
+		return derr
+	}
+	return addDNSTransport(r, dns)
 }
 
 // AddDoHTransport creates and adds a Transport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).
 func AddDoHTransport(t Tunnel, id, url, ipcsv string) error {
-	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
-	if rerr != nil || perr != nil {
-		return core.JoinErr(rerr, perr)
+	if rerr != nil {
+		return rerr
 	}
-	ips := ipcsv
-	ctx := t.internalCtx()
-	split := []string{}
-	if len(ips) > 0 {
-		split = strings.Split(ips, ",")
-	}
-	if dns, err := doh.NewTransport(ctx, id, url, split, pxr); err != nil {
+	dns, err := MakeDoHTransport(t, id, url, ipcsv)
+	if err != nil {
 		return err
-	} else {
-		return addDNSTransport(r, dns)
 	}
+	return addDNSTransport(r, dns)
 }
 
 // AddODoHTransport creates and adds a Transport that connects to the specified ODoH server.
 // `endpoint` is the entry / proxy for the ODoH server, `resolver` is the URL of the target ODoH server.
 func AddODoHTransport(t Tunnel, id, endpoint, resolver, epipcsv string) error {
-	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
-	if rerr != nil || perr != nil {
-		return core.JoinErr(rerr, perr)
+	if rerr != nil {
+		return rerr
 	}
-	epips := epipcsv
-	ctx := t.internalCtx()
-	split := []string{}
-	if len(epips) > 0 {
-		split = strings.Split(epips, ",")
-	}
-	if dns, err := doh.NewOdohTransport(ctx, id, endpoint, resolver, split, pxr); err != nil {
+	dns, err := MakeODoHTransport(t, id, endpoint, resolver, epipcsv)
+	if err != nil {
 		return err
-	} else {
-		return addDNSTransport(r, dns)
 	}
+	return addDNSTransport(r, dns)
 }
 
 // AddDoTTransport creates and adds a Transport that connects to the specified DoT server.
 func AddDoTTransport(t Tunnel, id, url, ipcsv string) error {
-	pxr, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
-	if rerr != nil || perr != nil {
-		return core.JoinErr(rerr, perr)
+	if rerr != nil {
+		return rerr
 	}
-	ctx := t.internalCtx()
-	split := []string{}
-	ips := ipcsv
-	if len(ips) > 0 {
-		split = strings.Split(ips, ",")
-	}
-	if dns, err := dns53.NewTLSTransport(ctx, id, url, split, pxr); err != nil {
+	dns, err := MakeDoTTransport(t, id, url, ipcsv)
+	if err != nil {
 		return err
-	} else {
-		return addDNSTransport(r, dns)
 	}
+	return addDNSTransport(r, dns)
 }
 
 // AddDNSCryptTransport creates and adds a DNSCrypt transport to the tunnel's resolver.
