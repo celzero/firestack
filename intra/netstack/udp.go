@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -119,6 +120,17 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 		return nil
 	}
 
+	// dedupe in-flight forwarder handlers per 4-tuple. gvisor invokes the UDP
+	// forwarder handler inline, per-packet, with no in-flight tracking of its
+	// own; because the handler below is offloaded to a goroutine (to not wedge
+	// the netstack processors with potentially-blocking dials), two packets of
+	// the same flow could otherwise race to CreateEndpoint (only the first
+	// succeeds; the second errors out and would kill the flow).
+	var (
+		mu       sync.Mutex
+		inFlight = make(map[stack.TransportEndpointID]struct{})
+	)
+
 	return udp.NewForwarder(s, func(req *udp.ForwarderRequest) (handled bool) {
 		if req == nil {
 			log.E("ns: udp: %s: forwarder: nil request", who)
@@ -147,6 +159,15 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 		// especially if the resulting udp-conn is setup to handle
 		// multiple dst in the unconnected udp case.
 		dst := localAddrPort(id)
+
+		mu.Lock()
+		if _, ok := inFlight[id]; ok {
+			mu.Unlock()
+			log.D("ns: udp: %s: forwarder: dup req for %v => %v; ignoring", who, src, dst)
+			return true // handled: an earlier packet is already being processed
+		}
+		inFlight[id] = struct{}{}
+		mu.Unlock()
 
 		gc := makeGUDPConn(who, s, req, src, dst)
 
