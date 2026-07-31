@@ -148,7 +148,7 @@ func (x *muxer) awaiters() {
 	for {
 		select {
 		case c := <-x.dxconns:
-			if settings.Debug {
+			if log.Debug {
 				log.D("udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
 			}
 			x.dxconnWG.Add(1) // accept
@@ -167,7 +167,7 @@ func (x *muxer) awaiters() {
 // stop closes conns in the backlog, stops accepting new conns,
 // closes muxconn, and waits for demuxed conns to close.
 func (x *muxer) stop() {
-	if settings.Debug {
+	if log.Debug {
 		log.D("udp: mux: %s stop", x.cid)
 	}
 
@@ -187,7 +187,7 @@ func (x *muxer) drain() {
 	defer x.rmu.Unlock()
 
 	defer clear(x.routes)
-	if settings.Debug {
+	if log.Debug {
 		log.D("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
 	}
 	for _, c := range x.routes {
@@ -224,7 +224,7 @@ func (x *muxer) readers() {
 			if timeouterrors < maxtimeouterrors {
 				// extend by preset (min) udp timeout
 				x.extend(time.Now().Add(time.Second * udptimeout))
-				if settings.Debug {
+				if log.Debug {
 					log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
 				}
 				recycle()
@@ -475,7 +475,7 @@ func (c *demuxconn) CloseWrite() (err error) {
 
 // Close implements core.UDPConn.Close
 func (c *demuxconn) Close() error {
-	if settings.Debug {
+	if log.Debug {
 		log.D("udp: mux: %s demux %s => %s close, inC: %d, overC: %d",
 			c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
 	}
@@ -577,7 +577,7 @@ func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
 			return n, io.ErrShortWrite
 		}
 	} else {
-		if settings.Debug {
+		if log.Verbose {
 			log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
 		}
 		in.fin()

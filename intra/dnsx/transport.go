@@ -638,6 +638,8 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 }
 
 func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid string, chosenids ...string) ([]byte, string, error) {
+	var onQueryDone, onUpstreamAnswerDone float64
+
 	starttime := time.Now()
 
 	qname := ogsmm.QName
@@ -646,9 +648,12 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid
 	pref, oqcompleted := core.Grx("r.onQuery."+fid+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 		return r.listener.OnQuery(who, uid, qname, qtyp), nil
 	}, listenerTimeout)
+
+	onQueryDone = time.Since(starttime).Seconds()
+
 	if !oqcompleted || pref == nil {
 		log.W("dns: fwd: for %s; no preferences (%t) for %s:%d", uid, pref == nil, qname, qtyp)
-		ogsmm.Latency = time.Since(starttime).Seconds()
+		ogsmm.Latency = onQueryDone
 		ogsmm.Status = ClientError
 		ogsmm.Msg = errOnQueryTimeout.Error()
 		r.queueSummary(ogsmm)
@@ -690,12 +695,14 @@ runagain:
 	diffT1 := hasT1 && id != idstr(t)
 	diffT2 := hasT2 && sid != idstr(t2)
 
-	log.V("dns: fwd: 2 for %s (fid: %s); query %s:%d, r%d; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s/%s, ips? %v",
-		uid, fid, qname, qtyp, run, pref, chosenids, id, hasT1, sid, hasT2, pids, spids, presetIPs)
+	if log.Verbose {
+		log.V("dns: fwd: 2 for %s (fid: %s); query %s:%d, r%d; onQueryTime: %s; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s/%s, ips? %v",
+			uid, fid, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), pref, chosenids, id, hasT1, sid, hasT2, pids, spids, presetIPs)
+	}
 
 	if settings.Debug || (!hasPre && (diffT1 || diffT2)) || !hasT1 {
-		smm.Extra += fmt.Sprintf(" #%d Prefs: %s+%s; Actual: %s+%s over %s/%s",
-			run, pref.TIDCSV, pref.TIDSECCSV, id, sid, pids, spids)
+		smm.Extra += fmt.Sprintf(" #%d Prefs: %s+%s; Actual: %s+%s over %s/%s; onQ: %s/onA: %s ",
+			run, pref.TIDCSV, pref.TIDSECCSV, id, sid, pids, spids, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone))
 	}
 	if len(diag) > 0 {
 		smm.Extra += "{" + diag + "}"
@@ -730,10 +737,13 @@ runagain:
 			} else {
 				smm.Msg = errNop.Error()
 			}
-			log.V("dns: fwd: 3 %s for %s (fid: %s); r%d, query blocked %s:%d by %s", smm.ID, uid, smm.FID, run, qname, qtyp, blocklists)
+			if log.Verbose {
+				log.V("dns: fwd: 3 %s for %s (fid: %s); r%d, query blocked %s:%d by %s",
+					smm.ID, uid, smm.FID, run, qname, qtyp, blocklists)
+			}
 			return b, smm.ID, e
 		}
-	} else {
+	} else if log.Verbose {
 		log.V("dns: fwd: 4 %s for %s (fid: %s); r%d, query NOT blocked %s:%d; why? %v", smm.ID, uid, smm.FID, run, qname, qtyp, err)
 	}
 
@@ -812,25 +822,33 @@ runagain:
 			smm.Msg = err.Error()
 		}
 
-		log.V("dns: fwd: 6 for %s[%s] (fid: %s); query %s:%d, r%d, smm[data: %s, status: %d] blocked",
-			smm.ID, uid, smm.FID, qname, qtyp, run, smm.RData, smm.Status)
+		if log.Verbose {
+			log.V("dns: fwd: 6 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, smm[data: %s, status: %d] blocked",
+				smm.ID, uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), smm.RData, smm.Status)
+		}
 		return res2, smm.ID, err
 	}
 
 	realips := Netip2Csv(xdns.IPs(nonalg))
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
-	if settings.Debug {
-		log.V("dns: fwd: 7 for %s[%s] (fid: %s); query %s:%d, r%d, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
-			smm.ID, uid, smm.FID, qname, qtyp, run, realips, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
+	if log.Verbose {
+		log.V("dns: fwd: 7 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
+			smm.ID, uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), realips, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
 	}
 
 	if run == 1 {
+		onUpstreamAnswerStart := time.Now()
+
 		pref2, ouacompleted := core.Grx("r.onUA."+fid+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 			return r.listener.OnUpstreamAnswer(who, smm, pref.Copy(), realips), nil
 		}, answerTimeout)
+
+		onUpstreamAnswerDone = time.Since(onUpstreamAnswerStart).Seconds()
+
 		if !ouacompleted {
-			log.W("dns: fwd: 8 for %s[%s] (fid: %s); preferences2 missing for %s:%d; ips? %s", smm.ID, uid, smm.FID, qname, qtyp, realips)
+			log.W("dns: fwd: 8 for %s[%s] (fid: %s); onQueryTime: %s, onAnswerTime: %s; preferences2 missing for %s:%d; ips? %s",
+				smm.ID, uid, smm.FID, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), qname, qtyp, realips)
 			smm.Status = ClientError
 			smm.Msg = errOnUpstreamAnsTimeout.Error()
 			smm.ID = NoDNS
@@ -839,11 +857,17 @@ runagain:
 
 		if pref2 != nil && len(pref2.TIDCSV) > 0 && pref2.TIDCSV != pref.TIDCSV {
 			pref = pref2
+			if log.Verbose {
+				log.V("dns: fwd: 9 for %s[%s] (fid: %s); onQueryTime: %s / onAnswerTime: %s; preferences2 changed for %s:%d; ips? %s; new prefs: %v",
+					smm.ID, uid, smm.FID, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), qname, qtyp, realips, pref2)
+			}
 			goto runagain // re-run with new pids
 		}
 
-		log.V("dns: fwd: 9 for %s[%s] (fid: %s), r%d; preferences2 skipped for %s:%d [ips? %s]: %v",
-			smm.ID, uid, smm.FID, run, qname, qtyp, realips, pref2)
+		if log.Verbose {
+			log.V("dns: fwd: 10 for %s[%s] (fid: %s), r%d; onQueryTime: %s / onAnswerTime: %s; preferences2 skipped for %s:%d [ips? %s]: %v",
+				smm.ID, uid, smm.FID, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), qname, qtyp, realips, pref2)
+		}
 	}
 
 	// return transport ID match w/ ID used by alg.go:registerLocked (alg/nat/ptr caches)

@@ -89,7 +89,7 @@ func InboundUDP(who string, s *stack.Stack, in net.Conn, to, from netip.AddrPort
 	if !settings.HappyEyeballs.Load() { // ref comment in netstack/tcp.go
 		err := newgc.Establish()
 
-		if settings.Debug {
+		if log.Debug {
 			logeif(err)("ns: udp: %s: inbound: dial: %v; src(%v) dst(%v)",
 				who, err, to, from)
 		}
@@ -201,7 +201,7 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 			// port-unreachable (return false) as before.
 			err := gc.Establish()
 
-			if settings.Debug {
+			if log.Debug {
 				logeif(err)("ns: udp: %s: forwarder: connect: %v; src(%v) dst(%v)",
 					who, err, src, dst)
 			}
@@ -281,7 +281,7 @@ func (g *GUDPConn) Establish() error {
 			g.c.Store(conn)
 		}
 	} else { // egressing (netstack's conn from tun outbound to network)
-		if settings.Debug {
+		if log.Verbose {
 			log.V("ns: udp: %s: connect: creating endpoint for %v => %v", g.o, g.src, g.dst)
 		}
 
