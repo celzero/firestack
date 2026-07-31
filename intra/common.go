@@ -551,6 +551,23 @@ func (h *baseHandler) End() {
 	})
 }
 
+// Reset implements [netstack.GBaseConnHandler].
+func (h *baseHandler) Reset() {
+	if h == nil {
+		return
+	}
+	// handlers may be shared across restarts (see: rtunnel.Restart)
+	// Stale per-stack state (open conns, loop-detection counts)
+	// from the previous stack need not carry over. Unlike End(),
+	// Reset is not terminal: smmch stays open.
+	h.CloseConns(nil) // close all conns tracked from the old stack
+	h.ltmu.Lock()
+	clear(h.looptracker) // reset loop-detection counts
+	h.ltmu.Unlock()
+	h.status.Store(HDLOK) // re-arm
+	log.I("com: %s: handler reset", h.proto)
+}
+
 // upload copies data from remote to local, and returns the number of bytes copied and error, if any.
 // TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {

@@ -108,45 +108,39 @@ func newReverseICMP(id string, s *stack.Stack, ep stack.LinkEndpoint, h GICMPHan
 	}
 }
 
-// GConnHandler
-
-func (g *gconnhandler) end() {
-	if t := g.tcp; t != nil {
-		t.End()
-	}
-	if u := g.udp; u != nil {
-		u.End()
-	}
-	if i := g.icmp; i != nil {
-		i.End()
-	}
-	log.I("rev: gconnhandler end")
-}
-
-// Base
-
+// ReverseProxy implements [GSpecConnHandler].
 func (b *revbase[T]) ReverseProxy(out T, in net.Conn, src, dst netip.AddrPort) bool {
 	// TODO: stub
 	log.E("rev: %s: revbase: %T ReverseProxy not implemented %v <= %v", b.o, out, src, dst)
 	return false
 }
 
+// Error implements [GSpecConnHandler].
 func (b *revbase[T]) Error(in T, src, dst netip.AddrPort, err error) {
 	log.E("rev: %s: revbase: %T Error %v <= %v: %v", b.o, in, src, dst, err)
 }
 
+// OpenConns implements [GBaseConnHandler].
 func (*revbase[T]) OpenConns() string {
 	// TODO: stub
 	return ""
 }
 
+// CloseConns implements [GBaseConnHandler].
 func (*revbase[T]) CloseConns([]string) []string {
 	// TODO: stub
 	return nil
 }
 
+// End implements [GBaseConnHandler].
 func (r *revbase[T]) End() {
 	r.ended.Store(true)
+}
+
+// Reset implements [GBaseConnHandler].
+func (b *revbase[T]) Reset() {
+	// rev* handlers are per-stack (reverser) and recreated on each restart;
+	// nothing to reset.
 }
 
 // TCP

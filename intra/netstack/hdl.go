@@ -29,6 +29,8 @@ type GBaseConnHandler interface {
 	CloseConns([]string) []string
 	// end closes the handler and all its connections.
 	End()
+	// Reset informs the handler of a new stack (post restart, for example).
+	Reset()
 }
 
 type GSpecConnHandler[T gconns] interface {
@@ -60,6 +62,7 @@ type GConnHandler interface {
 	UDP() GUDPConnHandler         // UDP returns the UDP handler.
 	ICMP() GICMPHandler           // ICMP returns the ICMP handler.
 	CloseConns(csv string) string // CloseConns closes the connections with the given IDs, or all if empty.
+	Reset()                       // Reset re-arms all handlers for a new stack (restart).
 }
 
 type gconnhandler struct {
@@ -122,6 +125,21 @@ func (g *gconnhandler) CloseConns(csv string) string {
 	s = append(s, u...)
 	s = append(s, i...)
 	return strings.Join(s, ",")
+}
+
+// Reset implements [].
+func (g *gconnhandler) Reset() {
+	// handlers are shared across stack changes, on restart. It need not
+	// preserve per-stack state (open conns, mux/nat tables, loop-detection).
+	if tcp := g.tcp; tcp != nil {
+		tcp.Reset()
+	}
+	if udp := g.udp; udp != nil {
+		udp.Reset()
+	}
+	if icmp := g.icmp; icmp != nil {
+		icmp.Reset()
+	}
 }
 
 // src/dst addrs are flipped
