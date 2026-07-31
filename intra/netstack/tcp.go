@@ -30,6 +30,13 @@ const rcvwnd = 0
 
 const maxInFlight = 512 // arbitrary
 
+// tcpFwdWatchdog is the max time a forwarder request may stay "in-flight"
+// (uncompleted) before it is aborted (RST) to free up its slot. A stalled
+// handler goroutine that never completes its ForwarderRequest leaks an
+// in-flight slot; once maxInFlight slots are leaked, gvisor silently drops all
+// new SYNs (ForwardMaxInFlightDrop) and egress TCP stalls with no error.
+const tcpFwdWatchdog = 60 * time.Second
+
 // retry connect when early connect (done when no happy eyeballs) fails?
 const retryLateConnect = false
 
@@ -58,6 +65,10 @@ type GTCPConn struct {
 	dst   netip.AddrPort                // remote addr (local addr in netstack)
 	req   *tcp.ForwarderRequest         // egress request as a TCP state machine
 	once  sync.Once
+	// watchdog, when armed, aborts (RST) the request if it is not completed
+	// within tcpFwdWatchdog, freeing the forwarder's in-flight slot. Stopped
+	// in complete(); safe to leave unset for non-forwarder conns.
+	watchdog *time.Timer
 }
 
 // s is the netstack to use for dialing (reads/writes).
@@ -124,6 +135,19 @@ func tcpForwarder(who string, s *stack.Stack, h GTCPConnHandler) *tcp.Forwarder 
 		// ref: github.com/google/gvisor/blob/be6ffa7/pkg/tcpip/stack/transport_demuxer.go#L180
 		gtcp := makeGTCPConn(who, s, req, src, dst)
 
+		// arm an abort watchdog: gvisor frees the forwarder's in-flight slot
+		// only when ForwarderRequest.Complete is called; if the handler
+		// goroutine below stalls before establishing/completing the request
+		// (onFlow, dials, etc.), the slot leaks and, once maxInFlight slots
+		// are leaked, all new SYNs are silently dropped. Abort() completes the
+		// request (RST) so the app retries; a late Establish/complete by the
+		// handler is a no-op (sync.Once).
+		gtcp.watchdog = time.AfterFunc(tcpFwdWatchdog, func() {
+			log.W("ns: tcp: %s: forwarder: watchdog: aborting stale req src(%v) => dst(%v)",
+				who, src, dst)
+			gtcp.Abort()
+		})
+
 		// setup endpoint right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if !settings.HappyEyeballs.Load() { // syn-ack before delivering to handler?
@@ -185,6 +209,9 @@ func (g *GTCPConn) tryConnect() (open bool, err error) {
 // maxInFlight and may cause silent tcp conn drops.
 func (g *GTCPConn) complete(rst bool) {
 	g.once.Do(func() {
+		if g.watchdog != nil {
+			g.watchdog.Stop() // request is done; disarm the abort timer
+		}
 		req := g.req
 		log.D("ns: tcp: %s: forwarder: complete src(%v) => dst(%v); req? %t, rst? %t",
 			g.o, g.LocalAddr(), g.RemoteAddr(), req != nil, rst)
