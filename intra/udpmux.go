@@ -637,20 +637,35 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 			anyaddrport = netip.AddrPortFrom(anyaddr, src.Port())
 		}
 
-		pc, err := mk(proto, anyaddrport.String())
+		// mk may block; holding mutex then blocks all udp flows.
+		e.Unlock()
 
-		if err != nil {
+		pc, derr := mk(proto, anyaddrport.String())
+		if derr != nil {
 			core.Close(pc)
-			e.Unlock()      // unlock
-			return nil, err // return
+			return nil, derr
 		}
 
-		mxr = newMuxer(cid, pid, uid, pc, v, func() {
-			e.dissociate(cid, pid, src)
-		})
-		pxm[src] = mxr
-		log.I("udp: mux: %s new assoc for %s %s via %s; fwd? %t",
-			cid, pid, src, anyaddrport, portfwd)
+		e.Lock()
+		pxm = e.t[pid]
+		if pxm == nil {
+			pxm = make(map[netip.AddrPort]*muxer)
+			e.t[pid] = pxm
+		}
+		// another goroutine may have dialed the same
+		if existing := pxm[src]; existing != nil {
+			mxr = existing
+			core.Close(pc) // lost the race; drop our pc
+			log.I("udp: mux: %s use existing assoc for %s %s via %s; fwd? %t",
+				cid, pid, src, anyaddrport, portfwd)
+		} else {
+			mxr = newMuxer(cid, pid, uid, pc, v, func() {
+				e.dissociate(cid, pid, src)
+			})
+			pxm[src] = mxr
+			log.I("udp: mux: %s new assoc for %s %s via %s; fwd? %t",
+				cid, pid, src, anyaddrport, portfwd)
+		}
 	}
 
 	if mxr.pid != pid {
