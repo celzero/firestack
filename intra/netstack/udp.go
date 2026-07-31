@@ -120,12 +120,15 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 		return nil
 	}
 
-	// dedupe in-flight forwarder handlers per 4-tuple. gvisor invokes the UDP
-	// forwarder handler inline, per-packet, with no in-flight tracking of its
-	// own; because the handler below is offloaded to a goroutine (to not wedge
-	// the netstack processors with potentially-blocking dials), two packets of
-	// the same flow could otherwise race to CreateEndpoint (only the first
-	// succeeds; the second errors out and would kill the flow).
+	// dedupe in-flight forwarder handlers per 4-tuple. gvisor invokes the
+	// UDP forwarder handler inline, per-packet, with no in-flight tracking
+	// of its own; because the handler below is offloaded to a goroutine
+	// (to not wedge the netstack processors with potentially-blocking
+	// dials), two packets of the same flow could otherwise race to
+	// CreateEndpoint (only the first succeeds; the second errors out and
+	// would kill the flow). The slot is released once the flow's endpoint
+	// is registered (non-happy-eyeballs) or when the offloaded handler
+	// completes (happy-eyeballs, where Establish runs inside handle()).
 	var (
 		mu       sync.Mutex
 		inFlight = make(map[stack.TransportEndpointID]struct{})
@@ -169,6 +172,12 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 		inFlight[id] = struct{}{}
 		mu.Unlock()
 
+		landed := func() {
+			mu.Lock()
+			delete(inFlight, id)
+			mu.Unlock()
+		}
+
 		gc := makeGUDPConn(who, s, req, src, dst)
 
 		demux := func(ingress net.Conn, newdst netip.AddrPort) error {
@@ -182,12 +191,6 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 			}
 			return InboundUDP(who, s, ingress, src, newdst, h)
 		}
-
-		defer func() {
-			mu.Lock()
-			delete(inFlight, id)
-			mu.Unlock()
-		}()
 
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
@@ -203,16 +206,37 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 					who, err, src, dst)
 			}
 			if !retryLateConnect && err != nil {
-				// TODO: Error() w/ goroutine?
-				h.Error(gc, src, dst, err)
+				// endpoint not registered; release the dedupe slot (no
+				// goroutine depends on it) and notify the handler off the
+				// processor goroutine: h.Error may block on onFlow (up to
+				// onFlowTimeout) and would otherwise block this processor.
+				defer landed()
+				core.Go("ns.udp.err."+src.String(), func() { h.Error(gc, src, dst, err) })
 				return false // not handled
 			}
-			handle(h, gc, src, dst, demux) // gc may be connected
-			return true                    // handled
+
+			// endpoint registered; the dedupe slot is no longer needed (later
+			// packets of this flow are delivered to the endpoint, not the
+			// forwarder). Offload the (potentially blocking) handler --
+			// onFlow, ProxyTo dials, muxTable.associate etc. -- off the
+			// netstack processor goroutine: gvisor calls the UDP forwarder
+			// handler inline (unlike TCP, which is launched via `go`), so a
+			// stuck dial here would wedge packet delivery for every flow
+			// hashed to this processor, stalling egress (WritePackets).
+			defer landed()
+			core.Go("ns.udp.fwd."+src.String(), func() {
+				handle(h, gc, src, dst, demux) // gc may be connected
+			})
+			return true // handled
 		} else {
-			// handler must connect sync; blocking netstack's processor
-			// but perform other ops like r/w to/from src/dst async.
-			return handle(h, gc, src, dst, demux)
+			// happy-eyeballs: Establish runs inside handle(); hold the dedupe
+			// slot until the offloaded handler completes so two packets of the
+			// same flow can't race to CreateEndpoint.
+			core.Go("ns.udp.fwd."+src.String(), func() {
+				defer landed()
+				handle(h, gc, src, dst, demux)
+			})
+			return true // handled
 		}
 	})
 }
