@@ -682,6 +682,27 @@ func (e *muxTable) dissociate(cid, pid string, src netip.AddrPort) {
 	delete(pxm, src)
 }
 
+// reset closes all muxers and clears the table. Called on tunnel restarts so
+// that stale muxers (bound to the previous stack's conns) don't survive into
+// the new stack. The dissociate callbacks of stopped muxers operate on the
+// replaced table and are no-ops.
+func (e *muxTable) reset() {
+	if e == nil {
+		return
+	}
+	e.Lock()
+	pxms := e.t
+	e.t = make(map[string]map[netip.AddrPort]*muxer)
+	e.Unlock()
+
+	for _, pxm := range pxms {
+		for _, mxr := range pxm {
+			mxr.stop()
+		}
+	}
+	log.I("udp: mux: reset; closed %d pids", len(pxms))
+}
+
 func addr2netip(addr net.Addr) (zz netip.AddrPort) {
 	if addr == nil {
 		return // zz

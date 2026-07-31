@@ -90,6 +90,16 @@ func NewUDPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyP
 	return h
 }
 
+// Reset implements netstack.GBaseConnHandler. See baseHandler.Reset; also
+// closes all muxers (EIM/EIF table) so stale muxers bound to the previous
+// stack's conns don't survive into a new stack after a restart.
+func (h *udpHandler) Reset() {
+	h.baseHandler.Reset()
+	if h.mux != nil {
+		h.mux.reset()
+	}
+}
+
 func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, from netip.AddrPort) (ok bool) {
 	fm := h.onInflow(to, from)
 	cid, uid, _, pids := h.judge(fm)

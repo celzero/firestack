@@ -121,6 +121,18 @@ func NewTCPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyP
 	return h
 }
 
+// Reset implements netstack.GBaseConnHandler. See baseHandler.Reset; also
+// clears the NAT table so stale port mappings from the previous stack don't
+// survive into a new stack after a restart.
+func (h *tcpHandler) Reset() {
+	h.baseHandler.Reset()
+	if h.nat != nil {
+		h.nat.Lock()
+		clear(h.nat.m)
+		h.nat.Unlock()
+	}
+}
+
 // Error implements netstack.GTCPConnHandler.
 // It must be called from a goroutine.
 func (h *tcpHandler) Error(gconn *netstack.GTCPConn, src, dst netip.AddrPort, err error) {

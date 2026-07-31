@@ -370,6 +370,9 @@ func (t *rtunnel) Restart(fd, linkmtu, tunmtu, engine int) error {
 	old := t.t.Load()
 	old.Disconnect() // could have been disconnected by the client already
 
+	// handlers are shared across restarts; reset them
+	t.handlers.Reset()
+
 	gt, revhdl, err := tunnel.NewGTunnel(t.ctx, fd, tunmtu, dualstack, t.handlers)
 
 	if err != nil || gt == nil || core.IsNil(gt) {
