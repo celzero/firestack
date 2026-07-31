@@ -74,7 +74,8 @@ func NewReverseGConnHandler(pctx context.Context, to *stack.Stack, of tcpip.NICI
 		icmp: newReverseICMP(id, to, ep, via.ICMP()),
 	}
 	log.I("rev: %s: newReverseGConnHandler %d @ %d on %v", id, of, core.Loc(to), ifaddrs)
-	context.AfterFunc(pctx, h.end)
+	// h is not owned by us. It may be a shared instance, do not end it.
+	// context.AfterFunc(pctx, h.end)
 	return h
 }
 

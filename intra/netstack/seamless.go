@@ -1,11 +1,18 @@
+// Copyright (c) 2026 RethinkDNS and its authors.
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 package netstack
 
 import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,10 +79,18 @@ type SeamlessEndpoint interface {
 	FdSwapper
 }
 
+type linkstate struct {
+	e SeamlessEndpoint
+	d stack.NetworkDispatcher
+}
+
 type magiclink struct {
-	e core.Volatile[SeamlessEndpoint]
-	d core.Volatile[stack.NetworkDispatcher]
-	s io.WriteCloser
+	// mu serializes lifecycle operations. Callback methods intentionally read
+	// state without mu because endpoint shutdown can wait for callbacks that
+	// re-enter this magiclink.
+	mu    sync.Mutex
+	state atomic.Pointer[linkstate]
+	s     io.WriteCloser
 }
 
 var _ stack.LinkEndpoint = (*magiclink)(nil)
@@ -130,7 +145,7 @@ func NewEndpoint(dev, mtu int, sink io.WriteCloser) (ep SeamlessEndpoint, err er
 	m := magiclink{}
 	m.s = sink
 	// ref: github.com/google/gvisor/blob/aeabb785278/pkg/tcpip/link/sniffer/sniffer.go#L111-L131
-	m.e.Store(ep)
+	m.storeCurrent(ep, nil)
 
 	return &m, nil
 }
@@ -182,9 +197,23 @@ func PcapModes() string {
 	return strings.Join(modes, ",")
 }
 
+func (l *magiclink) get() (SeamlessEndpoint, stack.NetworkDispatcher) {
+	if state := l.state.Load(); state != nil {
+		return state.e, state.d
+	}
+	return nil, nil
+}
+
+func (l *magiclink) storeCurrent(e SeamlessEndpoint, d stack.NetworkDispatcher) {
+	l.state.Store(&linkstate{e: e, d: d})
+}
+
 // Swap implements SeamlessEndpoint.
 func (l *magiclink) Swap(fd, mtu int) (err error) {
-	e := l.e.Load()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	e, d := l.get()
 	hasSwappedFd := false
 	needsNewEndpoint := e == nil
 	if e != nil {
@@ -194,6 +223,25 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 	}
 
 	if hasSwappedFd || !needsNewEndpoint {
+		// gVisor's CreateNIC calls magiclink.Attach(nic), which stores nic in
+		// d and attaches the current raw endpoint with the magiclink as its
+		// NetworkDispatcher. A successful raw endpoint Swap normally starts
+		// the replacement read loop itself when that raw endpoint is attached.
+		//
+		// If the raw endpoint was detached or its dispatcher state was lost,
+		// e.Swap can still succeed and replace the fd without starting a loop,
+		// while d still proves that the stable magiclink remains attached to
+		// gVisor's NIC. In that split state, inbound packets stop at the TUN
+		// fd and the endpoint cannot deliver them to the stack, so later
+		// protocol traffic may never reach the normal TCP/UDP/ICMP paths or
+		// produce outbound WritePackets calls.
+		//
+		// Reattach the raw endpoint directly to l to restart its dispatcher
+		// loop. Do not call l.Attach here: l.mu is held by Swap, and l.Attach
+		// would try to acquire the same non-reentrant mutex and deadlock.
+		if err == nil && d != nil && e != nil && !e.IsAttached() {
+			e.Attach(l)
+		}
 		logei(!hasSwappedFd)("netstack: magic(%d); swap: ok? %t; err? %v",
 			fd, hasSwappedFd, err)
 		return err
@@ -211,27 +259,25 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 		return core.OneErr(err, errMissingEp)
 	}
 
-	// attach eventually runs a dispatchLoop which kickstarts the endpoint's
-	// delivery of packets to netstack's dispatcher.
-	d := l.d.Load()
-	if d == nil {
-		ep.Attach(nil) // attach the new endpoint to the dispatcher
-	} else {
-		ep.Attach(l) // attach the new endpoint to the existing dispatcher
-	}
-
 	// swap endpoints after the dispatchLoop has had the chance to start
 	// to avoid cases where clients end up calling ep.Wait() before dispatchLoop
 	// could begin (as it is responsible for keeping ep alive)
-	if old := l.e.Tango(ep); old != nil {
+	if old := l.state.Swap(&linkstate{e: ep, d: d}); old != nil && old.e != nil {
 		// Close signals the dispatch loop to stop via stopfd.
 		// Wait ensures the goroutine has fully exited and all
 		// FDs/buffers are released. Without Wait, the goroutine
 		// can linger, leaking resources.
-		core.Go("magic.close."+strconv.Itoa(fd), func() {
-			old.Close()
-			old.Wait()
-		})
+		old.e.Close()
+		old.e.Wait()
+	}
+
+	// attach eventually runs a dispatchLoop which kickstarts the endpoint's
+	// delivery of packets to netstack's dispatcher. It must happen after Waiting
+	// on previous endpoint to close (which calls prompts netstack to detach dispatcher)
+	if d == nil {
+		ep.Attach(nil) // attach the new endpoint to the dispatcher
+	} else {
+		ep.Attach(l) // attach the new endpoint to the existing dispatcher
 	}
 
 	logei(d == nil)("netstack: magic(%d) mtu: %d; swap: new ep... dispatch? %t",
@@ -242,14 +288,18 @@ func (l *magiclink) Swap(fd, mtu int) (err error) {
 
 // Dispose implements SeamlessEndpoint.
 func (l *magiclink) Dispose() error {
-	if e := l.e.Load(); e != nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	e, d := l.get()
+	if e != nil {
 		if clearEndpointOnDispose {
 			// will result in stack.LinkEndpoint impls return zero values
 			// unsure if this will trip netstack in to thinking if this
 			// endpoint is kaput, when in reality, this endpoint can swap
 			// in a healthy endpoint at a later point in time, which then
 			// we'd expect netstack to use as expected.
-			l.e.Store(nil)
+			l.storeCurrent(nil, d)
 		}
 		return e.Dispose()
 	}
@@ -259,66 +309,70 @@ func (l *magiclink) Dispose() error {
 
 // Stat implements SeamlessEndpoint.
 func (l *magiclink) Stat() EpStat {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.Stat()
 	}
 	return EpStat{}
 }
 
 func (l *magiclink) MTU() uint32 {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.MTU()
 	}
 	return 0
 }
 
 func (l *magiclink) SetMTU(mtu uint32) {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		e.SetMTU(mtu)
 	}
 }
 
 func (l *magiclink) MaxHeaderLength() uint16 {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.MaxHeaderLength()
 	}
 	return 0
 }
 
 func (l *magiclink) LinkAddress() tcpip.LinkAddress {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.LinkAddress()
 	}
 	return ""
 }
 
 func (l *magiclink) SetLinkAddress(addr tcpip.LinkAddress) {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		e.SetLinkAddress(addr)
 	}
 }
 
 func (l *magiclink) Capabilities() stack.LinkEndpointCapabilities {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.Capabilities()
 	}
 	return 0
 }
 
 func (l *magiclink) Attach(dispatcher stack.NetworkDispatcher) {
-	l.d.Store(dispatcher) // update the dispatcher
-	if e := l.e.Load(); e != nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	e, _ := l.get()
+	l.storeCurrent(e, dispatcher)
+	if e != nil {
 		if dispatcher == nil {
 			e.Attach(nil) // detach
 		} else {
 			e.Attach(l)
 		}
 	}
-	log.I("netstack: magic: attach dispatcher? %t", dispatcher == nil)
+	log.I("netstack: magic: attach dispatcher? %t", dispatcher != nil)
 }
 
 func (l *magiclink) IsAttached() bool {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.IsAttached()
 	}
 	return false
@@ -326,7 +380,7 @@ func (l *magiclink) IsAttached() bool {
 
 func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	l.DumpPacket(DirectionRecv, protocol, pkt)
-	if d := l.d.Load(); d != nil {
+	if _, d := l.get(); d != nil {
 		d.DeliverNetworkPacket(protocol, pkt)
 		return
 	}
@@ -339,7 +393,7 @@ func (l *magiclink) DeliverNetworkPacket(protocol tcpip.NetworkProtocolNumber, p
 // unused
 func (l *magiclink) DeliverLinkPacket(protocol tcpip.NetworkProtocolNumber, pkt *stack.PacketBuffer) {
 	l.DumpPacket(DirectionRecv, protocol, pkt)
-	if d := l.d.Load(); d != nil {
+	if _, d := l.get(); d != nil {
 		d.DeliverLinkPacket(protocol, pkt)
 		return
 	}
@@ -356,7 +410,7 @@ func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 			}
 		}
 	}
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.WritePackets(pkts)
 	}
 	log.E("netstack: magic: write packets; no endpoint")
@@ -364,43 +418,46 @@ func (l *magiclink) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error)
 }
 
 func (l *magiclink) Wait() {
-	if e := l.e.Load(); e != nil {
+	if e, d := l.get(); e != nil {
 		if e.IsAttached() {
 			e.Wait() // may panic in case of WaitGroup reuse issues
 		} else {
-			log.W("netstack: magic: wait; dispatcher not attached; has dispatcher? %t", l.d.Load() != nil)
+			log.W("netstack: magic: wait; dispatcher not attached; has dispatcher? %t", d != nil)
 		}
 	}
 }
 
 func (l *magiclink) ARPHardwareType() header.ARPHardwareType {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.ARPHardwareType()
 	}
 	return 0
 }
 
 func (l *magiclink) AddHeader(pkt *stack.PacketBuffer) {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		e.AddHeader(pkt)
 	}
 }
 
 func (l *magiclink) ParseHeader(pkt *stack.PacketBuffer) bool {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		return e.ParseHeader(pkt)
 	}
 	return false
 }
 
 func (l *magiclink) Close() {
-	if e := l.e.Load(); e != nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if e, _ := l.get(); e != nil {
 		e.Close()
 	}
 }
 
 func (l *magiclink) SetOnCloseAction(f func()) {
-	if e := l.e.Load(); e != nil {
+	if e, _ := l.get(); e != nil {
 		e.SetOnCloseAction(f)
 	}
 }

@@ -337,6 +337,9 @@ func (t *rtunnel) SetLinkAndRoutes2(fd, tunmtu, linkmtu, engine int) error {
 		})
 	}
 
+	logei(err)("tun: <<< set link and route >>>; fd: %d, tunmtu: %d, linkmtu: %d, engine: %s; l3diff? %t, mtudiff? %t; err? %v",
+		fd, tunmtu, linkmtu, engine, l3diff, mtudiff, err)
+
 	return err
 }
 

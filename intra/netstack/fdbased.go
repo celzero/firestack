@@ -55,7 +55,7 @@ var _ stack.LinkEndpoint = (*endpoint)(nil)
 const invalidfd int = -1
 
 // wrapttl is the time to wait for the dispatcher to wrap up (close a previous FD).
-const waitttl = wrapttl
+const waitttl = 1 * time.Second
 
 var errNeedsNewEndpoint = errors.New("ns: needs new endpoint")
 
@@ -266,11 +266,14 @@ func (e *endpoint) Dispose() (err error) {
 	// dispatchLoop() will auto-exit on invalidfd
 	e.inboundDispatcher.wrapup(prevfd, wrapttl)
 	e.inboundDispatcher.prepare(invalidFds)
+	e.wait(waitttl)
 
 	return nil
 }
 
 // Implements FdSwapper.
+// Return errNeedsNewEndpoint for an invalid previous fd so magiclink can
+// replace the raw endpoint behind the stable link endpoint wrapper.
 func (e *endpoint) Swap(fd, mtu int) (err error) {
 	e.SetMTU(uint32(mtu))
 	return e.swap(fd, false)
@@ -304,16 +307,14 @@ func (e *endpoint) swap(fd int, force bool) (err error) {
 		// closes prevfd, which may be invalidfd
 		e.inboundDispatcher.wrapup(prevfd, wrapttl)
 		e.inboundDispatcher.prepare(f)
+		e.wait(waitttl)
 	}
 
 	hasDispatcher := e.dispatcher != nil
 	if err == nil && hasDispatcher { // attached?
 		log.I("ns: tun(%s): (%s => %d) swap: restart looper %t for new fd",
 			prevfd, prevfd, fd, hasDispatcher)
-		core.Go(
-			"ns.f.dispatch1."+strconv.Itoa(f.tun()),
-			func() { dispatchLoop(e.inboundDispatcher, f, &e.wg) },
-		)
+		e.startDispatchLoop("ns.f.dispatch1."+strconv.Itoa(f.tun()), e.inboundDispatcher, f)
 	} else { // wait for Attach to be called eventually
 		log.E("ns: tun(%s): (%s => %d) swap: no dispatcher? %t for new fd; err %v",
 			prevfd, prevfd, fd, !hasDispatcher, err)
@@ -360,9 +361,13 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 	}
 
 	if dispatcher != nil && e.dispatcher == nil {
-		log.I("ns: tun(%d): attach: new dispatcher & looper", fd)
+		ok := fds.ok()
 		e.dispatcher = dispatcher
-		if e.inboundDispatcher == nil && fds.ok() { // unlikely
+		logei(!ok)("ns: tun(%d): attach: new dispatcher & looper? %t", fd, ok)
+		if !ok {
+			return
+		}
+		if e.inboundDispatcher == nil { // unlikely
 			var err error
 			e.inboundDispatcher, err = createInboundDispatcher(e, fds)
 			logeif(err)("ns: tun(%d): attach: just-in-time createInboundDispatcher; err? %v", fd, err)
@@ -371,10 +376,7 @@ func (e *endpoint) Attach(dispatcher stack.NetworkDispatcher) {
 			}
 			rx = e.inboundDispatcher
 		}
-		core.Go(
-			"ns.f.dispatch2."+strconv.Itoa(fds.tun()),
-			func() { dispatchLoop(rx, fds, &e.wg) },
-		)
+		e.startDispatchLoop("ns.f.dispatch2."+strconv.Itoa(fds.tun()), rx, fds)
 		return
 	}
 
@@ -427,6 +429,11 @@ func (e *endpoint) wait(d time.Duration) bool {
 	return core.Await(func() { e.Wait() }, d)
 }
 
+func (e *endpoint) startDispatchLoop(who string, inbound linkDispatcher, f *fds) {
+	e.wg.Add(1)
+	core.Go(who, func() { dispatchLoop(inbound, f, &e.wg) })
+}
+
 // AddHeader implements stack.LinkEndpoint.AddHeader.
 func (e *endpoint) AddHeader(pkt *stack.PacketBuffer) {
 	if e.hdrSize > 0 && pkt != nil {
@@ -464,8 +471,8 @@ func (e *endpoint) fd() int {
 	return e.fds.Load().tun()
 }
 
-// writePackets writes outbound packets to the file descriptor. If it is not
-// currently writable, the packet is dropped.
+// writePackets writes outbound packets to the file descriptor. If the fd is
+// invalid, the packet is dropped and ErrNoSuchFile is returned.
 // Way more simplified than og impl, ref: github.com/google/gvisor/issues/7125
 func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) {
 	if pkts.Len() == 0 {
@@ -481,11 +488,26 @@ func (e *endpoint) WritePackets(pkts stack.PacketBufferList) (int, tcpip.Error) 
 	fd := fds.tun() // if closed, returns invalidfd
 
 	if fd == invalidfd {
+		// Outbound path: Route.WritePacket -> gVisor network endpoint -> NIC
+		// -> NIC qdisc -> LinkWriter.WritePackets -> magiclink.WritePackets
+		// -> this raw endpoint. The stack installs its default direct qdisc
+		// when CreateNIC is called without NICOptions.QDisc, as it is here;
+		// that qdisc propagates this error to the transport protocol. A
+		// configured asynchronous qdisc may instead enqueue the packet and
+		// discard this lower-level error in its worker.
+		//
+		// During Dispose/Swap, the stable magiclink can briefly point at a raw
+		// endpoint whose old fd is invalid before the replacement is attached.
+		// This packet cannot be written and is therefore lost; returning zero
+		// with nil would falsely report a successful send. ErrNoSuchFile makes
+		// the failed send visible: TCP records a segment-send failure (SYN
+		// send errors are handled by TCP's retry path), UDP returns the error
+		// from its Write path because it only suppresses ErrNoBufferSpace, and
+		// ICMP propagates/logs the route or direct LinkWriter failure. None of
+		// these paths retries this already-lost packet because of this return;
+		// the magiclink replacement only makes later packets writable.
 		log.E("ns: tun(-1): WritePackets (to tun): fd invalid (pkts: %d)", pkts.Len())
-		// do not error out (unsure if doing so results in all subsequent writes being dropped?)
-		// instead, let endpoint be closed / fd swapped
-		// return 0, &tcpip.ErrNoSuchFile{}
-		return 0, nil
+		return 0, &tcpip.ErrNoSuchFile{}
 	}
 
 	batch := make([]unix.Iovec, 0, batchSz)
@@ -548,7 +570,6 @@ func dispatchLoop(inbound linkDispatcher, f *fds, wg *core.RollingWaitGroup) tcp
 	// defer core.RecoverFn("ns.e.dispatch", e.notifyRestart)
 	defer core.Recover(core.Exit11, "ns.e.dispatch")
 
-	wg.Add(1)
 	defer wg.Done()
 
 	if inbound == nil || core.IsNil(inbound) {
