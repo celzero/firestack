@@ -186,15 +186,20 @@ func udpForwarder(who string, s *stack.Stack, h GUDPConnHandler) *udp.Forwarder 
 		// setup to recv right away, so that netstack's internal state is consistent
 		// in case there are multiple forwarders dispatching from the TUN device.
 		if !settings.HappyEyeballs.Load() {
+			// Establish is a fast, local netstack op (bind + connect + register);
+			// do it inline so an error (ex: no route) is reported via ICMP
+			// port-unreachable (return false) as before.
 			err := gc.Establish()
 
 			if settings.Debug {
 				logeif(err)("ns: udp: %s: forwarder: connect: %v; src(%v) dst(%v)",
 					who, err, src, dst)
 			}
-			// TODO: call in a go routine if settings.SingleThreaded is set
 			if !retryLateConnect && err != nil {
 				h.Error(gc, src, dst, err)
+				mu.Lock()
+				delete(inFlight, id) // no goroutine was launched
+				mu.Unlock()
 				return false // not handled
 			}
 			handle(h, gc, src, dst, demux) // gc may be connected
