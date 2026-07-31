@@ -224,6 +224,8 @@ var _ Resolver = (*resolver)(nil)
 var _ x.DNSResolver = (*resolver)(nil)
 
 func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
+	var dtraddr, dtrid string
+
 	ctx, cancel := context.WithCancel(pctx)
 	r := &resolver{
 		ctx:          ctx,
@@ -237,10 +239,14 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	}
 	r.loadaddrs(fakeaddrs)
 	r.gateway = NewDNSGateway(r.ctx, r.dnsaddrs, r, pt)
-	if dtr.ID() != Default {
-		log.W("dns: not default; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
+	if dtr != nil {
+		dtraddr = dtr.GetAddr()
+		dtrid = dtr.ID()
+	}
+	if dtrid != Default {
+		log.W("dns: not default; ignoring %s @ %s", dtrid, dtraddr)
 	} else if tr, ok := dtr.(Transport); !ok {
-		log.W("dns: not a transport; ignoring %s @ %s", dtr.ID(), dtr.GetAddr())
+		log.W("dns: not a transport; ignoring %s @ %s", dtrid, dtraddr)
 	} else {
 		ctr := NewCachingTransport(r.ctx, tr, ttl10m)
 		r.Lock()
@@ -252,7 +258,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 		}
 		r.Unlock()
 	}
-	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtr.GetAddr())
+	log.I("dns: new! gw? %t; default? %s", r.gateway != nil, dtraddr)
 
 	core.Go("r.Listener", r.sendSummaries)
 	context.AfterFunc(pctx, r.StopAll)

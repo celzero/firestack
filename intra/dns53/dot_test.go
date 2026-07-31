@@ -735,8 +735,10 @@ func TestPerfReal(t *testing.T) {
 
 	bdg := &fakeBdg{Controller: ctl}
 
-	tr, _ := NewTLSTransport(ctx, "test0", "8.8.8.8", nil, pxr)
-	dtr, _ := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
+	tr, terr := NewTLSTransport(ctx, "test0", "8.8.8.8", nil, pxr)
+	ko(t, terr)
+	dtr, derr := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
+	ko(t, derr)
 
 	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
