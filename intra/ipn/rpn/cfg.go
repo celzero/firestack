@@ -86,13 +86,14 @@ type RpnStateless struct {
 	RpnUpdateless
 }
 
-func (RpnStateless) Updated() int64                 { return neverEver.UnixMilli() }
-func (RpnStateless) State() ([]byte, error)         { return nil, errRpnStateless }
+func (RpnStateless) Updated() int64                               { return neverEver.UnixMilli() }
+func (RpnStateless) State() ([]byte, error)                       { return nil, errRpnStateless }
 func (RpnStateless) Conf(cc string) (string, *x.RpnServer, error) { return "", nil, errRpnStateless }
+func (RpnStateless) Entitlement() (x.RpnEntitlement, error)       { return nil, errRpnStateless }
 
 type RpnUpdateless struct{}
 
-func (RpnUpdateless) Ops() *x.RpnOps                  { return nil }
+func (RpnUpdateless) Ops() *x.RpnOps                   { return nil }
 func (RpnUpdateless) Update(*x.RpnOps) ([]byte, error) { return nil, errRpnUpdateless }
 
 type RpnMultiCountryServers struct {

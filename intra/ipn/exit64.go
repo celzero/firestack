@@ -151,7 +151,7 @@ func (h *exit64) Accept(network, local string) (protect.Listener, error) {
 		return nil, errNoAuto464XLAT
 	}
 
-	l, err := dialers.Listen(h.outbound, network, local)
+	l, err := dialers.Listen(h.outbound, network, local64)
 	defer localDialStatus(&h.status, err)
 
 	logei(err)("proxy: exit64: accept(%s) via %s on %s; err? %v", network, local64, local, err)
