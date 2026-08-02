@@ -282,10 +282,8 @@ func (t *gtunnel) setLink(fd, mtu int) (err error) {
 func (t *gtunnel) setRoute(engine int) error {
 	// netstack route is never changed; always dual-stack
 	netstack.Route(t.stack, settings.IP46)
-	doHappyEyeballs := engine == settings.Ns46
-	ok := settings.HappyEyeballs.CompareAndSwap(!doHappyEyeballs, doHappyEyeballs)
-	log.I("tun: new route; (no-op) got %s but set %s; enable happy eyeballs? %t / ok? %t",
-		settings.L3(engine), settings.IP46, doHappyEyeballs, ok)
+	log.I("tun: new route; (no-op) got %s but set %s; doing happy eyeballs? %t",
+		settings.L3(engine), settings.IP46, settings.HappyEyeballs.Load())
 	return nil
 }
 
