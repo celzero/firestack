@@ -35,7 +35,7 @@ import (
 
 const (
 	timeout = 15 * time.Second
-	// 2m max ttl for alg/nat ip
+	// 2m ttl extension for alg/nat ip on each use
 	ttl2m = 2 * time.Minute
 	// 8s min ttl for alg/nat ip; chosen to be closer to transport timeouts
 	ttl8s = 8 * time.Second
@@ -837,7 +837,8 @@ func (p *xdomains) rmv(tid string) (done bool) {
 func (p *xdomains) relegateLocked(k string, v expdomains) {
 	if existing, ok := p.past[k]; ok && existing.withinStaleThres() {
 		existing.domains = copyUniq(existing.domains, v.domains)
-		if v.dob.Before(existing.dob) {
+		// extend lifetime: keep it younger (mirrors xips.relegateLocked)
+		if existing.dob.Before(v.dob) {
 			existing.dob = v.dob
 		}
 		p.past[k] = existing
