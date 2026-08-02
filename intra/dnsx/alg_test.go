@@ -28,6 +28,16 @@ func newTestGateway() *dnsgateway {
 	return NewDNSGateway(context.Background(), nil, nil, nil)
 }
 
+// mustMakeXips calls NewXips and Fatals if it returns nil (e.g. empty tid).
+func mustMakeXips(t *testing.T, tid, uid string, pri, sec []netip.Addr, ttl time.Time) *xips {
+	t.Helper()
+	x := NewXips(tid, uid, pri, sec, ttl)
+	if x == nil {
+		t.Fatalf("NewXips(%q, %q) returned nil", tid, uid)
+	}
+	return x
+}
+
 // TestRegisterLockedTTLClamp asserts that the xips and alg-answer ttls are
 // floored at ttl8s but otherwise carry the upstream answer's ttl (no cap).
 func TestRegisterLockedTTLClamp(t *testing.T) {
@@ -194,9 +204,9 @@ func TestXipsMergeFresh(t *testing.T) {
 	secA := mustAddr("3.3.3.3")
 	secB := mustAddr("4.4.4.4")
 
-	p := NewXips("t1", "u1", []netip.Addr{ipA}, []netip.Addr{secA}, now.Add(10*time.Second))
+	p := mustMakeXips(t, "t1", "u1", []netip.Addr{ipA}, []netip.Addr{secA}, now.Add(10*time.Second))
 	time.Sleep(10 * time.Millisecond) // ensure q.dob > p.dob
-	q := NewXips("t1", "u1", []netip.Addr{ipB}, []netip.Addr{secB}, now.Add(20*time.Second))
+	q := mustMakeXips(t, "t1", "u1", []netip.Addr{ipB}, []netip.Addr{secB}, now.Add(20*time.Second))
 
 	aliv, tot, secaliv, sec := p.merge(q)
 	if tot < 0 || sec < 0 {
@@ -229,8 +239,8 @@ func TestXipsMergeCapturesStaleIntoPast(t *testing.T) {
 	ipNew := mustAddr("8.8.8.8")
 
 	// p's entry is expired (ttl in the past) but dob within stale threshold
-	p := NewXips("t1", "u1", []netip.Addr{ipOld}, nil, now.Add(-time.Hour))
-	q := NewXips("t1", "u1", []netip.Addr{ipNew}, nil, now.Add(time.Hour))
+	p := mustMakeXips(t, "t1", "u1", []netip.Addr{ipOld}, nil, now.Add(-time.Hour))
+	q := mustMakeXips(t, "t1", "u1", []netip.Addr{ipNew}, nil, now.Add(time.Hour))
 
 	aliv, tot, _, _ := p.merge(q)
 	if tot < 0 {
@@ -256,8 +266,8 @@ func TestXipsMergeCapturesStaleIntoPast(t *testing.T) {
 
 func TestXipsMergeNoChange(t *testing.T) {
 	now := time.Now()
-	p := NewXips("t1", "u1", []netip.Addr{mustAddr("1.1.1.1")}, nil, now.Add(time.Hour))
-	q := NewXips("t1", "u1", nil, nil, now.Add(time.Hour))
+	p := mustMakeXips(t, "t1", "u1", []netip.Addr{mustAddr("1.1.1.1")}, nil, now.Add(time.Hour))
+	q := mustMakeXips(t, "t1", "u1", nil, nil, now.Add(time.Hour))
 
 	aliv, tot, secaliv, sec := p.merge(q)
 	if tot != -1 || sec != -1 {
@@ -296,7 +306,7 @@ func TestXipsVaccumRemovesStale(t *testing.T) {
 
 func TestXipsRealipsZzUnspecified(t *testing.T) {
 	now := time.Now()
-	p := NewXips("t1", "u1", []netip.Addr{mustAddr("1.1.1.1")}, nil, now.Add(time.Hour))
+	p := mustMakeXips(t, "t1", "u1", []netip.Addr{mustAddr("1.1.1.1")}, nil, now.Add(time.Hour))
 
 	p.pmu.Lock()
 	// "block" style response for this uid via the notransport secondary
