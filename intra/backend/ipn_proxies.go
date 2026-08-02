@@ -200,8 +200,13 @@ type Rpn interface {
 	// `rpnProviderID` is the RPN provider to use with this entitlement (ex: RpnWin, etc).
 	EntitlementFrom(entitlementOrStateJson []byte, rpnProviderID, did string) (RpnEntitlement, error)
 	// RegisterWin registers (or re-registers) a Windscribe account.
+	// entitlementOnly is always an entitlement json, whereas entitlementOrStateJson
+	// may be a full state+entitlement json or just an entitlement json.
+	// At least one of the two must be present; when both are present,
+	// entitlementOrStateJson is processed first, falling back to entitlementOnly
+	// on failure.
 	// ops may be nil to use default behaviour.
-	RegisterWin(entitlementOrStateJson []byte, did string, ops *RpnOps) (json []byte, err error)
+	RegisterWin(entitlementOnly, entitlementOrStateJson []byte, did string, ops *RpnOps) (json []byte, err error)
 	// UnregisterWin unregisters a Windscribe installation.
 	UnregisterWin() bool
 	// TestWin connects to the Windscribe gateway and returns its IP if reachable.
@@ -267,6 +272,7 @@ type RpnProxy interface {
 
 // RpnAcc represents an account with RPN provider.
 type RpnAcc interface {
+	Entitlement() (RpnEntitlement, error)
 	// Who returns identifier for this account; may be empty.
 	Who() string
 	// State returns the state (as json) of the account.

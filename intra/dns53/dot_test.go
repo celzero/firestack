@@ -446,7 +446,7 @@ func TestWinReaches(t *testing.T) {
 
 	// const did = "deadbeefdeadbeefdeadbeefdeadbeef" // some device id
 
-	if wreg, err := pxr.RegisterWin(entjson, ent.DID(), nil); err != nil {
+	if wreg, err := pxr.RegisterWin(nil, entjson, ent.DID(), nil); err != nil {
 		t.Fatal(err)
 	} else {
 		entjson = wreg
@@ -624,7 +624,7 @@ func TestWinDownloadSpeed(t *testing.T) {
 		return
 	}
 
-	if wreg, err := pxr.RegisterWin(entjson, ent.DID(), nil); err != nil {
+	if wreg, err := pxr.RegisterWin(nil, entjson, ent.DID(), nil); err != nil {
 		t.Fatal(err)
 	} else {
 		entjson = wreg

@@ -167,7 +167,7 @@ func TestProxyReaches(t *testing.T) {
 
 	var projson []byte
 	var err error
-	if projson, err = pxr.RegisterWin(nil, "", nil); err != nil {
+	if projson, err = pxr.RegisterWin(nil, nil, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if ips, err := pxr.TestWin(); err != nil {

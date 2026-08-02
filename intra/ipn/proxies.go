@@ -1433,7 +1433,10 @@ func (px *proxifier) EntitlementFrom(entitlementOrStateJson []byte, id, did stri
 }
 
 // RegisterWin implements x.Rpn.
-func (px *proxifier) RegisterWin(entitlementOrState []byte, did string, ops *x.RpnOps) (stateJson []byte, err error) {
+// At least one of entitlementOnly or entitlementOrStateJson must be present;
+// entitlementOrStateJson, when present, is tried first, falling back to
+// entitlementOnly on failure.
+func (px *proxifier) RegisterWin(entitlementOnly, entitlementOrStateJson []byte, did string, ops *x.RpnOps) (stateJson []byte, err error) {
 	defer func() {
 		px.lastWinErr.Store(err) // may be nil
 	}()
@@ -1446,10 +1449,9 @@ func (px *proxifier) RegisterWin(entitlementOrState []byte, did string, ops *x.R
 		ops = new(x.RpnOps)
 	}
 
-	existingStateJson := entitlementOrState
-	restore := len(existingStateJson) > 0
+	restore := len(entitlementOrStateJson) > 0
 
-	win, err := px.registerWin(existingStateJson, did, *ops)
+	win, err := px.registerWin(entitlementOnly, entitlementOrStateJson, did, *ops)
 	if err != nil || core.IsNil(win) {
 		log.E("proxy: ws: make failed: %v", err)
 		return nil, core.JoinErr(err, errNilWinCfg)
@@ -1473,8 +1475,8 @@ func (px *proxifier) RegisterWin(entitlementOrState []byte, did string, ops *x.R
 	return state, nil
 }
 
-func (px *proxifier) registerWin(entitlementOrStateJson []byte, did string, ops x.RpnOps) (RpnAcc, error) {
-	return px.extc.MakeWsWgFrom(entitlementOrStateJson, did, ops)
+func (px *proxifier) registerWin(entitlementOnly, entitlementOrStateJson []byte, did string, ops x.RpnOps) (RpnAcc, error) {
+	return px.extc.MakeWsWgFromAny(entitlementOnly, entitlementOrStateJson, did, ops)
 }
 
 // UnregisterWin implements x.Rpn.

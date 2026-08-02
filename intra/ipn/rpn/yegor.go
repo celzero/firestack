@@ -161,7 +161,6 @@ const (
 var wswgports = []string{ /*0th & 1st pos used by wsRandomPort */ "65142", "1194", "53", "123", "443", "80"}
 
 var (
-	errWsBadGatewayArgs = errors.New("ws: cannot make gw; missing args")
 	errWsNoConfig       = errors.New("ws: no config")
 	errWsNoPermaCreds   = errors.New("ws: no permanent creds")
 	errWsNoJsonConfig   = errors.New("ws: no json config")
@@ -970,6 +969,17 @@ func (a *WsClient) config() *WsWgConfig {
 		return nil
 	}
 	return a.configExt.Load()
+}
+
+func (a *WsClient) Entitlement() (x.RpnEntitlement, error) {
+	if a == nil {
+		return nil, errWsNoClient
+	}
+	c := a.config()
+	if c == nil {
+		return nil, errWsNoConfig
+	}
+	return c.Entitlement, nil
 }
 
 // Who implements x.RpnAcc.
@@ -2109,7 +2119,8 @@ func trunc8(s string) string {
 
 func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 	if h == nil || c == nil || c.Session == nil || c.Creds == nil {
-		return nil, errWsBadGatewayArgs
+		return nil, log.EE("ws: gw: newWsGw: bad args; http? %t; cfg? %t; sess? %t; creds? %t",
+			h != nil, c != nil, c.Session != nil, c.Creds != nil)
 	}
 	a := &WsClient{
 		http: h,
@@ -2237,7 +2248,7 @@ func (w *BaseClient) MakeWsEntitlement(entitlementOrStateJson []byte, did string
 	return nil, core.OneErr(core.JoinErr(err1, err2), errWsBadEntitlement)
 }
 
-func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string, ops x.RpnOps) (*WsClient, error) {
+func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson, entitlementOnly []byte, did string, ops x.RpnOps) (*WsClient, error) {
 	if len(entitlementOrWsConfigJson) <= 0 {
 		return nil, errWsNoJsonConfig
 	}
@@ -2254,16 +2265,69 @@ func (w *BaseClient) MakeWsWgFrom(entitlementOrWsConfigJson []byte, did string, 
 		// may be this is an entitlement and not conf?
 		log.W("ws: make: unmarshal config (sz %d / hasEnt %t) err? %v; retry as entitlement",
 			sz, hasEnt, err)
-		return w.MakeWsWg(entitlementOrWsConfigJson, did, ops)
+		ws, werr := w.MakeWsWg(entitlementOrWsConfigJson, did, ops)
+		if werr == nil {
+			return ws, nil
+		}
+		if len(entitlementOnly) <= 0 {
+			return nil, werr
+		}
+		log.W("ws: make: retry-as-entitlement failed (%v); retrying with entitlement-only", werr)
+		return w.MakeWsWg(entitlementOnly, did, ops)
 	}
 	if err := overrideDid(existingConf.Entitlement, did); err != nil {
 		return nil, err
 	}
-	return w.makeWsWgFrom(&existingConf, ops)
+	return w.makeWsWgFrom(&existingConf, did, ops, entitlementOnly)
 }
 
-func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig, ops x.RpnOps) (*WsClient, error) {
-	ws, _, _, err := makeWsWgFrom(&w.h2, existingConf, ops, false /*not updating*/, false /*field 'mustRedo' inconsequential*/)
+// MakeWsWgFromAny registers a Windscribe account from entitlementOnly and/or
+// entitlementOrStateJson; at least one of the two must be non-empty.
+// entitlementOnly is always an entitlement json, whereas entitlementOrStateJson
+// may be a full state+entitlement (WsWgConfig) json or just an entitlement json.
+// When both are present, entitlementOrStateJson is processed first and, on
+// failure, entitlementOnly is used to register instead.
+func (w *BaseClient) MakeWsWgFromAny(entitlementOnly, entitlementOrStateJson []byte, did string, ops x.RpnOps) (*WsClient, error) {
+	if len(entitlementOnly) <= 0 && len(entitlementOrStateJson) <= 0 {
+		return nil, errWsNoEntitlement
+	}
+	if len(entitlementOrStateJson) > 0 {
+		// entitlementOnly is threaded through as a fallback: MakeWsWgFrom
+		// and makeWsWgFrom retry with it if the state/ent json fails.
+		return w.MakeWsWgFrom(entitlementOrStateJson, entitlementOnly, did, ops)
+	}
+	return w.MakeWsWg(entitlementOnly, did, ops)
+}
+
+func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig, did string, ops x.RpnOps, entitlementOnly []byte) (*WsClient, error) {
+	// When a fallback entitlement is available, fail fast and always
+	// regenerate configs (updating & mustRedo) instead of tolerating a stale
+	// conf; on any error, register fresh from the entitlement-only json.
+	ws, refreshed, _, err := makeWsWgFrom(&w.h2, existingConf, ops, false /*creating not updating*/, false /*mustRedo is inconsequential for non-updates*/)
+
+	expired := true
+	if ws != nil {
+		expired = ws.Expires() <= time.Now().UnixMilli()
+	}
+
+	if (err != nil || !refreshed || expired) && len(entitlementOnly) > 0 {
+		log.W("ws: make: from existing conf not refresh? (%t) / expired? (%t); err? (%v); retrying with entitlementOnly", !refreshed, expired, err)
+		newws, newerr := w.MakeWsWg(entitlementOnly, did, ops)
+		if newerr != nil && !expired {
+			return ws, nil // old ws if not valid
+		}
+
+		newexpired := true
+		if newws != nil {
+			newexpired = newws.Expires() <= time.Now().UnixMilli()
+		}
+
+		loge(newerr)("ws: make: from existing conf not ok; refresh? (%t) / expired? (%t); err? (%v); entitlementOnly; new expired? (%t); new err? %v",
+			!refreshed, expired, err, newexpired, newerr)
+		return newws, newerr
+	} // else: no fallback entitlement; tolerate stale conf if possible
+
+	loge(err)("ws: make: from existing conf ok; refreshed? %t / expired? %t; err? %v", refreshed, expired, err)
 	return ws, err
 }
 
@@ -2395,8 +2459,8 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 
 	ws, err = newWsGw(existingConf, h, ops)
 	if err != nil {
-		err = core.JoinInto(errs, err)
-	}
+		err = core.JoinInto(errs, core.OneErr(err, errWsNoClient))
+	} // else: ignore other errs (all previous errors)
 	return
 }
 
