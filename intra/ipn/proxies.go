@@ -1452,7 +1452,7 @@ func (px *proxifier) RegisterWin(entitlementOnly, entitlementOrStateJson []byte,
 	restore := len(entitlementOrStateJson) > 0
 
 	win, err := px.registerWin(entitlementOnly, entitlementOrStateJson, did, *ops)
-	if err != nil || core.IsNil(win) {
+	if err != nil || win == nil || core.IsNil(win) {
 		log.E("proxy: ws: make failed: %v", err)
 		return nil, core.JoinErr(err, errNilWinCfg)
 	}

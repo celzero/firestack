@@ -2313,7 +2313,7 @@ func (w *BaseClient) makeWsWgFrom(existingConf *WsWgConfig, did string, ops x.Rp
 	if (err != nil || !refreshed || expired) && len(entitlementOnly) > 0 {
 		log.W("ws: make: from existing conf not refresh? (%t) / expired? (%t); err? (%v); retrying with entitlementOnly", !refreshed, expired, err)
 		newws, newerr := w.MakeWsWg(entitlementOnly, did, ops)
-		if newerr != nil && !expired {
+		if ws != nil && newerr != nil && !expired {
 			return ws, nil // old ws if not valid
 		}
 
