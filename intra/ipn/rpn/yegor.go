@@ -113,13 +113,12 @@ const (
 	// wssetfilterpath enables or disables a single Robert DNS filter.
 	// PUT with Bearer session token.
 	wssetfilterpath = "Robert/filter"
+	wssessionpath   = "Session/"
+	// wsportpath    = "PortMap/"
+	wslocpath = "serverlist/mob-v2/1/" // + $loc_hash
 	// TTL reservation time using param "wg_ttl", not for longer than an hour, if needed.
 	// github.com/Windscribe/Android-App/blob/3f9c2ab98a70fa/base/src/main/java/com/windscribe/vpn/repository/WgConfigRepository.kt#L143
 	wgttl = "3600" // an hour in seconds
-
-	wssessionpath = "Session/"
-	// wsportpath    = "PortMap/"
-	wslocpath = "serverlist/mob-v2/1/" // + $loc_hash
 
 	// for ovpn (unused):
 	// wspxpath = "ServerCredentials/"
@@ -140,6 +139,10 @@ const (
 	// /WgConfigs/list_keys, so liveness can be checked without any /init round-trip.
 	// When false (default), the existing locally-generated key + /init + /permanent flow is used.
 	managedPermaCreds = false
+
+	// wsConnectRetryDelay is how long to wait before retrying /WgConfigs/connect
+	// once when the server has no free interface IP (error 1312).
+	wsConnectRetryDelay = 3 * time.Second
 )
 
 // github.com/Windscribe/Android-App/blob/746d505dc69/base/src/main/java/com/windscribe/vpn/constants/NetworkErrorCodes.kt
@@ -826,7 +829,8 @@ func dnsConfigToFilters(dnsConfig string) map[string]bool {
 		preset := strings.TrimSpace(strings.ToLower(part))
 		switch preset {
 		case "none", "default", "":
-			// no filters enabled for these presets; leave enabled unchanged
+			// these presets contribute no desired filters; syncDNSFilters will
+			// consequently disable every filter when one of them is requested
 		default:
 			for _, fid := range wsDNSPresetFilters[preset] {
 				enabled[fid] = true
@@ -1223,8 +1227,9 @@ reconf:
 	out := make([]string, 0, maxPerRegionWgConfs)
 	srvs := make([]x.RpnServer, 0, maxPerRegionWgConfs)
 	for _, rc := range cfg.Configs {
-		// TODO: strings.HasSuffix(rc.Cc, cc) replaced with ==?
-		if (chooseAny || strings.HasSuffix(rc.CC, cc)) && (!hasCity || rc.City == city) {
+		// rc.CC is always an uppercase 2-letter code (see convertToRegionalWgConfs),
+		// so equality is correct here; HasSuffix would also match partial codes.
+		if (chooseAny || rc.CC == cc) && (!hasCity || rc.City == city) {
 			if chooseAny {
 				if _, ok := visited[rc.CC]; ok {
 					continue
@@ -1410,6 +1415,7 @@ func logDidToken(tok string) {
 	expSec, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
 	if err != nil {
 		log.E("ws: didtoken: cannot parse expiry epoch: %v", err)
+		return // do not log a misleading epoch-0 expiry (1970-01-01)
 	}
 	expTime := time.Unix(expSec, 0)
 	log.I("ws: didtoken: expiry %s; expired? %t", fmtTime(expTime), expTime.Before(time.Now()))
@@ -1431,9 +1437,11 @@ func updateDidTokenIfNeeded(ent *WsEntitlement, res *http.Response) {
 		return
 	}
 	incoming := res.Header.Get(didTokenHeader)
-	logDidToken(incoming)
-	if len(incoming) > 0 && ent.DidToken != incoming {
-		ent.DidToken = incoming
+	if len(incoming) > 0 { // most responses carry no did-token; avoid noisy logs
+		logDidToken(incoming)
+		if ent.DidToken != incoming {
+			ent.DidToken = incoming
+		}
 	}
 }
 
@@ -1687,7 +1695,7 @@ func tokenState(t string) (s string) {
 	l := strconv.Itoa(len(t))
 	if len(t) <= 0 {
 		s = "notok-"
-	} else if len(strings.Split(t, ":")) > 4 {
+	} else if strings.Count(t, ":") > 3 { // > 4 colon-separated segments
 		s = "plaintok-" + l
 	} else {
 		s = "enctok-" + l
@@ -2001,8 +2009,8 @@ connectagain:
 				goto keyagain // try again with a non-default key
 			}
 		} else if wserr != nil && wserr.Code == enoaddr && runconnect < 2 {
-			time.Sleep(3 * time.Second) // wait a bit before retrying once
-			goto connectagain           // retry connect
+			time.Sleep(wsConnectRetryDelay) // wait a bit before retrying once
+			goto connectagain               // retry connect
 		}
 		return nil, err
 	}
@@ -2097,6 +2105,9 @@ func (a *WsClient) kid() string {
 	if c == nil {
 		return "<no cfg>"
 	}
+	if c.Creds == nil {
+		return "<no creds>"
+	}
 	pub := c.Creds.PublicKey
 	if len(pub) <= 0 {
 		return "<no pub key>"
@@ -2135,8 +2146,9 @@ func newWsGw(c *WsWgConfig, h *http.Client, o x.RpnOps) (*WsClient, error) {
 	return a, nil
 }
 
-// overrideDid assigns did to ent.Did. If ent.Did is already set and does not match
-// the incoming did, errWsDidMismatch is returned and ent is left unchanged.
+// overrideDid assigns did to ent.Did. When did is non-empty and differs from the
+// current value, ent.Did is overwritten. An empty did leaves ent.Did untouched,
+// which supports the restore flow where the entitlement already carries a did.
 func overrideDid(ent *WsEntitlement, did string) error {
 	if !ent.ok() {
 		return errWsBadEntitlement
@@ -2153,9 +2165,10 @@ func overrideDid(ent *WsEntitlement, did string) error {
 	if hasNewDid && existing != did {
 		log.I("ws: did overriden: existing %s, incoming %s", trunc8(existing), trunc8(did))
 		ent.Did = did
-	} else {
-		log.W("ws: did not overriden: existing %s over incoming %s", trunc8(existing), trunc8(did))
+	} else if hasNewDid {
+		log.D("ws: did unchanged: existing %s == incoming %s", trunc8(existing), trunc8(did))
 	}
+	// else: no new did; keep the existing one (restore flow)
 	return nil
 }
 
@@ -2406,7 +2419,9 @@ func makeWsWgFrom(h *http.Client, existingConf *WsWgConfig, ops x.RpnOps, updati
 		// sync Robert DNS filters with the desired preset configuration (best-effort; non-fatal).
 		if dnsConfig := ops.DNSConfig(); len(dnsConfig) > 0 {
 			// sync DNS filters when not performing an update (that is, creating a new config)
-			go syncDNSFilters(h, existingEnt, newSess, dnsConfig, !performingUpdate || force)
+			core.Go("ws.robert."+newSess.ExpiryDate, func() {
+				syncDNSFilters(h, existingEnt, newSess, dnsConfig, !performingUpdate || force)
+			})
 		} // else: no-op
 
 		maybeNewServers := existingServers
