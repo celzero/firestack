@@ -39,6 +39,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 )
 
 const maxFailLimit = 8
@@ -90,7 +91,7 @@ type IPMapper interface {
 	// but otherwise it is usually a Linux user-id assigned to a process
 	// which presumably is requesting this lookup. If tids is empty, either
 	// dnsx.Default, and if that fails, dnsx.System or dnsx.Goos tids.
-	Lookup(q []byte, uid string, tids ...string) ([]byte, error)
+	Lookup(q *dns.Msg, uid string, tids ...string) (*dns.Msg, error)
 	// LookupNetIP is like Lookup but for hostname to IP addresses.
 	LookupNetIP(ctx context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error)
 }
@@ -229,7 +230,7 @@ func (m *ipmap) Clear() {
 }
 
 // Implements IPMapper.
-func (m *ipmap) Lookup(q []byte, uid string, tids ...string) ([]byte, error) {
+func (m *ipmap) Lookup(q *dns.Msg, uid string, tids ...string) (*dns.Msg, error) {
 	r := m.r.Load() // actual ipmapper implementation
 	if r == nil {
 		return nil, &net.DNSError{Err: "no resolver", Name: "Lookup", Server: "localhost"}

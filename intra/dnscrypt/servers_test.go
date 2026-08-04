@@ -69,7 +69,7 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup([]byte, string, ...string) ([]byte, error) {
+func (r fakeResolver) Lookup(*dns.Msg, string, ...string) (*dns.Msg, error) {
 	return nil, errors.New("not implemented")
 }
 

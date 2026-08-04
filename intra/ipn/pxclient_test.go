@@ -15,13 +15,14 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
+	"github.com/miekg/dns"
 )
 
 type fakeProxy struct{ id string }
 
 type systemMapper struct{}
 
-func (systemMapper) Lookup(_ []byte, _ string, _ ...string) ([]byte, error) {
+func (systemMapper) Lookup(_ *dns.Msg, _ string, _ ...string) (*dns.Msg, error) {
 	return nil, errors.New("wire lookup not supported")
 }
 

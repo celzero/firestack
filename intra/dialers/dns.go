@@ -67,17 +67,16 @@ func SampleIPs(n uint8, ipver string) []netip.Addr {
 // ECH returns the ECH config, if any, for the given hostname.
 // The query is resolved using IPMapper's default resolver.
 func ECH(hostname string) ([]byte, error) {
-	q, err := xdns.Question(hostname, dns.TypeHTTPS)
+	q, err := xdns.QuestionMsg(hostname, dns.TypeHTTPS)
 	if err != nil {
 		return nil, err
 	}
-	res, err := ipm.Lookup(q, protect.MyUid)
+	ans, err := ipm.Lookup(q, protect.MyUid)
 	if err != nil {
 		return nil, err
 	}
-	ans := &dns.Msg{}
-	if err = ans.Unpack(res); err != nil {
-		return nil, err
+	if ans == nil {
+		return nil, errNoEch
 	}
 	for _, a := range ans.Answer {
 		if rr, ok := a.(*dns.HTTPS); ok {
@@ -94,43 +93,16 @@ func ECH(hostname string) ([]byte, error) {
 }
 
 // Query sends a DNS query to the Default DNS and
-// returns the answer.
+// returns the answer. Query is like Resolve but for
+// any DNS query, not just A/AAAA. It bypasses the cache and
+// returns the answer from the transport designated for protect.MyUid.
 func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
-	q, err := msg.Pack()
-	if err != nil {
-		return nil, err
-	}
-
-	r, err := ipm.Lookup(q, protect.MyUid, tids...)
-	if err != nil {
-		return nil, err
-	}
-
-	ans := &dns.Msg{}
-	if err = ans.Unpack(r); err != nil {
-		return nil, err
-	}
-	return ans, nil
+	return ipm.Lookup(msg, protect.MyUid, tids...)
 }
 
 // QueryFor forward a DNS request for tid (if set) attributed to uid,
 // or to transport chosen for uid, which may be core.UNKNOWN_UID_STR.
-func QueryFor(msg *dns.Msg, uid, tid string) (*dns.Msg, error) {
-	q, qerr := msg.Pack()
-	if qerr != nil {
-		return nil, qerr
-	}
-
-	// uid may be core.UNKNOWN_UID_STR
-	r, rerr := ipm.Lookup(q, uid, tid)
-
-	if rerr != nil {
-		return nil, rerr
-	}
-
-	ans := &dns.Msg{}
-	if aerr := ans.Unpack(r); aerr != nil {
-		return nil, aerr
-	}
-	return ans, nil
+// QueryFor is like Query but allows specifying uid and tid.
+func QueryFor(msg *dns.Msg, uid string, tids ...string) (*dns.Msg, error) {
+	return ipm.Lookup(msg, uid, tids...)
 }

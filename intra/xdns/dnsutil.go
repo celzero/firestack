@@ -611,6 +611,13 @@ func Question(domain string, qtyp uint16) ([]byte, error) {
 	return msg.Pack()
 }
 
+// QuestionMsg returns a dns.Msg with the given question.
+func QuestionMsg(domain string, qtyp uint16) (*dns.Msg, error) {
+	msg := &dns.Msg{}
+	msg.SetQuestion(dns.Fqdn(domain), qtyp)
+	return msg, nil
+}
+
 func BlockResponseFromMessage(q []byte) (*dns.Msg, error) {
 	r := &dns.Msg{}
 	if err := r.Unpack(q); err != nil {

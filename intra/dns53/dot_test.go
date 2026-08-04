@@ -41,9 +41,8 @@ type fakeResolver struct {
 	*net.Resolver
 }
 
-func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
+func (r fakeResolver) Lookup(msg *dns.Msg, _ string, _ ...string) (*dns.Msg, error) {
 	// return nil, errors.New("lookup: not implemented")
-	msg := xdns.AsMsg(q)
 	if msg == nil {
 		return nil, errors.New("fakeresolver: nil dns msg")
 	}
@@ -79,7 +78,7 @@ func (r fakeResolver) Lookup(q []byte, _ string, _ ...string) ([]byte, error) {
 	}
 	ans.Answer = rrs
 
-	return ans.Pack()
+	return ans, nil
 }
 
 func (r fakeResolver) LookupNetIP(ctx context.Context, network, host, uid string, tids ...string) ([]netip.Addr, error) {
@@ -152,10 +151,6 @@ func TestDot(t *testing.T) {
 	q2 := aquery("yahoo.com")
 	q26 := aaaaquery("yahoo.com")
 
-	b4, _ := q.Pack()
-	b6, _ := q6.Pack()
-	b24, _ := q2.Pack()
-	b26, _ := q26.Pack()
 	// smm := &x.DNSSummary{}
 	// smm6 := &x.DNSSummary{}
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
@@ -169,19 +164,19 @@ func TestDot(t *testing.T) {
 	natpt := x64.NewNatPt()
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
-	r4, err := resolv.Lookup(b4, protect.MyUid)
+	r4, err := resolv.Lookup(q, protect.MyUid)
 	ko(t, err)
-	r6, err6 := resolv.Lookup(b6, protect.MyUid)
+	r6, err6 := resolv.Lookup(q6, protect.MyUid)
 	ko(t, err6)
-	_, err = resolv.Lookup(b24, protect.MyUid)
+	_, err = resolv.Lookup(q2, protect.MyUid)
 	ko(t, err)
-	_, err = resolv.Lookup(b26, protect.MyUid)
+	_, err = resolv.Lookup(q26, protect.MyUid)
 	ko(t, err)
 	time.Sleep(1 * time.Second)
-	_, err = resolv.Lookup(b6, protect.MyUid)
+	_, err = resolv.Lookup(q6, protect.MyUid)
 	ko(t, err)
-	ans := xdns.AsMsg(r4)
-	ans6 := xdns.AsMsg(r6)
+	ans := r4
+	ans6 := r6
 	if xdns.Len(ans) == 0 && xdns.Len(ans6) == 0 {
 		t.Fatal("no ans")
 	}
@@ -281,11 +276,8 @@ func TestSEProxy(t *testing.T) {
 	q := aquery("skysports.com")
 	q6 := aaaaquery("skysports.com")
 
-	b4, _ := q.Pack()
-	b6, _ := q6.Pack()
-
-	r4, err := resolv.Lookup(b4, protect.MyUid)
-	r6, err6 := resolv.Lookup(b6, protect.MyUid)
+	r4, err := resolv.Lookup(q, protect.MyUid)
+	r6, err6 := resolv.Lookup(q6, protect.MyUid)
 	if err != nil {
 		// log.Output(2, smm.Str())
 		t.Fatal(err)
@@ -294,8 +286,8 @@ func TestSEProxy(t *testing.T) {
 		// log.Output(2, smm6.Str())
 		t.Fatal(err6)
 	}
-	ans := xdns.AsMsg(r4)
-	ans6 := xdns.AsMsg(r6)
+	ans := r4
+	ans6 := r6
 	if xdns.Len(ans) == 0 && xdns.Len(ans6) == 0 {
 		t.Fatal("no ans")
 	}
@@ -382,15 +374,15 @@ func TestWgReaches(t *testing.T) {
 		t.Fail()
 	}*/
 	ilog.VV("-----------------------DNSX--------------------------")
-	b4, _ := aquery("skysports.com").Pack()
-	r4, err := resolv.Lookup(b4, protect.MyUid) // must use "test0"
+	q4 := aquery("skysports.com")
+	r4, err := resolv.Lookup(q4, protect.MyUid) // must use "test0"
 
 	ilog.D("testwg: %v", win.Router().Stat())
 	time.Sleep(2 * time.Second)
 
 	ko(t, err)
 
-	ans := xdns.AsMsg(r4)
+	ans := r4
 	if xdns.Len(ans) <= 0 {
 		t.Fatal("testwg: no ans")
 	}
@@ -524,8 +516,8 @@ func TestWinReaches(t *testing.T) {
 		t.Fail()
 	}*/
 	ilog.VV("\n-----------------------DNSX--------------------------\n")
-	b4, _ := aquery("skysports.com").Pack()
-	r4, err := resolv.Lookup(b4, protect.MyUid) // must use "test0"
+	q4 := aquery("skysports.com")
+	r4, err := resolv.Lookup(q4, protect.MyUid) // must use "test0"
 	ko(t, err)
 
 	ilog.D("%v", propx2.Router().Stat())
@@ -561,7 +553,7 @@ func TestWinReaches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ans := xdns.AsMsg(r4)
+	ans := r4
 	if xdns.Len(ans) <= 0 {
 		t.Fatal("no ans")
 	}

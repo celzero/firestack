@@ -14,6 +14,7 @@ import (
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/xdns"
+	"github.com/miekg/dns"
 )
 
 const (
@@ -124,8 +125,7 @@ func Cache(host string, addrs []netip.Addr) bool {
 	return s != nil && !s.Empty()
 }
 
-func CacheFrom(a []byte) bool {
-	msg := xdns.AsMsg(a)
+func CacheFrom(msg *dns.Msg) bool {
 	if msg == nil {
 		return false
 	}

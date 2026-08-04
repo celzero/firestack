@@ -521,9 +521,9 @@ func (r *resolver) IsDnsAddr(ip netip.Addr) bool {
 	return r.isDnsIp(ip)
 }
 
-// LookupFor implements [ResolverSelf].
-func (r *resolver) LookupFor(q []byte, uid string, tids ...string) ([]byte, string, error) {
-	if len(q) <= 0 {
+// lookup implements [ResolverSelf].
+func (r *resolver) lookup(q *dns.Msg, uid string, tids ...string) (*dns.Msg, string, error) {
+	if q == nil {
 		return nil, NoDNS, errNoQuestion
 	}
 
@@ -556,7 +556,7 @@ func (r *resolver) LookupFor(q []byte, uid string, tids ...string) ([]byte, stri
 }
 
 // lookupinternal for [OriginInternal] queries on behalf of [protect.MyUid] over [Default].
-func (r *resolver) lookupinternal(q []byte) ([]byte, string, error) {
+func (r *resolver) lookupinternal(q *dns.Msg) (*dns.Msg, string, error) {
 	if r.closed.Load() {
 		return nil, NoDNS, errResolverClosed
 	}
@@ -571,16 +571,16 @@ func (r *resolver) lookupinternal(q []byte) ([]byte, string, error) {
 		return ans, tid, err
 	} // else: retry with Goos/System, if needed
 
-	// msg may be nil
-	if msg := xdns.AsMsg(ans); err != nil || xdns.IsNXDomain(msg) || !xdns.HasRcodeSuccess(msg) {
-		log.I("dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(msg))
+	// ans may be nil
+	if ans == nil || err != nil || xdns.IsNXDomain(ans) || !xdns.HasRcodeSuccess(ans) {
+		log.I("dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(ans))
 		ans, tid, err = r.forward(q, OriginInternal, core.Rand64(), protect.MyUid, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
 	return ans, tid, err
 }
 
-func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) (res0 []byte, tid0 string, err0 error) {
+func (r *resolver) forward(q *dns.Msg, who, fid, uid string, chosenids ...string) (res0 *dns.Msg, tid0 string, err0 error) {
 	starttime := time.Now()
 	ogsmm := &x.DNSSummary{
 		ID:     NoDNS,
@@ -597,9 +597,9 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 		ogsmm.Extra = "Prechose: " + strings.Join(chosenids, ";")
 	}
 
-	msg, err := unpack(q)
-	if err != nil {
-		log.W("dns: fwd: for %s; %d not a dns packet %v", uid, len(q), err)
+	if q == nil {
+		err := errNoQuestion
+		log.W("dns: fwd: for %s; nil dns packet", uid)
 		ogsmm.Latency = time.Since(starttime).Seconds()
 		ogsmm.Status = BadQuery
 		ogsmm.Msg = err.Error()
@@ -608,8 +608,8 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 	}
 
 	// figure out transport to use
-	qname := qname(msg)
-	qtyp := qtype(msg)
+	qname := qname(q)
+	qtyp := qtype(q)
 	ogsmm.QName = qname
 	ogsmm.QType = qtyp
 	ogsmm.Targets = qname
@@ -626,7 +626,7 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 	// so that dns64/nat64 caches are warm for subsequent translations.
 	pt := settings.PtMode.Load()
 	if who == OriginTunnel && xdns.IsAQType(uint16(qtyp)) && ptmodeIsForce(pt) {
-		msg6 := xdns.Request6FromRequest4(msg)
+		msg6 := xdns.Request6FromRequest4(q)
 		smm6 := copySummary(ogsmm)
 		smm6.QType = int(dns.TypeAAAA)
 		fid6 := core.Rand64()
@@ -640,10 +640,10 @@ func (r *resolver) forward(q []byte, who, fid, uid string, chosenids ...string) 
 		})
 	}
 
-	return r.forwardInner(msg, ogsmm, who, fid, uid, chosenids...)
+	return r.forwardInner(q, ogsmm, who, fid, uid, chosenids...)
 }
 
-func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid string, chosenids ...string) ([]byte, string, error) {
+func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid string, chosenids ...string) (*dns.Msg, string, error) {
 	var onQueryDone, onUpstreamAnswerDone float64
 
 	starttime := time.Now()
@@ -733,27 +733,22 @@ runagain:
 		if pref.NOBLOCK { // only add blocklists and do not actually block
 			smm.Blocklists = blocklists
 		} else { // block the query
-			b, e := res1.Pack()
 			smm.Latency = time.Since(starttime).Seconds()
 			smm.Status = Complete
 			smm.Blocklists = blocklists
 			smm.RData = xdns.GetInterestingRData(res1)
-			if e != nil {
-				smm.Msg = e.Error()
-			} else {
-				smm.Msg = errNop.Error()
-			}
+			smm.Msg = errNop.Error()
 			if log.Verbose {
 				log.V("dns: fwd: 3 %s for %s (fid: %s); r%d, query blocked %s:%d by %s",
 					smm.ID, uid, smm.FID, run, qname, qtyp, blocklists)
 			}
-			return b, smm.ID, e
+			return res1, smm.ID, nil
 		}
 	} else if log.Verbose {
 		log.V("dns: fwd: 4 %s for %s (fid: %s); r%d, query NOT blocked %s:%d; why? %v", smm.ID, uid, smm.FID, run, qname, qtyp, err)
 	}
 
-	var res2 []byte
+	var res2 *dns.Msg
 	var nonalg, ans1 *dns.Msg // alg'd answer
 
 	// t, t2 could be different from user-selected sid & pid
@@ -789,12 +784,7 @@ runagain:
 		ans1 = nonalg
 	}
 
-	res2, err = ans1.Pack()
-	if err != nil {
-		smm.Status = BadResponse // TODO: servfail?
-		smm.Msg = err.Error()
-		return res2, smm.ID, err
-	}
+	res2 = ans1
 
 	smm.Targets = xdns.GetTargets(ans1)
 
@@ -820,13 +810,7 @@ runagain:
 		smm.RCode = xdns.Rcode(ans2)
 		smm.RData = xdns.GetInterestingRData(ans2)
 		smm.Status = Complete
-		res2, err = ans2.Pack()
-		if err != nil {
-			smm.RTtl = 0
-			smm.RCode = dns.RcodeFormatError
-			smm.Status = BadResponse // TODO: servfail?
-			smm.Msg = err.Error()
-		}
+		res2 = ans2
 
 		if log.Verbose {
 			log.V("dns: fwd: 6 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, smm[data: %s, status: %d] blocked",
@@ -994,15 +978,29 @@ func (r *resolver) determineTransport(id string) Transport {
 
 // dnstcp queries the transport and writes answers to w, prefixed by length.
 func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid, fid string) (written int, err error) {
-	ans, _, err := r.forward(q, OriginTunnel, fid, uid)
-
-	rlen := len(ans)
-	if rlen <= 0 && err != nil {
+	msg, uerr := unpack(q)
+	if uerr != nil {
+		log.W("dns: tcp: for %s (fid: %s) not a dns packet: %v", uid, fid, uerr)
 		clos(w) // close on client err
-		return
+		return 0, uerr
 	}
 
-	if written, err = writePrefixed(w, ans, rlen); err != nil {
+	ans, _, err := r.forward(msg, OriginTunnel, fid, uid)
+	if ans == nil && err != nil {
+		clos(w) // close on client err
+		return 0, err
+	}
+
+	var b []byte
+	if ans != nil {
+		if b, err = ans.Pack(); err != nil {
+			clos(w) // close on pack err
+			return 0, err
+		}
+	}
+	rlen := len(b)
+
+	if written, err = writePrefixed(w, b, rlen); err != nil {
 		clos(w) // close on write back err
 	} else if written != rlen { // do not close on incomplete writes
 		err = fmt.Errorf("dns: tcp: for %s (fid: %s) incomplete write: n(%d) != r(%d)", uid, fid, written, rlen)
@@ -1012,15 +1010,27 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid, fid string) (written 
 
 // dnsudp queries the transport and writes answers to w.
 func (r *resolver) dnsudp(q []byte, w io.Writer, uid, fid string) (written int, err error) {
-	ans, _, err := r.forward(q, OriginTunnel, fid, uid)
-
-	rlen := len(ans)
-	if rlen <= 0 && err != nil {
-		// clos(w) // close on client err
-		return
+	msg, uerr := unpack(q)
+	if uerr != nil {
+		log.W("dns: udp: for %s (fid: %s) not a dns packet: %v", uid, fid, uerr)
+		return 0, uerr
 	}
 
-	if written, err = w.Write(ans); err != nil {
+	ans, _, err := r.forward(msg, OriginTunnel, fid, uid)
+	if ans == nil && err != nil {
+		// clos(w) // close on client err
+		return 0, err
+	}
+
+	var b []byte
+	if ans != nil {
+		if b, err = ans.Pack(); err != nil {
+			return 0, err
+		}
+	}
+	rlen := len(b)
+
+	if written, err = w.Write(b); err != nil {
 		// clos(w) // close on write back err
 	} else if written != rlen {
 		// do not close on incomplete writes
@@ -1064,7 +1074,7 @@ func (r *resolver) reply(c protect.Conn, uid, fid string) (rx, tx int64, errs []
 			frees := free
 			cnts := cnt
 			wg.Add(1)
-			core.Gx("r.reply.do", func() {
+			core.Gx("r.reply.do."+fid, func() {
 				defer wg.Done()
 				defer frees()
 				m, err := r.dnsudp(qs, c, uid, fid)
