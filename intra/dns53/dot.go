@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -38,7 +38,6 @@ type dot struct {
 
 	id string // id of the transport
 
-	url      string // full url
 	addrport string // ip:port or hostname:port
 	port     uint16 // port number
 	host     string // hostname from the url
@@ -68,16 +67,11 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		SessionTicketsDisabled: false,
 	}
 
-	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port]
-	parsedurl, err := url.Parse(rawurl)
-	if err != nil {
-		return
-	}
-	skipTLSVerify := false
-	if parsedurl.Scheme != "tls" {
+	// rawurl is either tls:host[:port] or tls://host[:port] or host[:port] or host
+	skipTLSVerify := !hasTLSScheme(rawurl)
+	if skipTLSVerify {
 		log.I("dot: disabling tls verification for %s", rawurl)
 		tlscfg.InsecureSkipVerify = true
-		skipTLSVerify = true
 	}
 	var relay string
 	var relayref *core.WeakRef[ipn.Proxy]
@@ -89,22 +83,23 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 			}
 		}
 	}
-	ctx, done := context.WithCancel(ctx)
-	hostname := parsedurl.Hostname()
-	if len(hostname) <= 0 {
-		hostname = rawurl
+	// addrport always includes a port (defaulting to 853); hostname is the
+	// server name used for SNI, ECH, and address registration.
+	addrport, port := url2addrport(rawurl)
+	hostname, _, err := net.SplitHostPort(addrport)
+	if err != nil { // unlikely; url2addrport always returns a host:port
+		return nil, err
 	}
+	ctx, done := context.WithCancel(ctx)
 	// addrs are pre-determined ip addresses for url / hostname
 	ok := dnsx.RegisterAddrs(id, hostname, addrs)
 	// add sni to tls config
 	tlscfg.ServerName = hostname
 	tlscfg.ClientSessionCache = core.TlsSessionCache()
-	addrport, port := url2addrport(rawurl)
 	t = &dot{
 		ctx:           ctx,
 		done:          done,
 		id:            id,
-		url:           rawurl,
 		host:          hostname,
 		skipTLSVerify: skipTLSVerify,
 		addrport:      addrport, // may or may not be ipaddr
@@ -149,7 +144,7 @@ func (t *dot) ech() []byte {
 func (t *dot) echVerifyFn() func(tls.ConnectionState) error {
 	if t.skipTLSVerify {
 		return func(info tls.ConnectionState) error {
-			log.V("doh: skip ech verify for %s via %s", t.addrport, info.ServerName)
+			log.V("dot: skip ech verify for %s via %s", t.addrport, info.ServerName)
 			return nil // never reject
 		}
 	}
@@ -191,31 +186,31 @@ func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uint64, usingech bool, err
 		return dc, who, false, nil // pooled connections don't track ECH state
 	}
 
-	var c net.Conn = nil // dot is always tcp
-	addr := t.addrport   // t.addr may be ip or hostname
+	var c net.Conn     // dot is always tcp
+	addr := t.addrport // t.addr may be ip or hostname
 
 	// Try ECH first if available
 	if echcfg := t.getOrCreateEchConfigIfNeeded(); echcfg != nil {
 		// update ech config which may have been changed by DialWithTls
 		defer t.echconfig.Store(echcfg)
 		c, err = dialers.DialWithTls(p.Dialer(), echcfg, "tcp", addr)
+		usingech = err == nil && c != nil
 	}
 
-	if c == nil && core.IsNil(c) { // no ech or ech failed
+	if c == nil { // no ech or ech failed
 		cfg := t.c.TLSConfig
 		c, err = dialers.DialWithTls(p.Dialer(), cfg, "tcp", addr)
 		usingech = false
 	}
-	if c != nil && core.IsNotNil(c) {
+	if c != nil {
 		if tlsConn, ok := c.(*tls.Conn); ok && usingech {
 			usingech = tlsConn.ConnectionState().ECHAccepted
 		}
 		return &dns.Conn{Conn: c}, who, usingech, err
-	} else {
-		err = core.OneErr(err, errNoNet)
-		log.W("dot: tlsdial: (%s) nil conn/err for %s, ech? %t; err? %v",
-			t.id, addr, usingech, err)
 	}
+	err = core.OneErr(err, errNoNet)
+	log.W("dot: tlsdial: (%s) nil conn/err for %s, ech? %t; err? %v",
+		t.id, addr, usingech, err)
 	return nil, who, false, err
 }
 
@@ -433,25 +428,32 @@ func (t *dot) Stop() error {
 	return nil
 }
 
-func url2addrport(url string) (string, uint16) {
-	// url is of type "tls://host:port" or "tls:host:port" or "host:port" or "host"
+// hasTLSScheme reports whether url begins with the explicit "tls" scheme.
+// Matches both "tls://host[:port]" and "tls:host[:port]".
+func hasTLSScheme(url string) bool {
+	return strings.HasPrefix(url, "tls:")
+}
+
+// url2addrport returns the host:port (for dialing) and the numeric port for a
+// DoT url of the form tls://host[:port], tls:host[:port], host[:port], or host.
+// A missing or malformed port defaults to 853.
+func url2addrport(url string) (addrport string, port uint16) {
+	// strip any explicit tls scheme
 	if len(url) > 6 && url[:6] == "tls://" {
 		url = url[6:]
-	}
-	if len(url) > 4 && url[:4] == "tls:" {
+	} else if hasTLSScheme(url) {
 		url = url[4:]
 	}
-	port := DotPortU16
-	// add port 853 if not present
-	if _, p, err := net.SplitHostPort(url); err != nil {
-		url = net.JoinHostPort(url, DotPort)
-	} else {
-		v, err := strconv.Atoi(p)
-		if err != nil && v > 0 {
+	host := url
+	port = DotPortU16
+	// extract port if present
+	if h, p, err := net.SplitHostPort(url); err == nil {
+		host = h
+		if v, aerr := strconv.Atoi(p); aerr == nil && v > 0 {
 			port = uint16(v)
 		}
 	}
-	return url, port
+	return net.JoinHostPort(host, strconv.Itoa(int(port))), port
 }
 
 func (t *dot) getOrCreateEchConfigIfNeeded() *tls.Config {
