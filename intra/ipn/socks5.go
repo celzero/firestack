@@ -107,7 +107,8 @@ func NewSocks5Proxy(id string, ctx context.Context, ctl protect.Controller, px P
 
 	portnumber, _ := strconv.Atoi(po.Port)
 	mh := multihost.New(id)
-	mh.Add([]string{po.Host, po.IP}) // resolves if ip is name
+	mh.Add([]string{po.Host, po.IP}) // parse-only; does not resolve hostnames
+	mh.Build()                       // resolve names: async if addrs already exist, else sync
 
 	// always with a network namespace aware dialer
 	dialer := protect.MakeNsRDial(id, ctx, ctl)

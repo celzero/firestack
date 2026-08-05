@@ -249,6 +249,20 @@ func (m *MHMap) MaybeRefresh() (n int64) {
 	return
 }
 
+// Build triggers resolution of names to IPs for every endpoint in this map.
+// Endpoints that already have addresses resolve in the background
+// (non-blocking); the rest resolve synchronously. It returns the total number
+// of addresses across all endpoints.
+func (m *MHMap) Build() (n int64) {
+	if m == nil {
+		return
+	}
+	for h := range m.cloneset() {
+		n += int64(h.Build())
+	}
+	return
+}
+
 func (m *MHMap) String() string {
 	if m == nil {
 		return "<nil>"

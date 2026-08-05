@@ -504,6 +504,8 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		return anew
 	}
 
+	opts.dns.Build() // resolve dns names now (async if addrs already exist) so EqualAddrs below is meaningful
+
 	curdns := w.dns.Load()
 	if !curdns.EqualAddrs(opts.dns) {
 		log.W("proxy: wg: update(%s<>%s): failed; dns changed; old %v, new %v; must re-add DNS",
@@ -528,9 +530,6 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 			log.D("proxy: wg: update(%s<>%s): failed; amnezia %v != %v",
 				id, w.who(), opts.amnezia, w.amnezia.Load())
 		}
-		if opts.dns != nil && !opts.dns.EqualAddrs(w.dns.Load()) {
-			log.D("proxy: wg: update(%s<>%s): failed; new/mismatched dns", id, w.who())
-		} // nb: client code MUST re-add wg DNS, not our responsibility
 	}
 
 	maybeNewMtu := calcTunMtu(opts.mtu) // only for logging
@@ -790,6 +789,9 @@ func NewWgProxy(pctx context.Context, id string, ctl protect.Controller, px Prox
 		log.E("proxy: wg: %s failure getting opts from config %v", id, err)
 		return nil, err
 	}
+
+	opts.dns.Build() // resolve dns names now (async if addrs already exist)
+	opts.eps.Build() // resolve peer endpoints now so ParseEndpoint below sees valid IPs
 
 	wgtun, err := makeWgTun(pctx, id, ogcfg, ctl, px, lp, opts)
 	if err != nil {
