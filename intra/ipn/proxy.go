@@ -220,7 +220,7 @@ func (pxr *proxifier) addOrUpdateProxy(id, txt string, forceAdd bool) (p Proxy, 
 					log.W("proxy: add: cannot update wg(%s@%s); readd it!", id, hdl)
 				} else {
 					log.I("proxy: add: updated wg %s@%s/%s/%s", id, hdl, lp, p.GetAddr())
-					core.Go2("proxy.update", pxr.obs.OnProxyUpdated, id, hdl)
+					pxr.queueEvent(updateEvent, id, hdl)
 					return
 				}
 			} else { // else: recreate

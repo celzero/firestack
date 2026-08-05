@@ -235,6 +235,23 @@ type Proxies interface {
 	Reverser(r netstack.GConnHandler) error
 }
 
+const (
+	eventchsz = 32 // some comfortable number
+
+	// observable proxy events
+	addEvent = iota << 1
+	removeEvent
+	stopEvent
+	updateEvent
+)
+
+// proxyevent is a single event queued for the proxy observer (x.ProxyListener).
+type proxyevent struct {
+	kind   int
+	id     string
+	handle string
+}
+
 type proxifier struct {
 	sync.RWMutex
 	NoVia
@@ -251,7 +268,9 @@ type proxifier struct {
 	hp  map[string][]string // hopproxy => [proxyid]
 
 	ctl protect.Controller // dial control provider
-	obs x.ProxyListener    // proxy observer
+
+	obs     x.ProxyListener // proxy observer
+	eventch chan proxyevent // serialized observer events
 
 	lp LinkProps // link properties; protected by mu
 
@@ -299,7 +318,9 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 		ctx: pctx,
 		p:   make(map[string]Proxy),
 		ctl: c,
-		obs: o,
+
+		obs:     o,
+		eventch: make(chan proxyevent, eventchsz),
 
 		lp: LinkProps{l3: l3, mtu: mtu},
 
@@ -307,6 +328,8 @@ func NewProxifier(pctx context.Context, l3 string, mtu int, c protect.Controller
 
 		rp: make(map[string]RpnProxy),
 	}
+
+	core.Go("pxr.events", pxr.processEvents)
 
 	pxr.exit = NewExitProxy(pctx, c)
 	pxr.exit64 = NewExit64Proxy(pctx, c)
@@ -349,7 +372,7 @@ func (px *proxifier) add(p Proxy) (ok bool) {
 
 	defer func() {
 		if ok { // added
-			core.Go2("pxr.add."+id, px.obs.OnProxyAdded, id, hdl)
+			px.queueEvent(addEvent, id, hdl)
 			// new proxy, invoke Stop on old proxy
 			if old != nil && !Same(old, p) {
 				// change status with px lock held, so we know no other
@@ -451,10 +474,10 @@ func (px *proxifier) removeProxy(id string, force bool) bool {
 
 			_ = p.Stop()
 			if !perma {
-				px.obs.OnProxyRemoved(id, hdl)
+				px.queueEvent(removeEvent, id, hdl)
 				log.I("proxy: removed %s@%s", id, hdl)
 			} else {
-				px.obs.OnProxyStopped(id, hdl)
+				px.queueEvent(stopEvent, id, hdl)
 				log.I("proxy: stopped (not removed) %s@%s", id, hdl)
 			}
 		})
@@ -1163,8 +1186,46 @@ func (px *proxifier) stopProxies() {
 	in := px.ipPins.Clear()
 	un := px.uidPins.Clear()
 
-	core.Go("pxr.onStop", px.obs.OnProxiesStopped)
+	defer core.Go("pxr.onAllStop", px.obs.OnProxiesStopped)
+	close(px.eventch) // signal processObs to exit
 	log.I("proxy: removed: %d+%d; stall: %d; pins: %d+%d", n, l, sn, in, un)
+}
+
+// queueEvent queues an observable event to be dispatched by processEvents, in sent order.
+// Events are dropped if the channel is full or the [proxifier] context is done.
+// queueEvent exits when [proxifier.eventch] is closed by [proxifier.stopProxies].
+func (px *proxifier) queueEvent(kind int, id, handle string) {
+	select {
+	case <-px.ctx.Done():
+		if log.Debug {
+			log.D("proxy: event: end: %d %s@%s", kind, id, handle)
+		}
+	default:
+		select {
+		case px.eventch <- proxyevent{kind: kind, id: id, handle: handle}:
+		default:
+			log.W("proxy: event: dropped: %d %s@%s", kind, id, handle)
+		}
+	}
+}
+
+// processEvents drains eventch, dispatching events to the observer, in order;
+// must be called once and from a goroutine.
+func (px *proxifier) processEvents() {
+	defer core.Recover(core.Exit11, "pxr.processEvent")
+
+	for m := range px.eventch {
+		switch m.kind {
+		case addEvent:
+			px.obs.OnProxyAdded(m.id, m.handle)
+		case removeEvent:
+			px.obs.OnProxyRemoved(m.id, m.handle)
+		case stopEvent:
+			px.obs.OnProxyStopped(m.id, m.handle)
+		case updateEvent:
+			px.obs.OnProxyUpdated(m.id, m.handle)
+		}
+	}
 }
 
 // RefreshProxies implements x.Proxies.
