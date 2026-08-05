@@ -513,7 +513,7 @@ func (m *ipmap) makeIPSet(hostname string, ipps []string, ogtyp IPSetType) *IPSe
 	} else {
 		m.Lock()
 		prev := mm[hostname] // prev may be nil
-		mm[hostname] = s     // overwrites existing
+		mm[hostname] = s     // overwrites prev
 		m.Unlock()
 		m.revmap(hostname, s, prev)
 	}

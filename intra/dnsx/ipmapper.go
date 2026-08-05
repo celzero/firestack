@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/celzero/firestack/intra/core"
-	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
@@ -153,7 +152,7 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 		log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
 			host, ips, xdns.Len(r4), xdns.Len(r6), uid, tid4, tid6, lerr4, lerr6)
 	}
-	go dialers.Cache(host, ips) // cache for dialers to use
+
 	return ips, nil
 }
 
@@ -196,7 +195,6 @@ func (m *resolver) queryAny(q *dns.Msg, uid string, tids ...string) (*dns.Msg, e
 	}
 
 	a, err := m.undoAlg(v.Val.a, v.Val.tid, uid)
-	go dialers.CacheFrom(a) // cache for dialers to use
 	return a, err
 }
 

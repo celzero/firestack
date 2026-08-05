@@ -129,8 +129,8 @@ func CachedAddrs(hostOrIP string) []netip.Addr {
 	return nil
 }
 
-// Cache adds a set of addresses for host to the cache.
-func Cache(host string, addrs []netip.Addr) bool {
+// cache adds a set of addresses for host to the cache.
+func cache(host string, addrs []netip.Addr) bool {
 	if len(host) <= 0 || len(addrs) <= 0 {
 		return false
 	}
@@ -138,17 +138,21 @@ func Cache(host string, addrs []netip.Addr) bool {
 	return s != nil && !s.Empty()
 }
 
-func CacheFrom(msg *dns.Msg) bool {
-	if msg == nil {
+// cache2 is like cache but	for qname and IPs in dns.Msg a, if any.
+func cache2(a *dns.Msg) bool {
+	if a == nil {
 		return false
 	}
-	qname := xdns.QName(msg)
+	if !xdns.HasAnyAnswer(a) {
+		return false
+	}
+	qname := xdns.QName(a)
 	host, err := xdns.NormalizeQName(qname)
 	if err != nil {
 		log.E("dialers: ips: cachefrom: normalize qname %s err: %v", qname, err)
 		return false
 	}
-	return Cache(host, xdns.IPs(msg))
+	return cache(host, xdns.IPs(a))
 }
 
 // Mapper is a hostname to IP (a/aaaa) resolver for the network engine; may be nil.
