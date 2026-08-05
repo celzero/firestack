@@ -238,12 +238,12 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 	var tcpaddr *net.TCPAddr
 	var udpaddr *net.UDPAddr
 	s, p := hostport(&stamp)
-	if ips, err := dialers.Resolve(s); err == nil && len(ips) > 0 {
+	if ips := dialers.For(s); len(ips) > 0 {
 		ipp := netip.AddrPortFrom(ips[0], p)
 		tcpaddr = net.TCPAddrFromAddrPort(ipp)
 		udpaddr = net.UDPAddrFromAddrPort(ipp)
 	} else {
-		return nil, fmt.Errorf("dnscrypt: no ips for [%s]: %v", s, err)
+		return nil, fmt.Errorf("dnscrypt: no ips for [%s]", s)
 	}
 	if udpaddr == nil || tcpaddr == nil {
 		return nil, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
@@ -321,12 +321,12 @@ func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
 		host, port := hostport(rrstamp)
 		if rrstamp != nil && (rrstamp.Proto == stamps.StampProtoTypeDNSCrypt ||
 			rrstamp.Proto == stamps.StampProtoTypeDNSCryptRelay) {
-			if ips, err := dialers.Resolve(host); err == nil && len(ips) > 0 {
+			if ips := dialers.For(host); len(ips) > 0 {
 				ipp := netip.AddrPortFrom(ips[0], port) // TODO: randomize?
 				tcpaddrs = append(tcpaddrs, net.TCPAddrFromAddrPort(ipp))
 				udpaddrs = append(udpaddrs, net.UDPAddrFromAddrPort(ipp))
 			} else {
-				log.W("dnscrypt: route: zero ips for relay [%s] for server [%s]; err [%v]", rr, host, err)
+				log.W("dnscrypt: route: zero ips for relay [%s] for server [%s]", rr, host)
 			}
 		} else {
 			log.W("dnscrypt: route: invalid relay [%s]", rr)

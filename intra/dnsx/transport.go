@@ -1661,11 +1661,11 @@ func IsAutoProxy(pid string) bool {
 
 // RegisterAddrs registers IP ports with all dialers for a given hostname.
 // If id is dnsx.Bootstrap, the hostname is "protected" from re-resolutions.
-// hostname is a domain name, and as a special case, can be protect.Selfhost or protect.Systemhost.
+// hostname is a domain name, and as a special case, can be [protect.Selfhost]
+// or [protect.Systemhost]. See also: [dialers.For].
 func RegisterAddrs(id, hostname string, ipps []string) (ok bool) {
 	var ipset *ipmap.IPSet
 	var addrs []netip.Addr
-	id, _ = strings.CutPrefix(id, CT)
 	if isProtected(id) {
 		log.I("dns: protected %s! %s => %v", id, hostname, ipps)
 		ipset, ok = dialers.NewProtected(hostname, ipps)
@@ -1696,6 +1696,7 @@ func isEncrypted(t string) bool {
 }
 
 func isProtected(id string) bool {
+	id, _ = strings.CutPrefix(id, CT)
 	return id == Bootstrap || id == System || id == Default || id == Local || isPlus(id)
 }
 
