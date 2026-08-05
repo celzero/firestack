@@ -9,6 +9,7 @@ package dialers
 import (
 	"net"
 	"net/netip"
+	"net/url"
 
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
@@ -70,13 +71,15 @@ func renew(hostOrIP string, existing *ipmap.IPSet) (cur *ipmap.IPSet, ok bool) {
 
 // New re-seeds hostOrIP with a new set of ips.
 // hostOrIP may be host:port, or ip:port, or host, or ip.
-// ipps may be ip or ip:port.
+// ipps may be ip or ip:port. It makes no attempt to resolve hostOrIP.
+// see also: [For] and [NewProtected].
 func New(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
 	ips := ipm.MakeIPSet(hostOrIP, ipps, ipmap.AutoType)
 	return ips, !ips.Empty()
 }
 
 // hostOrIP may be host:port, or ip:port, or host, or ip.
+// It makes no attempt to resolve hostOrIP, and returns a non-nil ipset.
 func NewProtected(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
 	ips := ipm.MakeIPSet(hostOrIP, ipps, ipmap.Protected)
 	return ips, !ips.Empty()
@@ -84,7 +87,7 @@ func NewProtected(hostOrIP string, ipps []string) (*ipmap.IPSet, bool) {
 
 // For returns addresses for hostOrIP from cache, resolving them if missing.
 // Underlying cache relies on Disconfirm() to remove unreachable IP addrs;
-// if not called, these entries may go stale. Use Resolve() to bypass cache.
+// if not called, these entries may go stale. Use [Resolve] to bypass cache.
 // Use CachedAddrs() to only ever return from cache.
 // hostOrIP may be host:port, or ip:port, or host, or ip.
 func For(hostOrIP string) []netip.Addr {
@@ -93,6 +96,16 @@ func For(hostOrIP string) []netip.Addr {
 		return ipset.Addrs()
 	}
 	return nil
+}
+
+// ForUrl is like [For] but for a url string s. It extracts the hostname from s
+// and returns corresponding addrs from cache; or, resolving it, if empty.
+func ForUrl(s string) []netip.Addr {
+	u, err := url.Parse(s) // works if s is mere hostname; ex: example.com
+	if err != nil {
+		return For(s) // fallback on hostOrIP
+	}
+	return For(u.Hostname())
 }
 
 // Ptr returns hostnames from the ipmap cache, given an IP address.
