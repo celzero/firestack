@@ -315,13 +315,19 @@ func (r *resolver) Translate(tr, fix bool) {
 // then deletes it from the map.
 func (r *resolver) stopIfExistsLocked(id string) {
 	if t, ok := r.transports[id]; ok && t != nil {
-		if hasNotEnded(t) {
-			core.Go("r.gateway.stopTid."+id, func() {
-				err := t.Stop()
-				r.gateway.onStopped(id)
-				log.VV("dns: stop: %s; err? %v", id, err)
-			})
-		}
+		core.Go("r.gateway.stopTid."+id, func() {
+			// hasNotEnded calls t.Status(); it must not run while the
+			// resolver lock is held (it is held by the caller of this
+			// function), because a panic in Status() would wedge the
+			// resolver mutex (see dnscrypt.severbyid). Check the status
+			// off-lock, and stop the captured transport.
+			if !hasNotEnded(t) {
+				return
+			}
+			err := t.Stop()
+			r.gateway.onStopped(id)
+			log.VV("dns: stop: %s; err? %v", id, err)
+		})
 		delete(r.transports, id)
 	}
 }
