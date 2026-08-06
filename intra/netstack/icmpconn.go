@@ -91,12 +91,6 @@ func DialPingAddr(s *stack.Stack, nic tcpip.NICID, laddr, raddr netip.Addr) (*GI
 		pn = ipv6.ProtocolNumber
 	}
 
-	var wq waiter.Queue
-	ep, tcpipErr := s.NewEndpoint(tn, pn, &wq)
-	if tcpipErr != nil || ep == nil {
-		return nil, fmt.Errorf("ping socket: endpoint: %s", tcpipErr)
-	}
-
 	deadline := time.NewTimer(time.Hour << 10)
 	deadline.Stop()
 
@@ -104,9 +98,16 @@ func DialPingAddr(s *stack.Stack, nic tcpip.NICID, laddr, raddr netip.Addr) (*GI
 		nic:      nic,
 		src:      PingAddr{laddr},
 		is6:      v6,
-		ep:       ep,
 		deadline: deadline,
 	}
+
+	// The endpoint's read-ready events must be delivered on pc.wq: ReadFrom
+	// registers its waiter on pc.wq.
+	ep, tcpipErr := s.NewEndpoint(tn, pn, &pc.wq)
+	if tcpipErr != nil || ep == nil {
+		return nil, fmt.Errorf("ping socket: endpoint: %s", tcpipErr)
+	}
+	pc.ep = ep
 
 	if bind {
 		fa, _ := fullAddrFrom(nic, netip.AddrPortFrom(laddr, 0))
