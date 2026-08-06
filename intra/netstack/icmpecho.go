@@ -140,14 +140,23 @@ func (r *icmpResponder) handle(h *icmpForwarder, nic tcpip.NICID, pkt *stack.Pac
 	}
 
 	if useIcmpForwarder {
-		wire.Pool.Put(parsed)
-		return icmpForward(h, pkt, src, dst)
-	} else {
-		// Process asynchronously to avoid blocking the dispatcher loop.
-		core.Gx("icmp.responder", func() {
-			r.process(h, nic, parsed, src, dst)
-		})
+		if icmpForward(h, pkt, src, dst) {
+			// The forwarder answered (or will answer asynchronously via
+			// netstack's route); the parsed packet is no longer needed.
+			wire.Pool.Put(parsed)
+			return true
+		}
+		// fallback to process(), which answers the ping
+		// directly to the TUN without needing a route.
+		if log.Debug {
+			log.W("icmp: responder: icmpforwarder err; direct reply for %s => %s", src, dst)
+		}
 	}
+
+	// async to avoid blocking the dispatcher loop.
+	core.Gx("icmp.responder", func() {
+		r.process(h, nic, parsed, src, dst)
+	})
 
 	return true
 }
