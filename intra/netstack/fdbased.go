@@ -54,7 +54,7 @@ var _ stack.LinkEndpoint = (*endpoint)(nil)
 // placeholder FD for whenever existing FD wrapped in struct fds is closed.
 const invalidfd int = -1
 
-// wrapttl is the time to wait for the dispatcher to wrap up (close a previous FD).
+// waitttl is the time to wait for the dispatcher to wrap up (close a previous FD).
 const waitttl = 1 * time.Second
 
 var errNeedsNewEndpoint = errors.New("ns: needs new endpoint")
@@ -96,20 +96,6 @@ type endpoint struct {
 
 	// wg keeps track of running goroutines.
 	wg core.RollingWaitGroup
-
-	// maxSyscallHeaderBytes has the same meaning as
-	// Options.MaxSyscallHeaderBytes.
-	maxSyscallHeaderBytes uintptr
-
-	// writevMaxIovs is the maximum number of iovecs that may be passed to
-	// rawfile.NonBlockingWriteIovec, as possibly limited by
-	// maxSyscallHeaderBytes. (No analogous limit is defined for
-	// rawfile.NonBlockingSendMMsg, since in that case the maximum number of
-	// iovecs also depends on the number of mmsghdrs. Instead, if sendBatch
-	// encounters a packet whose iovec count is limited by
-	// maxSyscallHeaderBytes, it falls back to writing the packet using writev
-	// via WritePacket.)
-	writevMaxIovs int
 }
 
 // Options specify the details about the fd-based endpoint to be created.
@@ -143,11 +129,6 @@ type Options struct {
 	// RXChecksumOffload if true, indicates that this endpoints capability
 	// set should include CapabilityRXChecksumOffload.
 	RXChecksumOffload bool
-
-	// If MaxSyscallHeaderBytes is non-zero, it is the maximum number of bytes
-	// of struct iovec, msghdr, and mmsghdr that may be passed by each host
-	// system call.
-	MaxSyscallHeaderBytes int
 }
 
 // New creates a new fd-based endpoint.
@@ -179,24 +160,12 @@ func newFdbasedInjectableEndpoint(opts *Options) (SeamlessEndpoint, error) {
 		return nil, fmt.Errorf("opts.FD is empty, at least one FD must be specified")
 	}
 
-	if opts.MaxSyscallHeaderBytes < 0 {
-		return nil, fmt.Errorf("opts.MaxSyscallHeaderBytes is negative")
-	}
-
 	e := &endpoint{
 		mtu:     atomic.Uint32{},
 		fds:     atomic.Pointer[fds]{},
 		caps:    caps,
 		addr:    opts.Address,
 		hdrSize: hdrSize,
-		// MaxSyscallHeaderBytes remains unused
-		maxSyscallHeaderBytes: uintptr(opts.MaxSyscallHeaderBytes),
-		writevMaxIovs:         rawfile.MaxIovs,
-	}
-	if e.maxSyscallHeaderBytes != 0 {
-		if max := int(e.maxSyscallHeaderBytes / rawfile.SizeofIovec); max < e.writevMaxIovs {
-			e.writevMaxIovs = max
-		}
 	}
 
 	// Create per channel dispatchers; usually only one.

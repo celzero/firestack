@@ -7,6 +7,7 @@
 package dialers
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"net/url"
@@ -18,17 +19,20 @@ import (
 	"github.com/miekg/dns"
 )
 
-const (
-	errNilConn      = net.UnknownNetworkError("nil connection")
-	errNoConn       = net.UnknownNetworkError("no connection")
-	errNoSysConn    = net.UnknownNetworkError("no sys connection")
-	errNoDesyncConn = net.UnknownNetworkError("no desync connection")
-	errTLSHandshake = net.UnknownNetworkError("tls handshake may be failed")
-	errNoIps        = net.UnknownNetworkError("no ips")
-	errNoEch        = net.UnknownNetworkError("no ech")
-	errNoDialer     = net.UnknownNetworkError("no dialer")
-	errNoRetrier    = net.UnknownNetworkError("no retrier")
-	errNoListener   = net.UnknownNetworkError("no listener")
+const ()
+
+var (
+	errNilConn      = errors.New("nil conn")
+	errNoConn       = errNilConn
+	errNoEch        = errors.New("no ech")
+	errEchQTimeout  = errors.New("ech query timeout")
+	errNoSysConn    = errors.New("no sys conn")
+	errNoDesyncConn = errors.New("no desync conn")
+	errTLSHandshake = errors.New("tls handshake failed")
+	errNoIps        = errors.New("no ips")
+	errNoDialer     = errors.New("no dialer")
+	errNoRetrier    = errors.New("no retrier")
+	errNoListener   = errors.New("no listener")
 )
 
 var ipm ipmap.IPMap = ipmap.NewIPMap()

@@ -235,8 +235,6 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		log.I("doh: ODOH for %s -> %s", proxy, otargeturl)
 	}
 
-	echcfg := t.getOrCreateEchConfigIfNeeded()
-
 	// TODO: ClientAuth
 	// Supply a client certificate during TLS handshakes.
 	// if auth != nil {
@@ -256,8 +254,14 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		ClientSessionCache:     core.TlsSessionCache(),
 	}
 
+	// attempt to fetch ECH config, if any, in the background: the lookup
+	// (dialers.ECH) may take up to its timeout, which must not block
+	// transport construction (and hence Plus init). If it hasn't completed
+	// by the first query, httpClientsFor still fetches it lazily.
+	core.Go("doh.ech."+id, func() { t.getOrCreateEchConfigIfNeeded() })
+
 	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t, ech? %t",
-		t.typ, t.url, len(relay) > 0, addrs, renewed, echcfg != nil)
+		t.typ, t.url, len(relay) > 0, addrs, renewed, t.echconfig.Load() != nil)
 	return t, nil
 }
 

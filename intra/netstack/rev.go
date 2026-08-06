@@ -237,7 +237,7 @@ func StackAddrs(s *stack.Stack, nic tcpip.NICID) (netip.Addr, netip.Addr) {
 	mainaddr4, err4 := s.GetMainNICAddress(nic, header.IPv4ProtocolNumber)
 	mainaddr6, err6 := s.GetMainNICAddress(nic, header.IPv6ProtocolNumber)
 	if err4 != nil || err6 != nil {
-		log.E("rev: StackAddrs %v; err: %v", nic, err4)
+		log.E("rev: StackAddrs %v; err4: %v; err6: %v", nic, err4, err6)
 	}
 	// comparable? github.com/google/gvisor/blob/1e97c039b/pkg/tcpip/adapters/gonet/gonet.go#L509
 	if !mainaddr4.Address.Equal(zeromainaddr.Address) {

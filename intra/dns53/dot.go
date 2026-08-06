@@ -113,11 +113,12 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		// echconfig/echlastattempt: zero values (nil) are fine
 	}
 	t.status.Store(dnsx.Start)
-	echcfg := t.getOrCreateEchConfigIfNeeded()
+
+	core.Go("dot.ech."+id, func() { t.getOrCreateEchConfigIfNeeded() })
 	// local dialer: protect.MakeNsDialer(id, ctl)
 	t.c = dnsclient(tlscfg)
 	log.I("dot: (%s) setup: %s; relay? %t; resolved? %t, ech? %t",
-		id, rawurl, len(relay) > 0, ok, echcfg != nil)
+		id, rawurl, len(relay) > 0, ok, t.echconfig.Load() != nil)
 	return t, nil
 }
 
