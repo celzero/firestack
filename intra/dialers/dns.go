@@ -9,6 +9,7 @@ package dialers
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/protect"
@@ -65,9 +66,15 @@ func ECH(hostname string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ans, err := ipm.Lookup(q, protect.MyUid)
-	if err != nil {
-		return nil, err
+	// bound the lookup: a slow or absent resolver must not stall callers
+	// (transport constructors & first-query paths) for the full resolver
+	// timeout; most public resolvers publish no ECH config anyway.
+	const echTimeout = 25 * time.Second
+	ans, ok := core.Grx("dialers.ech."+hostname, func(_ context.Context) (*dns.Msg, error) {
+		return ipm.Lookup(q, protect.MyUid)
+	}, echTimeout)
+	if !ok {
+		return nil, errEchQTimeout
 	}
 	if ans == nil {
 		return nil, errNoEch
