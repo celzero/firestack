@@ -1695,16 +1695,15 @@ func (t *dnsgateway) registerLocked(q, tid, uid, fid string, algip4, algip6 neti
 
 	// uid may be UNKNOWN_UID_STR if discarduid is true (ie, split is false)
 
+	now := time.Now()
 	// some domain set very low ttl (ex: 1s for news.ycombinator.com) which
 	// is too short for translations; use a minimum of 8s to account
 	// for just-in-time re-resolution of the same domain by common.go via
 	// dialers.ResolverFor(uid) which may be called on new tcp / udp conn.
 	ttl = max(ttl8s, ttl)
-
-	now := time.Now()
 	// ttl is used for algans and xips alike: both carry min upstream
 	// answer's ttl, so translations last as long as the original answer.
-	algttl := min(ttl2m, ttl)
+	algttl := max(ttl2m, ttl)
 	ansttl := now.Add(algttl)
 	xipsttl := now.Add(ttl)
 	// secres.ips may be empty on timeout errors, or
