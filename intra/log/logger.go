@@ -1074,16 +1074,6 @@ func isNil(x any) bool {
 	return false
 }
 
-// from: intra/core/typ.go:typeEq
-func typeEq(a, b any) bool {
-	if isNil(a) {
-		return false
-	} else if isNil(b) {
-		return false
-	}
-	return reflect.TypeOf(a) == reflect.TypeOf(b)
-}
-
 // Metrics returns current logger and pool statistics as a formatted string.
 func (l *simpleLogger) Metrics() *LogStat {
 	s := l.logstat()
