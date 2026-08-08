@@ -298,18 +298,18 @@ func (t *transport) echVerifyFn() func(tls.ConnectionState) error {
 	return nil // delegate to stdlib
 }
 
-func asDialContext(d protect.DialFn) func(context.Context, string, string) (net.Conn, error) {
+func asDialContext(who string, d protect.DialFn) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (c net.Conn, err error) {
-		c, err, _ = core.Gre("doh.dialctx", func() (net.Conn, error) {
+		c, err, _ = core.Gre("doh.dialctx."+who+"."+addr, func() (net.Conn, error) {
 			return d(network, addr)
 		}, ctx)
 		return
 	}
 }
 
-func h2(d protect.DialFn, c *tls.Config) *http.Transport {
+func h2(who string, d protect.DialFn, c *tls.Config) *http.Transport {
 	t := &http.Transport{
-		DialContext:       asDialContext(d),
+		DialContext:       asDialContext(who, d),
 		ForceAttemptHTTP2: true,
 		// some resolvers close idle DoH connections in 30s (Quad9)
 		IdleConnTimeout:     30 * time.Second,
@@ -452,7 +452,7 @@ func (t *transport) httpClientsFor(pid string) (c3, c *http.Client, p ipn.Proxy,
 		if c3 == nil {
 			if echcfg := t.getOrCreateEchConfigIfNeeded(); echcfg != nil {
 				c3 = new(http.Client)
-				c3.Transport = h2(pdial, echcfg)
+				c3.Transport = h2(p.ID(), pdial, echcfg)
 				t.updateHttpClientsFor(p, c, c3)
 			}
 		}
@@ -461,10 +461,10 @@ func (t *transport) httpClientsFor(pid string) (c3, c *http.Client, p ipn.Proxy,
 
 	var client http.Client
 	var client3 *http.Client
-	client.Transport = h2(pdial, t.tlsconfig)
+	client.Transport = h2(p.ID(), pdial, t.tlsconfig)
 	if echcfg := t.echconfig.Load(); echcfg != nil {
 		client3 = new(http.Client)
-		client3.Transport = h2(pdial, echcfg)
+		client3.Transport = h2(p.ID(), pdial, echcfg)
 	}
 
 	// last writer wins
@@ -609,7 +609,7 @@ func (t *transport) multifetch(req *http.Request, pid string) (res *http.Respons
 				}
 				if len(ech) > 0 && useech {
 					echcfg.EncryptedClientHelloConfigList = ech
-					c.Transport = h2(px.Dialer().Dial, echcfg)
+					c.Transport = h2(px.ID(), px.Dialer().Dial, echcfg)
 					t.echconfig.Store(echcfg) // update ech config
 					t.echlastattempt.Store(time.Now().UnixMilli())
 					t.updateHttpClientsFor(px, nil, c) // update c3
