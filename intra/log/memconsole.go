@@ -118,8 +118,8 @@ type Memconsole struct {
 	lastFlush time.Time      // wall time of the most recent consume initiation
 	reader    MemReader      // installed via SetReader
 	draining  [2]atomic.Bool // true while Drain() is executing for bufs[i]
-	drops     atomic.Uint64  // dropped bytes
-	consumed  atomic.Uint64  // consumed bytes
+	drops     atomic.Uint64  // dropped bytes (payload bytes + 2-byte level prefix per slot excluded)
+	consumed  atomic.Uint64  // bytes reported drained by MemReader.Drain
 	totwait   atomic.Uint64  // wait count for drains to complete when full
 	vainwait  atomic.Uint64  // wait count for drains to complete that were not useful
 	ticking   atomic.Bool    // true while a lazy ticker goroutine is running
@@ -248,7 +248,7 @@ rollover:
 				mc.drops.Add(uint64(count))
 				mc.slotIdx = 0
 			} else { // drop write
-				mc.drops.Add(uint64(yank))
+				mc.drops.Add(uint64(yank - i))
 				mc.mu.Unlock()
 				return
 			}
@@ -263,16 +263,37 @@ rollover:
 		end := memHdrSize + (mc.slotIdx+1)*memSlotSize
 		slot := b.data[begin:end]
 
-		raw := all[i:min(yank, i+memSlotSize-1)]
-		n := 0
-		if !bytes.HasPrefix(raw, lpfx) {
-			n = copy(slot, lpfx)
+		// Every slot must carry the level prefix. Deduplicate only the copy
+		// that arrived pre-formatted from logger (level + tag prefix);
+		// valid only for the first slot where all[i] == all[0].
+		src := all[i:]
+		needsStrip := i == 0 && len(src) >= len(lpfx) && bytes.HasPrefix(src, lpfx)
+		// Non-first chunks never strip; first chunk strips at most once.
+		if needsStrip {
+			src = src[len(lpfx):]
+			if len(src) == 0 {
+				// src was exactly the prefix; emit prefix-only slot & bail
+				n := copy(slot, lpfx)
+				slot[n] = '\n'
+				if n+1 < memSlotSize {
+					clear(slot[n+1:])
+				}
+				i = yank
+				mc.slotIdx++
+				break
+			}
 		}
-		// the last byte is reserved for newline
-		m := copy(slot[n:memSlotSize-1], raw)
+		n := copy(slot, lpfx)
+		payloadCap := memSlotSize - 1 - n // reserve 1 byte for '\n'
+		if len(src) > payloadCap {
+			src = src[:payloadCap]
+		}
+		m := copy(slot[n:], src)
 		slot[n+m] = '\n'
-		// zero-fill the tail so the reader sees no stale data
-		clear(slot[n+m+1:])
+		// n+m <= memSlotSize-1 by construction; guard keeps clear in bounds
+		if n+m+1 < memSlotSize {
+			clear(slot[n+m+1:])
+		}
 
 		i += m
 		mc.slotIdx++
@@ -377,12 +398,18 @@ func (mc *Memconsole) swapBuffersLocked() (idx, start, end int) {
 
 // consume calls Drain for the prepared drain parameters, then resets the
 // count header and clears the draining flag for that buffer. idx < 0 is a no-op.
+// r may be nil if SetReader has not been called or after Close; that case is
+// a silent drop (header/draining still reset) to avoid a nil-panic on the
+// hot path.
 func (mc *Memconsole) consume(r MemReader, idx, start, end int) {
 	if idx < 0 {
 		return
 	}
 	defer mc.draining[idx].Store(false)
 	defer mc.bufs[idx].setCountLocked(0)
+	if r == nil {
+		return
+	}
 	mfd := mc.bufs[idx].fd.Fd()
 	n := r.Drain(int(mfd), start, end)
 	mc.consumed.Add(uint64(n))
@@ -409,10 +436,13 @@ func (mc *Memconsole) Flush() {
 	mc.consume(r, idx, start, end)
 }
 
-// Drops returns the cumulative number of buffer-full events where the
-// active buffer could not be flipped (other buffer still draining) and
-// the write either overwrote the oldest slot (overwriteOnFull=true) or
-// was discarded (overwriteOnFull=false).
+// Drops returns the cumulative number of payload bytes dropped when the
+// active buffer could not be flipped because the other buffer was still
+// draining. When overwriteOnFull is true the whole active buffer
+// (slotIdx*memSlotSize bytes of already-written payload) is counted;
+// when false only the still-unwritten tail (yank - i) is counted.
+// Consumed similarly counts bytes returned by MemReader.Drain, so
+// written - Drops ~= consumed + buffered.
 func (mc *Memconsole) Drops() uint64 { return mc.drops.Load() }
 
 func (mc *Memconsole) Consumed() uint64 { return mc.consumed.Load() }
