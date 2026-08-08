@@ -48,7 +48,7 @@ type plus struct {
 	ba *core.Barrier[[]Transport, string]
 
 	closed atomic.Bool
-	last   core.Volatile[Transport]
+	last   core.MutexValue[Transport]
 }
 
 var _ Transport = (*plus)(nil)

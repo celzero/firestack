@@ -263,11 +263,11 @@ func Slowdown(y bool) {
 // ExperimentalWireGuard enables/disables experimental features for WireGuard like allowing incoming packets.
 func ExperimentalWireGuard(y bool) {
 	// todo: move to its own method
-	wgok := settings.ExperimentalWireGuard.CompareAndSwap(!y, y)
+	oldy := settings.ExperimentalWireGuard.Swap(y)
 	// PortForwarding does not work on Android as-is.
 	// fwdok := settings.PortForward.CompareAndSwap(!y, y)
 	fwdok := false
-	log.I("tun: experimental settings? %t / wg? %t, portfwd? %t", y, wgok, fwdok)
+	log.I("tun: experimental settings? %t / prev? %t, portfwd? %t", y, oldy, fwdok)
 }
 
 // FloodWireGuard enables/disables flooding WireGuard tunnels with randomly sized non-null packets.

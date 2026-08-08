@@ -117,13 +117,16 @@ func Grx[T any](who string, f WorkCtx[T], d time.Duration) (zz T, completed bool
 	// go.dev/play/p/VtWYJrxhXz6
 	go func() {
 		debug.SetPanicOnFault(true)
-		defer Recover(Exit11, who)
-		defer close(ch)
 		untrack := trackwork(who, "grx")
 		defer untrack()
-
-		out, _ := f(ctx) // TODO: log error?
-		ch <- out
+		func() {
+			defer Recover(DontExit, who)
+			out, _ := f(ctx) // TODO: log error?
+			select {
+			case <-ctx.Done():
+			case ch <- out:
+			}
+		}()
 	}()
 
 	select {
@@ -145,17 +148,24 @@ func Gre[T any](who string, f Work[T], ctx context.Context) (zz T, err error, co
 	// go.dev/play/p/VtWYJrxhXz6
 	go func() {
 		debug.SetPanicOnFault(true)
-		defer Recover(Exit11, who)
-		defer close(ch)
 		untrack := trackwork(who, "grx2")
 		defer untrack()
-
-		t, err := f() // TODO: log error?
-		ch <- &res{t, err}
+		func() {
+			defer Recover(DontExit, who)
+			defer close(ch)
+			t, e := f()
+			select {
+			case <-ctx.Done():
+			case ch <- &res{t, e}:
+			}
+		}()
 	}()
 
 	select {
 	case out := <-ch:
+		if out == nil {
+			return zz, errPanic(who), false
+		}
 		return out.t, out.err, true
 	case <-ctx.Done(): // timeout or cancellation
 		return zz, ctx.Err(), false

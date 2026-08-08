@@ -93,19 +93,19 @@ func chooseAny[T any](s []T) (zz T) {
 	return core.ChooseOne(s)
 }
 
-func udpExchange(pid string, serverInfo *server, relayAddrs []*net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
+func udpExchange(pid string, serverInfo *server, relayAddrs *[]net.UDPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.UDPAddr
 	userelay := false
-	if len(relayAddrs) > 0 {
-		oneaddr := chooseAny(relayAddrs)
-		if oneaddr != nil && oneaddr.AddrPort().IsValid() {
+	if relayAddrs != nil && len(*relayAddrs) > 0 {
+		oneaddr := chooseAny(*relayAddrs)
+		if oneaddr.AddrPort().IsValid() {
 			upstreamAddr = oneaddr
-			relay = upstreamAddr
+			relay = &upstreamAddr
 			userelay = true
 		}
 	}
 
-	pc, err := serverInfo.dialudp(pid, upstreamAddr)
+	pc, err := serverInfo.dialudp(pid, &upstreamAddr)
 	pcnil := pc == nil || core.IsNil(pc)
 	if err != nil || pcnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		err = core.OneErr(err, errNoConn)
@@ -148,19 +148,19 @@ func udpExchange(pid string, serverInfo *server, relayAddrs []*net.UDPAddr, shar
 	return
 }
 
-func tcpExchange(pid string, serverInfo *server, relayAddrs []*net.TCPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
+func tcpExchange(pid string, serverInfo *server, relayAddrs *[]net.TCPAddr, sharedKey *[32]byte, encryptedQuery []byte, clientNonce []byte) (res []byte, relay net.Addr, err error) {
 	upstreamAddr := serverInfo.TCPAddr
 	userelay := false
-	if len(relayAddrs) > 0 {
-		oneaddr := chooseAny(relayAddrs)
-		if oneaddr != nil && oneaddr.AddrPort().IsValid() {
+	if relayAddrs != nil && len(*relayAddrs) > 0 {
+		oneaddr := chooseAny(*relayAddrs)
+		if oneaddr.AddrPort().IsValid() {
 			upstreamAddr = oneaddr
-			relay = upstreamAddr
+			relay = &upstreamAddr
 			userelay = true
 		}
 	}
 
-	pc, err := serverInfo.dialtcp(pid, upstreamAddr)
+	pc, err := serverInfo.dialtcp(pid, &upstreamAddr)
 	pcnil := pc == nil || core.IsNil(pc)
 	if err != nil || pcnil { // nilaway: tx.socks5 returns nil conn even if err == nil
 		err = core.OneErr(err, errNoConn)
@@ -248,7 +248,7 @@ func query(pid string, packet *dns.Msg, serverInfo *server, useudp bool) (ans *d
 
 	tcprelays := serverInfo.RelayTCPAddrs.Load() // may return nil
 	udprelays := serverInfo.RelayUDPAddrs.Load() // may return nil
-	usetcprelay := len(tcprelays) > 0
+	usetcprelay := tcprelays != nil && len(*tcprelays) > 0
 	// save original protocol for truncation decision after potential TCP fallback
 	originalWasUDP := useudp
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
@@ -523,8 +523,8 @@ func (proxy *DcMulti) refreshRoutes() {
 			continue
 		}
 		// udp, tcp may be empty or nil; which means no relay
-		x.RelayUDPAddrs.Store(udp)
-		x.RelayTCPAddrs.Store(tcp)
+		x.RelayUDPAddrs.Store(&udp)
+		x.RelayTCPAddrs.Store(&tcp)
 		n++
 	}
 	log.I("dnscrypt: refreshRoutes: %d/%d for %d servers", len(udp), len(tcp), n)

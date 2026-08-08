@@ -49,7 +49,7 @@ type socks5 struct {
 type socks5handler struct {
 	// not used; see dial, TCPHandle, and UDPHandle
 	tx.DefaultHandle
-	px core.Volatile[ipn.Proxy]
+	px core.MutexValue[ipn.Proxy]
 }
 
 // newSocks5Server creates a new socks5 server with the given id, url, controller, and listener.

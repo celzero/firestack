@@ -135,7 +135,7 @@ type wgtun struct {
 	desiredmtu atomic.Uint32 // desired mtu
 	netmtu     atomic.Uint32 // underlay network mtu
 
-	rev core.Volatile[netstack.GConnHandler] // reverser for local packets
+	rev core.MutexValue[netstack.GConnHandler] // reverser for local packets
 
 	dns     atomic.Pointer[multihost.MH]    // dns resolver for this interface
 	remote  atomic.Pointer[multihost.MHMap] // peer (remote endpoint) addrs
@@ -260,7 +260,7 @@ func (h *wgproxy) GetAddr() string {
 // onProtoChange implements Proxy
 func (w *wgproxy) OnProtoChange(lp LinkProps) (string, bool) {
 	oldmtu := w.netmtu.Swap(uint32(lp.mtu))
-	oldrev := w.rev.Tango(lp.rev)
+	oldrev := w.rev.Swap(lp.rev)
 	setRev := settings.ExperimentalWireGuard.Load()
 	w.setupReverserIfNeeded(setRev)
 	log.V("proxy: wg: %s; lp changed; setReverser? %t, l3: %s, mtu %d=>%d, rev %X => %X",

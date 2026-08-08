@@ -57,8 +57,8 @@ type server struct {
 	CryptoConstruction xdns.CryptoConstruction
 	Name               string // id of the server
 	HostName           string
-	UDPAddr            *net.UDPAddr
-	TCPAddr            *net.TCPAddr
+	UDPAddr            net.UDPAddr
+	TCPAddr            net.TCPAddr
 	proxies            ipn.ProxyProvider        // proxy-provider, may be nil
 	relay              string                   // proxy relay to use, may be nil
 	relayref           *core.WeakRef[ipn.Proxy] // preset ref to relay proxy, if any
@@ -67,8 +67,8 @@ type server struct {
 	// fields below are mutable
 
 	// populated later; see proxy.refreshRoutes()
-	RelayUDPAddrs core.Volatile[[]*net.UDPAddr] // anonymous relays, if any
-	RelayTCPAddrs core.Volatile[[]*net.TCPAddr] // anonymous relays, if any
+	RelayUDPAddrs atomic.Pointer[[]net.UDPAddr] // anonymous relays, if any
+	RelayTCPAddrs atomic.Pointer[[]net.TCPAddr] // anonymous relays, if any
 
 	status atomic.Int32 // status of the last query
 }
@@ -273,8 +273,8 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		CryptoConstruction: certInfo.CryptoConstruction,
 		HostName:           stamp.ProviderName,
 		Name:               name,
-		UDPAddr:            udpaddr,
-		TCPAddr:            tcpaddr,
+		UDPAddr:            *udpaddr, // never nil
+		TCPAddr:            *tcpaddr, // never nil
 		proxies:            px,
 		relay:              relay,
 		relayref:           relayref,
@@ -290,13 +290,13 @@ func fetchDoHServerInfo(_ *DcMulti, _ string, _ stamps.ServerStamp) (*server, er
 	return nil, errors.ErrUnsupported
 }
 
-func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
+func route(proxy *DcMulti) (udpaddrs []net.UDPAddr, tcpaddrs []net.TCPAddr) {
 	proxy.Lock()
 	relays := proxy.routes
 	proxy.Unlock()
 
-	udpaddrs = make([]*net.UDPAddr, 0)
-	tcpaddrs = make([]*net.TCPAddr, 0)
+	udpaddrs = make([]net.UDPAddr, 0)
+	tcpaddrs = make([]net.TCPAddr, 0)
 
 	if len(relays) <= 0 { // no err, no relays
 		return
@@ -323,8 +323,8 @@ func route(proxy *DcMulti) (udpaddrs []*net.UDPAddr, tcpaddrs []*net.TCPAddr) {
 			rrstamp.Proto == stamps.StampProtoTypeDNSCryptRelay) {
 			if ips := dialers.For(host); len(ips) > 0 {
 				ipp := netip.AddrPortFrom(ips[0], port) // TODO: randomize?
-				tcpaddrs = append(tcpaddrs, net.TCPAddrFromAddrPort(ipp))
-				udpaddrs = append(udpaddrs, net.UDPAddrFromAddrPort(ipp))
+				tcpaddrs = append(tcpaddrs, *net.TCPAddrFromAddrPort(ipp))
+				udpaddrs = append(udpaddrs, *net.UDPAddrFromAddrPort(ipp))
 			} else {
 				log.W("dnscrypt: route: zero ips for relay [%s] for server [%s]", rr, host)
 			}
@@ -362,11 +362,9 @@ func (s *server) String() string {
 	servername := s.getAddr()
 	serveraddr := "notcp"
 	relayaddr := "norelay"
-	if s.TCPAddr != nil {
-		serveraddr = s.TCPAddr.String()
-	}
-	if a := s.RelayTCPAddrs.Load(); len(a) > 0 {
-		relayaddr = chooseAny(a).String()
+	serveraddr = s.TCPAddr.String()
+	if a := s.RelayTCPAddrs.Load(); a != nil && len(*a) > 0 {
+		relayaddr = (*a)[0].String()
 	}
 
 	return serverid + ":" + servername + "/" + serveraddr + "<=>" + relayaddr
@@ -433,8 +431,8 @@ func (s *server) getRelay() ipn.Proxy {
 }
 
 func (s *server) IPPorts() []netip.AddrPort {
-	if relay := s.RelayUDPAddrs.Load(); len(relay) > 0 {
-		return addr2ipp(relay...)
+	if relay := s.RelayUDPAddrs.Load(); relay != nil && len(*relay) > 0 {
+		return addr2ipp(*relay...)
 	}
 	return addr2ipp(s.UDPAddr)
 }
@@ -503,14 +501,12 @@ func (s *server) chooseProxy(fid string, pids ...string) string {
 	return dnsx.ChooseHealthyProxy(fid+" dnscrypt."+s.ID(), dnsx.NetTypeTCP, s.IPPorts(), pids, s.proxies)
 }
 
-func addr2ipp(u ...*net.UDPAddr) (ipps []netip.AddrPort) {
+func addr2ipp(u ...net.UDPAddr) (ipps []netip.AddrPort) {
 	if len(u) <= 0 {
 		return dnsx.NoIPPort
 	}
 	for _, x := range u {
-		if x != nil {
-			ipps = append(ipps, x.AddrPort())
-		}
+		ipps = append(ipps, x.AddrPort())
 	}
 	return // may be nil
 }

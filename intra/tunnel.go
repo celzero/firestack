@@ -122,7 +122,7 @@ type rtunnel struct {
 	ctx  context.Context
 	done context.CancelFunc
 
-	t   *core.Volatile[tunnel.Tunnel]
+	t   core.Volatile[tunnel.Tunnel]
 	bar *core.Barrier[*x.NetStat, string]
 
 	handlers netstack.GConnHandler
@@ -257,7 +257,6 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 	rerr := proxies.Reverser(revhdl)
 
 	rt := &rtunnel{
-		t:        core.NewVolatile[tunnel.Tunnel](gt),
 		bar:      core.NewKeyedBarrier[*x.NetStat, string](ctx, "t.stat.bar", statttl),
 		ctx:      ctx,
 		done:     cancel,
@@ -266,6 +265,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 		resolver: resolver,
 		services: services,
 	}
+	rt.t.Store(gt)
 	rt.linkmtu.Store(int32(linkmtu))
 
 	context.AfterFunc(ctx, wire.Pool.Clear)

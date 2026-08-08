@@ -101,39 +101,28 @@ type simpleLogger struct {
 	nbytes [NONE + 1]atomic.Uint64 // total bytes formatted
 }
 
-type atom[T any] atomic.Value
+type atom[T any] struct {
+	v atomic.Value
+}
+
+type wrappedAtomValue[T any] struct{ v T }
 
 func (a *atom[T]) get() (zz T) {
 	if a == nil {
 		return
 	}
-	aa := (*atomic.Value)(a)
-	if t, ok := aa.Load().(T); ok {
-		return t
+	if x := a.v.Load(); x != nil {
+		return x.(wrappedAtomValue[T]).v
 	}
-	return zz
+	return
 }
 
-func (a *atom[T]) set(t T) (ok bool) {
+func (a *atom[T]) set(t T) bool {
 	if a == nil {
-		return
+		return false
 	}
-	if isNil(t) {
-		zz := &atom[T]{}
-		*a = *zz
-		return
-	}
-	old := a.get()
-	if !typeEq(old, t) {
-		r := &atom[T]{}
-		*a = *r
-		aa := (*atomic.Value)(a)
-		aa.Store(t)
-		return true
-	}
-
-	aa := (*atomic.Value)(a)
-	return aa.CompareAndSwap(old, t)
+	a.v.Store(wrappedAtomValue[T]{t})
+	return true
 }
 
 const pcbuckets = 512

@@ -44,7 +44,7 @@ type httpx struct {
 
 type httpxhandle struct {
 	AuthHandle
-	px core.Volatile[ipn.Proxy]
+	px core.MutexValue[ipn.Proxy]
 }
 
 func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (*httpx, error) {
