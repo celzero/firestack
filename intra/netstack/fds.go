@@ -162,7 +162,8 @@ func (f *fds) String() (s string) {
 }
 
 func clos(fd int) {
-	if fd > 0 || fd != invalidfd {
+	// Only close real tun fds (>2); 0/1/2 are stdin/out/err and invalidfd (-1) is sentinel.
+	if fd > 2 {
 		_ = syscall.Close(fd)
 	}
 }
