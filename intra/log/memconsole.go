@@ -268,34 +268,19 @@ rollover:
 		end := memHdrSize + (mc.slotIdx+1)*memSlotSize
 		slot := b.data[begin:end]
 
-		// Every slot must carry the level prefix. Deduplicate only the copy
-		// that arrived pre-formatted from logger (level + tag prefix);
-		// valid only for the first slot where all[i] == all[0].
 		src := all[i:]
-		needsStrip := i == 0 && len(src) >= len(lpfx) && bytes.HasPrefix(src, lpfx)
-		// Non-first chunks never strip; first chunk strips at most once.
-		if needsStrip {
-			src = src[len(lpfx):]
-			if len(src) == 0 {
-				// src was exactly the prefix; emit prefix-only slot & bail
-				n := copy(slot, lpfx)
-				slot[n] = '\n'
-				if n+1 < memSlotSize {
-					clear(slot[n+1:])
-				}
-				i = yank
-				mc.slotIdx++
-				break
-			}
+		ylen := memSlotSize - 1
+		n := 0
+		if !bytes.HasPrefix(src, lpfx) {
+			n = copy(slot, lpfx)
+			ylen = ylen - n
 		}
-		n := copy(slot, lpfx)
-		payloadCap := memSlotSize - 1 - n // reserve 1 byte for '\n'
-		if len(src) > payloadCap {
-			src = src[:payloadCap]
-		}
-		m := copy(slot[n:], src)
+
+		raw := all[i:min(yank, i+ylen)]
+		// the last byte is reserved for newline
+		m := copy(slot[n:memSlotSize-1], raw)
 		slot[n+m] = '\n'
-		// n+m <= memSlotSize-1 by construction; guard keeps clear in bounds
+		// zero-fill the tail so the reader sees no stale data
 		if n+m+1 < memSlotSize {
 			clear(slot[n+m+1:])
 		}
