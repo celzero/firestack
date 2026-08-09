@@ -145,7 +145,7 @@ type ipmap struct {
 	rptr x.IpTree // regular => hostname
 	pptr x.IpTree // protected => hostname
 
-	r core.Volatile[IPMapper] // resolver
+	r core.MutexValue[IPMapper] // resolver
 }
 
 var _ IPMap = (*ipmap)(nil)
