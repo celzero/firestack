@@ -246,7 +246,7 @@ func (d *transport) refreshTargetKeyDNS() (ocfg *odoh.ObliviousDoHConfig, exp ti
 
 	var cres *dns.Msg
 	// fetch odoh-config from the default dns
-	if cres, err = dialers.Query(cmsg); err != nil {
+	if cres, err = dialers.Query(d.mapper, cmsg); err != nil {
 		var req *http.Request
 		// fetch odoh-config from odohconfigdns
 		if req, err = d.asDohRequest(cmsg); err == nil {

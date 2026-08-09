@@ -30,10 +30,11 @@ import (
 // DoH server, used to bypass the system resolver when dialing url.
 func MakeDoHTransport(t Tunnel, id, url, ipcsv string) (dnsx.Transport, error) {
 	px, perr := t.internalProxies()
-	if perr != nil {
-		return nil, perr
+	r, rerr := t.internalResolver()
+	if perr != nil || rerr != nil {
+		return nil, core.JoinErr(perr, rerr)
 	}
-	return doh.NewTransport(t.internalCtx(), id, url, csv2slice(ipcsv), px)
+	return doh.NewTransport(t.internalCtx(), id, url, csv2slice(ipcsv), px, r)
 }
 
 // MakeODoHTransport creates an Oblivious-DoH transport for id, dialing via the
@@ -42,10 +43,11 @@ func MakeDoHTransport(t Tunnel, id, url, ipcsv string) (dnsx.Transport, error) {
 // ip:port) addresses of the endpoint, used to bypass the system resolver.
 func MakeODoHTransport(t Tunnel, id, endpoint, resolver, epipcsv string) (dnsx.Transport, error) {
 	px, perr := t.internalProxies()
-	if perr != nil {
-		return nil, perr
+	r, rerr := t.internalResolver()
+	if perr != nil || rerr != nil {
+		return nil, core.JoinErr(perr, rerr)
 	}
-	return doh.NewOdohTransport(t.internalCtx(), id, endpoint, resolver, csv2slice(epipcsv), px)
+	return doh.NewOdohTransport(t.internalCtx(), id, endpoint, resolver, csv2slice(epipcsv), px, r)
 }
 
 // MakeDoTTransport creates a DNS-over-TLS transport for id, dialing via the

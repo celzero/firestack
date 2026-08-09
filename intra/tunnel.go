@@ -191,6 +191,8 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 
 	const dualstack = settings.IP46
 
+	// dns64 queries are deferred (see dns64.AddResolver), by which time the
+	// resolver below is wired in via natpt.Kickstart.
 	natpt := x64.NewNatPt2(ctx)
 	proxies := ipn.NewProxifier(ctx, dualstack, linkmtu, bdg, bdg)
 	services := rnet.NewServices(ctx, proxies, bdg, bdg)
@@ -200,16 +202,21 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 			proxies == nil, services == nil)
 	}
 
+	resolver := dnsx.NewResolver(ctx, fakedns, dtr, bdg, natpt)
+
 	// kickstart may call into ProxyFor which has a multi-second wait time
 	// when proxies are not found
-	if err := dtr.kickstart(proxies); err != nil {
+	if err := dtr.kickstart(proxies, resolver); err != nil {
 		log.W("tun: <<< new >>>; kickstart err(%v)", err)
 		return nil, err
 	}
 
+	// wire the resolver into natpt for dns64; must precede resolver.Add,
+	// which may kick off dns64.AddResolver queries
+	natpt.Kickstart(resolver)
+
 	log.D("tun: <<< new >>>; proxies, svcs, bootstrap: ok")
 
-	resolver := dnsx.NewResolver(ctx, fakedns, dtr, bdg, natpt)
 	resolver.Add(newGoosTransport(ctx, proxies))            // os-resolver; fixed
 	resolver.Add(newBlockAllTransport())                    // fixed
 	resolver.Add(newFixedTransport())                       // fixed

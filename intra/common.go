@@ -226,7 +226,7 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 					}
 					continue
 				}
-				newips, err := dialers.ResolveFor(d, preuid)
+				newips, err := dialers.ResolveFor(h.resolver, d, preuid)
 				hasNewIPs = err == nil && len(newips) > 0
 				logwif(!hasNewIPs)("com: %s: onFlow: preflow: resolved alg domain %s? %t; new ips %v for %s => %s; preuid: %s",
 					h.proto, d, hasNewIPs, newips, src, dst, preuid)

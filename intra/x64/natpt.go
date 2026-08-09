@@ -15,6 +15,7 @@ import (
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/miekg/dns"
 )
@@ -49,12 +50,9 @@ var (
 	invalidaddr  = netip.Addr{}
 )
 
-// Only for test.
-func NewNatPt() *natPt {
-	return NewNatPt2(context.Background())
-}
-
-// NewNatPt2 returns a new [dnsx.NatPt].
+// NewNatPt2 returns a new [dnsx.NatPt]. The IPMapper (usually the dnsx
+// resolver) used for dns64 queries must be wired in via [Kickstart] once
+// the resolver is up, since the resolver itself needs this natpt.
 func NewNatPt2(ctx context.Context) *natPt {
 	log.I("natpt: new; mode(%v)", settings.PtMode.Load())
 	return &natPt{
@@ -63,6 +61,13 @@ func NewNatPt2(ctx context.Context) *natPt {
 		ip4s:  nil,
 		ip6s:  nil,
 	}
+}
+
+// Kickstart wires in the IPMapper (usually the dnsx resolver) used for
+// dns64 queries, once the resolver is up (like bootstrap.kickstart in
+// package intra). Must be called before any dns64 query activity.
+func (n *natPt) Kickstart(m ipmap.IPMapper) {
+	n.dns64.kickstart(m)
 }
 
 // D64 implements [dnsx.DNS64].

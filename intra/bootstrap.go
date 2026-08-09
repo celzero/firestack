@@ -23,6 +23,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -52,20 +53,21 @@ var (
 // DefaultDNS is the resolver used by all dialers.
 type DefaultDNS interface {
 	x.DNSTransport
-	kickstart(px ipn.ProxyProvider) error
+	kickstart(px ipn.ProxyProvider, m ipmap.IPMapper) error
 	reinit(typ, ipOrUrl, ips string) error
 }
 
 type bootstrap struct {
-	ctx     context.Context
-	proxies ipn.ProxyProvider // never nil if underlying transport is set
+	ctx context.Context
 
-	mu       sync.RWMutex   // protects following fields:
-	tr       dnsx.Transport // the underlying transport
-	typ      string         // DOH or DNS53
-	ipports  string         // never empty for DNS53
-	url      string         // never empty for DOH
-	hostname string         // never empty
+	mu       sync.RWMutex      // protects following fields:
+	proxies  ipn.ProxyProvider // never nil if underlying transport is set
+	mapper   ipmap.IPMapper    // resolver for internal queries; set via kickstart
+	tr       dnsx.Transport    // the underlying transport
+	typ      string            // DOH or DNS53
+	ipports  string            // never empty for DNS53
+	url      string            // never empty for DOH
+	hostname string            // never empty
 }
 
 var _ DefaultDNS = (*bootstrap)(nil)
@@ -108,7 +110,8 @@ func NewBuiltinDefaultDNS() (DefaultDNS, error) {
 func (b *bootstrap) newDefaultDohTransportLocked() (dnsx.Transport, error) {
 	ips := strings.Split(b.ipports, ",")
 	if len(b.url) > 0 && len(ips) > 0 {
-		return doh.NewTransport(b.ctx, bootid, b.url, ips, b.proxies)
+		// the resolver is wired in via kickstart (b.mapper), never nil
+		return doh.NewTransport(b.ctx, bootid, b.url, ips, b.proxies, b.mapper)
 	}
 	return nil, errCannotStart
 }
@@ -201,22 +204,23 @@ func (b *bootstrap) reinit(trtype, ippOrUrl, ipcsv string) error {
 }
 
 func (b *bootstrap) recreateLocked() error {
-	return b.kickstartLocked(b.proxies) // restart with new proxies
+	return b.kickstartLocked(b.proxies, b.mapper) // restart with new proxies
 }
 
-func (b *bootstrap) kickstart(px ipn.ProxyProvider) error {
+func (b *bootstrap) kickstart(px ipn.ProxyProvider, m ipmap.IPMapper) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return b.kickstartLocked(px)
+	return b.kickstartLocked(px, m)
 }
 
-func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider) error {
+func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider, m ipmap.IPMapper) error {
 	if px == nil {
 		return errCannotStart
 	}
 
 	b.proxies = px
+	b.mapper = m
 	useGoos := b.hostname == builtinHostname
 
 	var tr dnsx.Transport

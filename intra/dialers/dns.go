@@ -13,6 +13,7 @@ import (
 
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
 )
@@ -20,12 +21,12 @@ import (
 // ResolveFor resolves nom to IPs,  bypassing cache, using transport
 // designated for given uid. If resolution fails, entries from the
 // cache are returned, if any.
-func ResolveFor(nom string, uid string, tids ...string) ([]netip.Addr, error) {
+func ResolveFor(m ipmap.IPMapper, nom string, uid string, tids ...string) ([]netip.Addr, error) {
 	// both lookups may return addrs = nil, err = nil
 	// (see: ipmapper.go:lookup and protect.NeverResolve)
 	// ipm.LookupNetIP itself has a short-term cache (ipmapper.go:battl)
 	// and since TIDs are specified, the ipmap cache is not used.
-	addrs, err := ipm.LookupNetIP(context.Background(), "ip", nom, uid, tids...)
+	addrs, err := m.LookupNetIP(context.Background(), "ip", nom, uid, tids...)
 
 	if len(addrs) <= 0 { // check cache
 		if addrs = CachedAddrs(nom); len(addrs) > 0 {
@@ -44,7 +45,7 @@ func ResolveFor(nom string, uid string, tids ...string) ([]netip.Addr, error) {
 // Resolve is like ResolverFor but with uid = protect.MyUid.
 // See: [For] to get cached addrs and optionally resolve, and [CachedAddrs] to only get cached addrs.
 func Resolve(hostname string, tids ...string) (addrs []netip.Addr, err error) {
-	return ResolveFor(hostname, protect.MyUid, tids...)
+	return ResolveFor(ipm, hostname, protect.MyUid, tids...)
 }
 
 // SampleHosts returns a slice of random hosts, of size n, for the given ipver.
@@ -94,8 +95,9 @@ func ECH(hostname string) ([]byte, error) {
 }
 
 // Query is like [QueryFor] but with uid set to [protect.MyUid].
-func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
-	a, err := QueryFor(msg, protect.MyUid, tids...)
+// m is the IPMapper implementation to query with, never nil.
+func Query(m ipmap.IPMapper, msg *dns.Msg, tids ...string) (*dns.Msg, error) {
+	a, err := QueryFor(m, msg, protect.MyUid, tids...)
 	if err == nil {
 		cache2(a)
 	}
@@ -108,6 +110,7 @@ func Query(msg *dns.Msg, tids ...string) (*dns.Msg, error) {
 // ResolveFor is not just for A/AAAA records but for any record type.
 // It bypasses the cache and returns the answer from tid or
 // from transport designated for uid.
-func QueryFor(msg *dns.Msg, uid string, tids ...string) (*dns.Msg, error) {
-	return ipm.Lookup(msg, uid, tids...)
+// m is the IPMapper implementation to query with, never nil.
+func QueryFor(m ipmap.IPMapper, msg *dns.Msg, uid string, tids ...string) (*dns.Msg, error) {
+	return m.Lookup(msg, uid, tids...)
 }

@@ -50,6 +50,7 @@ import (
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/cloudflare/odoh-go"
@@ -87,27 +88,34 @@ type odohtransport struct {
 // TODO: Keep a context here so that queries can be canceled.
 type transport struct {
 	*odohtransport // stackoverflow.com/a/28505394
-	ctx            context.Context
-	done           context.CancelFunc
-	id             string
-	typ            string // dnsx.DOH / dnsx.ODOH
-	url            string // endpoint URL
-	hostname       string // endpoint hostname
-	port           uint16
-	skipTLSVerify  bool                       // skips tls verification
+
+	ctx  context.Context
+	done context.CancelFunc
+	id   string
+	typ  string // dnsx.DOH / dnsx.ODOH
+
+	url      string // endpoint URL
+	hostname string // endpoint hostname
+	port     uint16
+
 	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
 	echconfig      atomic.Pointer[tls.Config] // echconfig for the endpoint; may be nil
 	echrejects     atomic.Uint32              // number of running ech rejections
 	echlastattempt atomic.Int64               // last attempt fetching ech cfg; unix milli
-	pxcmu          sync.RWMutex               // protects pxclients
-	pxclients      map[string]*proxytransport // todo: use weak pointers for Proxy
-	lastpurge      atomic.Int64               // last scrubbed time for stale pxclients; unix milli
+	skipTLSVerify  bool                       // skips tls verification
 	preferGET      bool                       // saw 405 Method Not Allowed
-	proxies        ipn.ProxyProvider          // proxy provider, may be nil
-	relay          string                     // dial doh via relay, may be empty
-	relayref       *core.WeakRef[ipn.Proxy]   // preset ref to relay proxy, if any
-	status         atomic.Int32
-	est            core.P2QuantileEstimator
+
+	pxcmu     sync.RWMutex               // protects pxclients
+	pxclients map[string]*proxytransport // todo: use weak pointers for Proxy
+	lastpurge atomic.Int64               // last scrubbed time for stale pxclients; unix milli
+
+	proxies  ipn.ProxyProvider        // proxy provider, may be nil
+	relay    string                   // dial doh via relay, may be empty
+	relayref *core.WeakRef[ipn.Proxy] // preset ref to relay proxy, if any
+	mapper   ipmap.IPMapper           // resolver for internal queries; never nil
+
+	status atomic.Int32
+	est    core.P2QuantileEstimator
 }
 
 var _ dnsx.Transport = (*transport)(nil)
@@ -117,8 +125,10 @@ var _ dnsx.Transport = (*transport)(nil)
 // `rawurl` is the DoH template in string form.
 // `addrs` is a list of IP addresses to bootstrap dialers.
 // `px` is the proxy provider, may be nil (eg for id == dnsx.Default)
-func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.ProxyProvider) (*transport, error) {
-	return newTransport(ctx, dnsx.DOH, id, rawurl, "", addrs, px)
+// `m` is the IPMapper implementation (usually the dnsx resolver) for
+// internal queries, never nil.
+func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
+	return newTransport(ctx, dnsx.DOH, id, rawurl, "", addrs, px, m)
 }
 
 // NewTransport returns a POST-only Oblivious DoH transport.
@@ -127,11 +137,13 @@ func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn
 // `target` is the ODoH resolver.
 // `addrs` is a list of IP addresses to bootstrap endpoint dialers.
 // `px` is the proxy provider, never nil.
-func NewOdohTransport(ctx context.Context, id, endpoint, target string, addrs []string, px ipn.ProxyProvider) (*transport, error) {
-	return newTransport(ctx, dnsx.ODOH, id, endpoint, target, addrs, px)
+// `m` is the IPMapper implementation (usually the dnsx resolver) for
+// internal queries, never nil.
+func NewOdohTransport(ctx context.Context, id, endpoint, target string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
+	return newTransport(ctx, dnsx.ODOH, id, endpoint, target, addrs, px, m)
 }
 
-func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs []string, px ipn.ProxyProvider) (*transport, error) {
+func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
 	isodoh := typ == dnsx.ODOH
 
 	var renewed, getrelayretried bool
@@ -162,6 +174,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		proxies:   px,       // may be nil
 		relay:     relay,    // may be empty
 		relayref:  relayref, // may be nil
+		mapper:    m,        // never nil
 		pxclients: make(map[string]*proxytransport),
 		est:       core.NewP50Estimator(ctx),
 	}

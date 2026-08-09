@@ -114,7 +114,8 @@ func TestDot(t *testing.T) {
 	dtr, _ := dns53.NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	tr, _ := dns53.NewTransport(ctx, "test0", "1.0.0.2", "53", pxr)
 
-	natpt := x64.NewNatPt(tm, bdg)
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", tm, dtr, bdg, natpt)
 	resolv.Add(tr)
 	r4, _, err := resolv.Forward(b4)
@@ -161,7 +162,8 @@ func TestProxyReaches(t *testing.T) {
 	tr, _ := dns53.NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := dns53.NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 
-	natpt := x64.NewNatPt(tm, bdg)
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -206,7 +208,8 @@ func TestWindscribeReaches(t *testing.T) {
 	tr, _ := dns53.NewTLSTransport(ctx, "test0", "1.1.1.1", nil, pxr)
 	dtr, _ := dns53.NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 
-	natpt := x64.NewNatPt(tm, bdg)
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
 	resolv.Add(tr)
 

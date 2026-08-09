@@ -27,6 +27,7 @@ import (
 	"github.com/celzero/firestack/intra/dialers"
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/log"
+	"github.com/celzero/firestack/intra/protect/ipmap"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -52,6 +53,7 @@ var (
 	errEmpty        = errors.New("missing dns64 IPv6 prefixes")
 	errNotFound     = errors.New("resolver did not send dns64 ipv6 prefixes")
 	errNoSuchServer = errors.New("resolver not registered")
+	errNoMapper     = errors.New("no dns64 ipmapper")
 
 	emptyStruct = struct{}{}
 
@@ -66,6 +68,9 @@ type dns64 struct {
 	ip64 map[string][]net.IPNet
 	// dns-resolver -> unique nat64-ips
 	uniqIP64 map[string]map[string]struct{}
+
+	// mapper for dns64 queries; set via kickstart, may be nil
+	mapper ipmap.IPMapper
 
 	paused atomic.Bool
 }
@@ -84,6 +89,26 @@ func newDns64(ctx context.Context) *dns64 {
 	})
 	core.Gx("dns64.init", d.init)
 	return d
+}
+
+// kickstart wires in the IPMapper (usually the dnsx resolver) used for
+// dns64 queries. It is called once the resolver is up, since the resolver
+// itself needs this dns64 (see dnsx.NewResolver).
+func (d *dns64) kickstart(m ipmap.IPMapper) {
+	if m == nil {
+		log.W("dns64: kickstart: nil mapper")
+		return
+	}
+	d.Lock()
+	d.mapper = m
+	d.Unlock()
+	log.I("dns64: kickstart: mapper ok? %t", m != nil)
+}
+
+func (d *dns64) ipmapper() ipmap.IPMapper {
+	d.RLock()
+	defer d.RUnlock()
+	return d.mapper
 }
 
 func (d *dns64) pauseOrResume() {
@@ -171,7 +196,13 @@ func (d *dns64) AddResolver(r string) (ok bool) {
 		}
 	}()
 
-	ans, err := dialers.Query(arpa64, r)
+	m := d.ipmapper()
+	if m == nil {
+		log.W("dns64: resolver(%s): no ipmapper; skipping query phase", id)
+		return
+	}
+
+	ans, err := dialers.Query(m, arpa64, r)
 
 	if err != nil || ans == nil || !xdns.HasAnyAnswer(ans) {
 		log.W("dns64: udp: could not query %s[%s] or empty ans; err %v", r, id, err)
@@ -180,7 +211,7 @@ func (d *dns64) AddResolver(r string) (ok bool) {
 
 	if ans.Truncated { // should never be the case for DOH, ODOH, DOT
 		// else if: returned response is truncated dns ans, retry over tcp
-		ans, err = dialers.Query(arpa64, r)
+		ans, err = dialers.Query(m, arpa64, r)
 		if err != nil {
 			log.W("dns64: tcp: could not query resolver %s[%s]; err %v", r, id, err)
 			return
@@ -299,8 +330,13 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r, uid string) (*dns.Msg,
 
 	q4 := xdns.QName(msg4)
 
+	m := d.ipmapper()
+	if m == nil {
+		return nil, errNoMapper
+	}
+
 	// uid may be UNKNOWN_UID_STR if alg has "split" disabled.
-	res, err := dialers.QueryFor(msg4, uid, r)
+	res, err := dialers.QueryFor(m, msg4, uid, r)
 
 	hasAns := xdns.HasAnyAnswer(res)
 	log.D("dns64: for %s over %s: %s q(%s) / a(%t) / e(%v) / e-not-nil(%t)",
@@ -314,7 +350,7 @@ func (d *dns64) query64(network string, msg6 *dns.Msg, r, uid string) (*dns.Msg,
 	// res.Truncated never likely happens w/ DOH, ODOH, DOT?
 	if res.Truncated && proto != dnsx.NetTypeTCP {
 		// else if: returned response is truncated dns ans, retry over tcp
-		res, err = dialers.QueryFor(msg4, uid, r)
+		res, err = dialers.QueryFor(m, msg4, uid, r)
 
 		hasAns = xdns.HasAnyAnswer(res)
 		log.D("dns64: tcp: for %s over %s: q(%s) / a(%d) / e(%v) / e-not-nil(%t)",

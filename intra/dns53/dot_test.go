@@ -161,7 +161,8 @@ func TestDot(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 	r4, err := resolv.Lookup(q, protect.MyUid)
@@ -205,7 +206,8 @@ func TestProxyReaches(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -243,13 +245,14 @@ func TestSEProxy(t *testing.T) {
 
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
 
-	tr, _ := doh.NewTransport(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr)
-	dtr, _ := doh.NewTransport(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr)
+	tr, _ := doh.NewTransport(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr, netr)
+	dtr, _ := doh.NewTransport(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr, netr)
 	if tr == nil || dtr == nil {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -320,7 +323,8 @@ func TestWgReaches(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -414,7 +418,8 @@ func TestWinReaches(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -594,7 +599,8 @@ func TestWinDownloadSpeed(t *testing.T) {
 		t.Fatal("nil dns transports")
 	}
 
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 
@@ -732,7 +738,8 @@ func TestPerfReal(t *testing.T) {
 	dtr, derr := NewTransport(ctx, x.Default, "1.1.1.1", "53", pxr)
 	ko(t, derr)
 
-	natpt := x64.NewNatPt()
+	natpt := x64.NewNatPt2(ctx)
+	natpt.Kickstart(netr)
 	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
 	resolv.Add(tr)
 	resolv.Add(dtr)
@@ -783,7 +790,7 @@ func TestPerfRealDoH(t *testing.T) {
 	settings.Debug = true
 	dialers.Mapper(netr)
 
-	tr, err := doh.NewTransport(ctx, "perf-doh", "https://cloudflare-dns.com/dns-query", []string{"1.1.1.1", "2606:4700:4700::1111"}, pxr)
+	tr, err := doh.NewTransport(ctx, "perf-doh", "https://cloudflare-dns.com/dns-query", []string{"1.1.1.1", "2606:4700:4700::1111"}, pxr, netr)
 	if err != nil || tr == nil {
 		t.Fatalf("nil doh transport: %v", err)
 	}
