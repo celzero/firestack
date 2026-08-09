@@ -198,11 +198,15 @@ func (m *ExpMap[P, Q]) Alive(key P) bool {
 }
 
 // Delete deletes the given key.
-func (m *ExpMap[P, Q]) Delete(key P) {
+func (m *ExpMap[P, Q]) Delete(key P) (deleted bool) {
 	m.Lock()
 	defer m.Unlock()
-	m.ndels++
-	delete(m.m, key)
+	if _, ok := m.m[key]; ok {
+		m.ndels++
+		delete(m.m, key)
+		return true
+	}
+	return false
 }
 
 // Len returns the number of keys, which may or may not have expired.

@@ -86,8 +86,8 @@ func (s *Sieve[K, V]) Put(k K, v V) (replaced bool) {
 }
 
 // Del removes the element with the given key from the sieve.
-func (s *Sieve[K, V]) Del(k K) {
-	s.c.Delete(k)
+func (s *Sieve[K, V]) Del(k K) bool {
+	return s.c.Delete(k)
 }
 
 // Len returns the number of elements in the sieve.
@@ -156,15 +156,18 @@ func (s *Sieve2K[K1, K2, V]) Put(k1 K1, k2 K2, v V) (replaced bool) {
 }
 
 // Del removes the element with the given key from the sieve.
-func (s *Sieve2K[K1, K2, V]) Del(k1 K1, k2 K2) {
-	s.ndels.Add(1)
+func (s *Sieve2K[K1, K2, V]) Del(k1 K1, k2 K2) (deleted bool) {
 	s.mu.RLock()
 	inn := s.m[k1]
 	if inn != nil {
-		inn.Del(k2)
+		deleted = inn.Del(k2)
 	}
-	empty := inn.Len() == 0 // inn may be nil
+	empty := inn == nil || inn.Len() == 0 // inn may be nil
 	s.mu.RUnlock()
+
+	if deleted {
+		s.ndels.Add(1)
+	}
 
 	if empty {
 		s.mu.Lock()
@@ -179,6 +182,7 @@ func (s *Sieve2K[K1, K2, V]) Del(k1 K1, k2 K2) {
 		}
 		s.mu.Unlock()
 	}
+	return deleted
 }
 
 // Len returns the number of elements in the sieve.
