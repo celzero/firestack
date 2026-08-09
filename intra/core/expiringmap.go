@@ -248,12 +248,6 @@ func (m *ExpMap[P, Q]) purgeLocked(now time.Time) int {
 	return n
 }
 
-func (m *ExpMap[P, Q]) purgeExpired(now time.Time) int {
-	m.Lock()
-	defer m.Unlock()
-	return m.purgeLocked(now)
-}
-
 // reaper deletes expired keys — single reaper per ExpMap, no
 // per-Sieve2K goroutine. Sieve2K outer leak is fixed by hooking
 // inner reapers (see Sieve2K.Put/reclaimIfEmpty): when an inner
