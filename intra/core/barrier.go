@@ -168,6 +168,8 @@ func (ba *Barrier[T, K]) maybeScrubLocked() {
 	}
 	ba.lastscrub = now
 
+	maxreapiter := 50
+
 	Go("ba.scrub."+ba.id, func() {
 		ba.mu.Lock()
 		defer ba.mu.Unlock()

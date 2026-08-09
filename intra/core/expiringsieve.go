@@ -140,6 +140,10 @@ func (s *Sieve2K[K1, K2, V]) Put(k1 K1, k2 K2, v V) (replaced bool) {
 		if inn == nil {
 			ctx, done := context.WithCancel(s.ctx)
 			inn = newInnerSieve[K2, V](ctx, s.id+".inner", s.life)
+			// Hook inner reaper: when inner becomes empty (via expiry
+			// reaps), reclaim the outer entry without a dedicated ticker.
+			k1copy := k1
+			inn.c.clearall = func() { s.reclaimIfEmpty(k1copy) }
 			s.m[k1] = inn
 			s.d[k1] = done
 		}
@@ -202,6 +206,30 @@ func (s *Sieve2K[K1, K2, V]) Clear() (n int) {
 	clear(s.m)
 	clear(s.d)
 	return
+}
+
+func (s *Sieve2K[K1, K2, V]) reclaimIfEmpty(k1 K1) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	inn := s.m[k1]
+	if inn == nil || inn.c == nil {
+		if done := s.d[k1]; done != nil {
+			done()
+		}
+		delete(s.m, k1)
+		delete(s.d, k1)
+		return
+	}
+	// reaper already did the single purgeLocked sweep; just check emptiness.
+	// No second purge here — avoids reaper -> clearall -> purgeLocked cycle.
+	if inn.Len() == 0 {
+		if done := s.d[k1]; done != nil {
+			done()
+		}
+		delete(s.m, k1)
+		delete(s.d, k1)
+	}
 }
 
 // Stat returns a snapshot of the sieve's current state.

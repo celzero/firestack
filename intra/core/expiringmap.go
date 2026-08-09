@@ -14,7 +14,6 @@ import (
 
 var (
 	reapthreshold = 5 * time.Minute
-	maxreapiter   = 50
 	lifetime      = 0 * time.Millisecond
 )
 
@@ -33,6 +32,8 @@ type ExpMap[P comparable, Q any] struct {
 	sigreap    chan struct{}
 	lastreap   time.Time
 	minlife    time.Duration
+
+	clearall Finally // called after reap if map is empty; set by Sieve2K
 
 	ngets uint64 // count of Get() calls; under Mutex
 	nsets uint64 // count of Set()/K() calls; under Mutex
@@ -239,40 +240,61 @@ func (m *ExpMap[P, Q]) Clear() int {
 	return l
 }
 
-// reaper deletes expired keys.
-// Must always be called from a goroutine.
+// purgeLocked deletes all expired keys (now.After expiry).
+// Caller must hold m.Mutex; it updates ndels and lastreap.
+func (m *ExpMap[P, Q]) purgeLocked(now time.Time) int {
+	if len(m.m) == 0 {
+		return 0
+	}
+	n := 0
+	for k, v := range m.m {
+		if now.After(v.expiry) {
+			delete(m.m, k)
+			n++
+		}
+	}
+	if n > 0 {
+		m.ndels += uint64(n)
+		m.lastreap = now
+	}
+	return n
+}
+
+func (m *ExpMap[P, Q]) purgeExpired(now time.Time) int {
+	m.Lock()
+	defer m.Unlock()
+	return m.purgeLocked(now)
+}
+
+// reaper deletes expired keys — single reaper per ExpMap, no
+// per-Sieve2K goroutine. Sieve2K outer leak is fixed by hooking
+// inner reapers (see Sieve2K.Put/reclaimIfEmpty): when an inner
+// becomes empty its hook reclaims the outer K1 entry.
+// Single sweep path: purgeLocked is the only expiry loop.
 func (m *ExpMap[P, Q]) reaper(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			m.Clear()
+			if m.clearall != nil {
+				m.clearall()
+			}
 			return
 		case <-m.sigreap:
 		}
-
 		m.Lock()
-
 		now := time.Now()
-		treap := m.lastreap.Add(reapthreshold)
-		// if last reap was reap-threshold minutes ago...
-		if now.Sub(treap) <= 0 {
+		if now.Sub(m.lastreap.Add(reapthreshold)) <= 0 {
 			m.Unlock()
 			continue
 		}
-		m.lastreap = now
-		// reap up to maxreapiter entries
-		i := 0
-		for k, v := range m.m {
-			i += 1
-			if now.Sub(v.expiry) > 0 {
-				m.ndels++
-				delete(m.m, k)
-			}
-			if i > maxreapiter {
-				break
-			}
-		}
+		m.purgeLocked(now)
+		empty := len(m.m) == 0
 		m.Unlock()
+
+		if empty && m.clearall != nil {
+			m.clearall()
+		}
 	}
 }
 
