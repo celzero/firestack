@@ -124,6 +124,7 @@ type Memconsole struct {
 	vainwait  atomic.Uint64  // wait count for drains to complete that were not useful
 	ticking   atomic.Bool    // true while a lazy ticker goroutine is running
 	closed    atomic.Bool
+	wg        sync.WaitGroup // tracks async Drain goroutines
 }
 
 var _ Console = (*Memconsole)(nil)
@@ -231,7 +232,11 @@ rollover:
 			if stacktracing { // flush synchronously if emitting crash traces
 				mc.consume(r, idx, start, end)
 			} else {
-				go mc.consume(r, idx, start, end)
+				mc.wg.Add(1)
+				go func(captured MemReader, i, s, e int) {
+					defer mc.wg.Done()
+					mc.consume(captured, i, s, e)
+				}(r, idx, start, end)
 			}
 		} else { // the other buffer's consume is wip; cannot swap in
 			if !waited && waitOnFull {
@@ -484,15 +489,19 @@ func (mc *Memconsole) Close() error {
 		return nil // already closed
 	}
 
-	// drain the active buffer. Any write() or periodicFlush()
-	// already holding mu will complete first; subsequent ones see closed=true.
+	// Wait for any async Drain launched from the buffer-full path.
+	// Hold mu only to snapshot state; release while waiting so writers
+	// that raced past closed check can finish.
 	if mc.slotIdx > 0 {
 		other := mc.active ^ 1
 		mc.mu.Unlock()
+		// Wait for the other-buffer Drain that currently owns draining[other].
 		for mc.draining[other].Load() {
 			runtime.Gosched()
 			time.Sleep(waitPeriodOnFull)
 		}
+		// Also wait for any async Drain goroutines tracked by wg.
+		mc.wg.Wait()
 		mc.mu.Lock()
 	}
 
@@ -501,7 +510,10 @@ func (mc *Memconsole) Close() error {
 	mc.reader = nil
 	mc.mu.Unlock()
 
-	// called sync; Drain() is complete when it returns
+	// called sync; Drain() is complete when it returns. At this point no
+	// async goroutine holds draining[idx] (wg already waited, and
+	// draining[other] waited), so this consume cannot race with a stale
+	// Store(0) of the header or draining flag.
 	mc.consume(r, idx, start, end)
 
 	if r != nil {
