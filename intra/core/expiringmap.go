@@ -77,32 +77,29 @@ func (m *ExpMap[P, Q]) Stat() MapState {
 	}
 }
 
-// Get returns the number of hits for the given key.
+// Get returns the number of hits for the given key. On miss it inserts
+// an immediately-expired entry (expiry=now, hits=0) so the reaper can GC
+// Get-only keys; callers see 0 either way. On hit, it resets hits to 0,
+// if expired, else increments by 1.
 func (m *ExpMap[P, Q]) Get(key P) uint32 {
 	if done(m.ctx) {
 		return 0
 	}
-
 	n := time.Now()
-
 	m.Lock()
 	defer m.Unlock()
 	m.ngets++
-
 	v, ok := m.m[key]
-	if !ok {
-		v = &val[Q]{
-			expiry: n,
-		}
+	if !ok || v == nil {
+		v = &val[Q]{expiry: n}
 		m.m[key] = v
-		// new entries have expiry = now (immediately expired); signal the
-		// reaper so they are eventually cleaned up even if Set/K is never
-		// called. Without this, Get-only usage grows the map without bound.
 		select {
 		case m.sigreap <- struct{}{}:
 		default:
 		}
-	} else if n.After(v.expiry) {
+		return 0
+	}
+	if n.After(v.expiry) {
 		v.hits = 0
 	} else {
 		v.hits++
@@ -111,76 +108,64 @@ func (m *ExpMap[P, Q]) Get(key P) uint32 {
 }
 
 // Set sets the expiry for the given key and returns the number of hits.
-// expiry must be greater than the minimum lifetime.
+// expiry is clamped to minlife. If the key was expired, its hit window
+// is reset to 0 before returning. Value is set to Q's zero value.
 func (m *ExpMap[P, Q]) Set(key P, expiry time.Duration) uint32 {
 	if done(m.ctx) {
 		return 0
 	}
-
-	if expiry < m.minlife {
-		expiry = m.minlife
-	}
-
-	n := time.Now().Add(expiry)
-
-	m.Lock()
-	defer m.Unlock()
-	m.nsets++
-
-	v, ok := m.m[key]
-	if v == nil || !ok { // add new val
-		v = &val[Q]{
-			expiry: n,
-		}
-		m.m[key] = v
-	} else if n.After(v.expiry) { // update expiry
-		v.expiry = n
-	} // else: no change
-
-	select {
-	case m.sigreap <- struct{}{}:
-	default:
-	}
-
 	var zz Q
-	v.v = zz
-	return v.hits
+	hits, _ := m.upsert(key, zz, expiry)
+	return hits
 }
 
 // K sets the (value, expiry) for the given key and returns the number of hits.
-// expiry must be greater than the minimum lifetime.
+// expiry is clamped to minlife. If the key was expired, its hit window
+// is reset to 0 before returning.
 func (m *ExpMap[P, Q]) K(key P, value Q, expiry time.Duration) uint32 {
 	if done(m.ctx) {
 		return 0
 	}
+	hits, _ := m.upsert(key, value, expiry)
+	return hits
+}
 
+// Upsert is the single path for Set and K.
+// Clamps expiry to minlife, resets hits when now.After(oldExpiry),
+// extends expiry only when n.After(oldExpiry). Returns previous hit
+// count and whether a fresh (not-expired) entry was replaced.
+func (m *ExpMap[P, Q]) Upsert(key P, value Q, expiry time.Duration) (hits uint32, replaced bool) {
+	return m.upsert(key, value, expiry)
+}
+
+func (m *ExpMap[P, Q]) upsert(key P, value Q, expiry time.Duration) (uint32, bool) {
 	if expiry < m.minlife {
 		expiry = m.minlife
 	}
-
-	n := time.Now().Add(expiry)
-
+	now := time.Now()
+	n := now.Add(expiry)
 	m.Lock()
 	defer m.Unlock()
 	m.nsets++
-
 	v, ok := m.m[key]
-	if v == nil || !ok { // add new val
-		v = &val[Q]{
-			expiry: n,
-		}
+	replaced := ok && v != nil && now.Before(v.expiry)
+	if v == nil || !ok {
+		v = &val[Q]{expiry: n}
 		m.m[key] = v
-	} else if n.After(v.expiry) { // update expiry
-		v.expiry = n
-	} // else: no change
-
+	} else {
+		if now.After(v.expiry) {
+			v.hits = 0
+		}
+		if n.After(v.expiry) {
+			v.expiry = n
+		}
+	}
 	select {
 	case m.sigreap <- struct{}{}:
 	default:
 	}
-
 	v.v = value
-	return v.hits
+	return v.hits, replaced
 }
 
 func (m *ExpMap[P, Q]) V(key P) (zz Q, fresh bool) {

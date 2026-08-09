@@ -78,9 +78,11 @@ func (s *Sieve[K, V]) Get(k K) (V, bool) {
 	return s.c.V(k)
 }
 
-// Put adds an element to the sieve with the given key and value.
+// Put adds/updates k->v with lifetime; returns whether a
+// not-expired entry was replaced or inserted/revived after expiry.
 func (s *Sieve[K, V]) Put(k K, v V) (replaced bool) {
-	return s.c.K(k, v, s.c.minlife) > 0
+	_, replaced = s.c.Upsert(k, v, s.c.minlife)
+	return replaced
 }
 
 // Del removes the element with the given key from the sieve.
