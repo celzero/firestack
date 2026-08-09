@@ -131,9 +131,8 @@ func (m *ExpMap[P, Q]) K(key P, value Q, expiry time.Duration) uint32 {
 }
 
 // Upsert is the single path for Set and K.
-// Clamps expiry to minlife, resets hits when now.After(oldExpiry),
-// extends expiry only when n.After(oldExpiry). Returns previous hit
-// count and whether a fresh (not-expired) entry was replaced.
+// Clamps expiry to minlife, resets hits when expiry is after existing expiry;
+// returns total hits and whether a not-expired entry was replaced.
 func (m *ExpMap[P, Q]) Upsert(key P, value Q, expiry time.Duration) (hits uint32, replaced bool) {
 	return m.upsert(key, value, expiry)
 }

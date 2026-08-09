@@ -198,8 +198,9 @@ func (s *Sieve2K[K1, K2, V]) Clear() (n int) {
 	defer s.mu.Unlock()
 
 	for _, inn := range s.m {
-		n += inn.Clear()
-		s.ndels.Add(uint64(n))
+		d := inn.Clear()
+		n += d
+		s.ndels.Add(uint64(d))
 	}
 	for _, done := range s.d {
 		done()
