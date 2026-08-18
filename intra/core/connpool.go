@@ -488,7 +488,25 @@ func (a agingconn) canread() error {
 }
 
 func (a agingconn) resetDeadline() {
-	a.c.SetDeadline(time.Time{})
+	if a.c == nil || IsNil(a.c) {
+		return
+	}
+	if tc, ok := a.c.(*tls.Conn); ok {
+		if tc.NetConn() == nil || IsNil(tc.NetConn()) {
+			return
+		}
+	}
+	if dc, ok := a.c.(*dns.Conn); ok {
+		if dc.Conn == nil || IsNil(dc.Conn) {
+			return
+		}
+		if tc, ok := dc.Conn.(*tls.Conn); ok {
+			if tc.NetConn() == nil || IsNil(tc.NetConn()) {
+				return
+			}
+		}
+	}
+	_ = a.c.SetDeadline(time.Time{})
 }
 
 func logev(err error) log.LogFn {

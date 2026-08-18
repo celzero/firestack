@@ -175,9 +175,14 @@ func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uint64, usingech bool, err
 
 	defer func() {
 		if dc != nil {
-			// todo: higher timeout for if using proxy dialer
-			// _ = c.SetDeadline(time.Now().Add(dottimeout * 2))
-			if c := dc.Conn; c != nil {
+			if c := dc.Conn; core.IsNotNil(c) {
+				if tc, ok := c.(*tls.Conn); ok {
+					if tc.NetConn() == nil || core.IsNil(tc.NetConn()) {
+						return
+					}
+				}
+				// todo: higher timeout for if using proxy dialer
+				// _ = c.SetDeadline(time.Now().Add(dottimeout * 2))
 				_ = c.SetDeadline(time.Now().Add(dottimeout))
 			}
 		}
@@ -195,15 +200,15 @@ func (t *dot) tlsdial(p ipn.Proxy) (dc *dns.Conn, who uint64, usingech bool, err
 		// update ech config which may have been changed by DialWithTls
 		defer t.echconfig.Store(echcfg)
 		c, err = dialers.DialWithTls(p.Dialer(), echcfg, "tcp", addr)
-		usingech = err == nil && c != nil
+		usingech = err == nil && core.IsNotNil(c)
 	}
 
-	if c == nil { // no ech or ech failed
+	if core.IsNil(c) { // no ech or ech failed
 		cfg := t.c.TLSConfig
 		c, err = dialers.DialWithTls(p.Dialer(), cfg, "tcp", addr)
 		usingech = false
 	}
-	if c != nil {
+	if core.IsNotNil(c) {
 		if tlsConn, ok := c.(*tls.Conn); ok && usingech {
 			usingech = tlsConn.ConnectionState().ECHAccepted
 		}
