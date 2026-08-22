@@ -153,7 +153,7 @@ const (
 	pintimeout            = 10 * time.Minute // time to keep a pin
 	maxFailingPinTrackTTl = 30 * time.Second // max period to track a failing to-be-pinned proxy
 	maxStallPeriodSec     = 10               // max duration to stall a failing proxy
-	minWaitPeriodSec      = 3                // min duration to wait for a missing proxy to be added
+	minWaitPeriodSec      = 2                // min duration to wait for a missing proxy to be added
 	getproxytimeout       = 5 * time.Second
 )
 
@@ -929,7 +929,7 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 		// Ingress (dummy): no fast path, fall through to general lookup
 	}
 
-	timeout := getproxytimeout
+	timeout := time.Duration(minWaitPeriodSec/2) * time.Second
 	// go.dev/play/p/xCug1W3OcMH
 	p, completed := core.Grx("pxr.ProxyFor: "+id, func(_ context.Context) (Proxy, error) {
 		px.RLock()
