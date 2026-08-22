@@ -153,7 +153,7 @@ func addrport(ip string, port string) (ipp netip.AddrPort, err error) {
 
 const (
 	// Use among encrypted dns transports wrapped by dnsx.Plus
-	PlusFilterSafest = iota
+	PlusOrderSafest = iota
 	// Use dns transports randomly wrapped by dnsx.Plus
 	PlusOrderRandom
 	// Prefer faster (p50 latency) dns transports wrapped by dnsx.Plus
@@ -162,15 +162,24 @@ const (
 	PlusOrderRobust
 )
 
+const (
+	// Use only adblocking transport
+	PlusFilterNone = iota
+	// Use only encrypted transport
+	PlusFilterAdblock
+)
+
 var PlusStrat = atomic.Int32{}
+var PlusFilter = atomic.Int32{}
 
 // SetPlusStrategy returns the order strategy for Plus DNS transports.
-func SetPlusStrategy(new int) bool {
-	if new < PlusFilterSafest || new > PlusOrderRobust {
-		log.W("dnsopt: invalid plus order strategy %d", new)
+func SetPlusStrategy(ord, filter int) bool {
+	if ord < PlusOrderSafest || ord > PlusOrderRobust {
+		log.W("dnsopt: invalid plus order strategy %d", ord)
 		return false
 	}
-	old := PlusStrat.Swap(int32(new))
-	log.I("dnsopt: set plus order strategy to %d <= %d", new, old)
+	old := PlusStrat.Swap(int32(ord))
+	fold := PlusFilter.Swap(int32(filter))
+	log.I("dnsopt: set plus order strategy to %d <= %d; filter = %d <= %d", ord, old, filter, fold)
 	return true
 }

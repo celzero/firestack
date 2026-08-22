@@ -110,6 +110,7 @@ var (
 	ErrNoProxyDNS           = errors.New("dns: no proxy")
 	ErrAddFailed            = errors.New("dns: add failed")
 	errNoSuchTransport      = errors.New("dns: missing transport")
+	errTransportMultFilter  = errors.New("dns: all transports filtered out")
 	errTransportEnd         = errors.New("dns: transport ended")
 	errTransportPaused      = errors.New("dns: transport paused")
 	errOnQueryTimeout       = errors.New("dns: timeout fetching query prefs")
@@ -1509,7 +1510,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	return
 }
 
-func (r *resolver) chooseOne(who string, chooseRandom bool, ids ...string) (theone string) {
+func (r *resolver) chooseOne(who string, random bool, ids ...string) (theone string) {
 	if len(ids) <= 0 {
 		return ""
 	}
@@ -1544,13 +1545,13 @@ func (r *resolver) chooseOne(who string, chooseRandom bool, ids ...string) (theo
 	}
 
 	if len(remote) > 0 { // prefer Remote, if set
-		if chooseRandom {
+		if random {
 			// TODO: choose with ProxyTo, which checks for proxy health
 			return idstr(core.ChooseOne(remote))
 		}
 		return idstr(remote[0])
 	} else if len(rerecov) > 0 { // prefer Recovered, if set
-		if chooseRandom {
+		if random {
 			return idstr(core.ChooseOne(rerecov))
 		}
 		return idstr(rerecov[0])
@@ -1561,22 +1562,22 @@ func (r *resolver) chooseOne(who string, chooseRandom bool, ids ...string) (theo
 	}
 
 	if len(best) > 0 {
-		if chooseRandom {
+		if random {
 			return idstr(core.ChooseOne(best))
 		}
 		return idstr(best[0])
 	} else if len(preferred) > 0 {
-		if chooseRandom {
+		if random {
 			return idstr(core.ChooseOne(preferred))
 		}
 		return idstr(preferred[0])
 	} else if len(recoverables) > 0 {
-		if chooseRandom {
+		if random {
 			return idstr(core.ChooseOne(recoverables))
 		}
 		return idstr(recoverables[0])
 	} else if len(errored) > 0 {
-		if chooseRandom {
+		if random {
 			return idstr(core.ChooseOne(errored))
 		}
 		return idstr(errored[0])

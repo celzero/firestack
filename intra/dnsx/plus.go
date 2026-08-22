@@ -32,7 +32,7 @@ const plusMaxTries = 6
 const ttl10s = 10 * time.Second
 
 var fakePlusIpports = []netip.AddrPort{
-	netip.MustParseAddrPort("[fdaa:9125::9125:9]:53"),
+	netip.MustParseAddrPort("[fdaa:9125::9]:53"),
 }
 
 type plus struct {
@@ -49,6 +49,9 @@ type plus struct {
 
 	closed atomic.Bool
 	last   core.MutexValue[Transport]
+	// adblockcache memoizes t.plusIsAdblock results against GetAddr;
+	// keys are tr.Type() + "/" + tr.GetAddr().
+	adblockcache sync.Map // string => bool
 }
 
 var _ Transport = (*plus)(nil)
@@ -172,11 +175,12 @@ func (t *plus) ordered() ([]Transport, error) {
 
 	prev := ord
 	strat := settings.PlusStrat.Load()
+	filter := settings.PlusFilter.Load()
 
 	refiltered := false
 refilter:
 	switch strat {
-	case settings.PlusFilterSafest:
+	case settings.PlusOrderSafest:
 		ord = core.FilterLeft(ord, IsEncrypted)
 	case settings.PlusOrderRandom:
 		ord = core.ShuffleInPlace(ord)
@@ -192,9 +196,24 @@ refilter:
 		goto refilter
 	}
 
+	if filter == settings.PlusFilterAdblock {
+		// keep only encrypted transports from adguard or mullvad;
+		// unlike PlusOrder*, this filter is never relaxed on refilter
+		f := core.FilterLeft(ord, t.plusIsAdblock)
+		if len(f) <= 0 {
+			log.W("plus: strat %d: filter %d: no adguard/mullvad transports avail [exp: %d]: chosen: %s / pref: %s / errored: %v / ended: %v",
+				strat, filter, expected, infcsv(ord...), infcsv(preferred...), infcsv(errored...), infcsv(ended...))
+			return nil, errTransportMultFilter
+		}
+		ord = f
+	}
+
 	if len(ord) <= 0 {
 		log.W("plus: strat %d: zero transports avail [exp: %d]: sys? %s / pref: %s / errored: %v / ended: %v",
 			strat, expected, idstr(sys), infcsv(preferred...), infcsv(errored...), infcsv(ended...))
+		if filter == settings.PlusFilterAdblock {
+			return nil, errTransportMultFilter
+		}
 		return nil, errNoSuchTransport
 	} else if len(ord) < len(prev) {
 		log.VV("plus: strat %d: filtered %d < chosen %d; chosen: %s / pref: %v",
@@ -202,6 +221,34 @@ refilter:
 	}
 
 	return ord, nil
+}
+
+// plusAdblockCache memoizes plusIsAdblock results against GetAddr;
+// keys are tr.Type() + "/" + tr.GetAddr().
+var plusAdblockCache sync.Map // string => bool
+
+// plusIsAdblock implements settings.PlusFilterAdblock: only encrypted
+// transports whose GetAddr is hosted by "adguard" or "mullvad" qualify.
+func (t *plus) plusIsAdblock(tr Transport) (y bool) {
+	if tr == nil {
+		return false
+	}
+	addr := tr.GetAddr()
+	if len(addr) <= 0 {
+		return false
+	}
+	// GetAddr alone cannot distinguish between transports of
+	// differing types hosted at the same address.
+	key := tr.Type() + "/" + addr
+
+	if v, ok := t.adblockcache.Load(key); ok {
+		return v.(bool)
+	}
+
+	y = IsEncrypted(tr) && (strings.Contains(strings.ToLower(addr), "adguard") ||
+		strings.Contains(strings.ToLower(addr), "mullvad"))
+	t.adblockcache.Store(key, y)
+	return
 }
 
 func (t *plus) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
