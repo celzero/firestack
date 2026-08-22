@@ -478,7 +478,7 @@ jobs:
 
   # from: github.com/golangci/golangci-lint-action
   golangci-lint:
-    name: 🧭 Lint 
+    name: 🧭 Lint
     runs-on: ubuntu-latest
     permissions:
       # Required: allow read access to the content for analysis.
