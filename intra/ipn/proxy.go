@@ -765,6 +765,9 @@ func healthy(p Proxy) error {
 	age := now - stat.LastOpen
 
 	oldEnough := age > ageThreshold.Milliseconds()
+
+	lastGoodRx := now - stat.LastGoodRx
+	lastGoodTx := now - stat.LastGoodTx
 	lastOK := stat.LastOK
 	lastOKNeverOK := lastOK <= 0
 	lastOKBeyondThres := lastOK > 0 && now-lastOK > lastOKThreshold.Milliseconds()
@@ -774,8 +777,10 @@ func healthy(p Proxy) error {
 			pid, core.FmtMillis(age), pxstatus(status), lastOKNeverOK, lastOKBeyondThres)
 	} else if now-lastOK > tzzTimeout.Milliseconds() {
 		core.Gx("proxy.health.TZZ."+pid, func() { p.Ping() })
+	} else if lastGoodTx > tzzTimeout.Milliseconds() || lastGoodRx > tzzTimeout.Milliseconds() {
+		core.Gx("proxy.health.TxRx."+pid, func() { p.Ping() })
 	} else if status != TOK {
-		core.Gx("proxy.health.TOK."+pid, func() { p.Ping() })
+		core.Gx("proxy.health.TNOK."+pid, func() { p.Ping() })
 	}
 
 	return nil // ok
