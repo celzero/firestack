@@ -717,7 +717,23 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 		return nil
 	}
 	if c == nil {
-		return syscall.EAFNOSUPPORT
+		// No socket for the endpoint's family (ex: v6 listener failed to open).
+		// Fall back to the other family's socket by unmapping/mapping the
+		// destination address (v6 => v4 only), instead of failing every send
+		// with EAFNOSUPPORT.
+		if is6 {
+			if a4 := ep.DstIP().Unmap(); addrok(a4) {
+				log.W("wg: bind2: %s no v6 socket for %v; falling back to v4 %v", s.id, ep.DstIP(), a4)
+				is6 = false
+				blackhole = s.blackhole4
+				offload = s.ipv4TxOffload
+				c = s.ipv4
+				br = s.ipv4PC
+			}
+		}
+		if c == nil {
+			return syscall.EAFNOSUPPORT
+		}
 	}
 
 	msgs := s.getMessages() // from msgspool

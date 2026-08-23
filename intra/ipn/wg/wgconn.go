@@ -694,7 +694,27 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 		return nil
 	}
 	if uc == nil {
-		return syscall.EAFNOSUPPORT
+		dst6 := dstIpp.Addr().Is6()
+		// No socket for dstIpp's family (ex: v6 listener failed to open, or
+		// use6 went stale after a reopen). Fall back to the other family's
+		// socket and address, if the endpoint has one, instead of failing
+		// every send with EAFNOSUPPORT.
+		var alt netip.AddrPort
+		if dst6 {
+			alt = ep.v4
+		} else {
+			alt = ep.v6
+		}
+		if ipok(alt) {
+			log.W("wg: bind: send: %s (%d) no socket (v6? %t) for %v; falling back to %v",
+				s.id, fd, dst6, dstIpp, alt)
+			dstIpp = alt
+			s.use6.Store(dst6) // persist the working family
+			uc, fd, blackhole = s.getconn(dstIpp)
+		}
+		if uc == nil {
+			return syscall.EAFNOSUPPORT
+		}
 	}
 
 	var floodWg = settings.FloodWireGuard.Load()
@@ -968,4 +988,12 @@ func messageType(unobs []byte, t uint32) (y bool) {
 
 func ipok(ipp netip.AddrPort) bool {
 	return ipp.IsValid() && !ipp.Addr().IsUnspecified() && !ipp.Addr().IsMulticast()
+}
+
+// iffam returns the address family name for logging.
+func iffam(is6 bool) string {
+	if is6 {
+		return "v6"
+	}
+	return "v4"
 }
