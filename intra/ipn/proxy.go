@@ -440,13 +440,18 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		}
 		if len(h) > 0 { // x may be ip, host
 			ips, err := dialers.Resolve(host, dnsid)
-			if err != nil {
-				if dnsid != x.Default && defaultfallback {
-					if log.Debug {
-						log.D("proxy: reaches: %s resolve %s err %s: %v; using Default", pid, dnsid, host, err)
-					}
-					ips = dialers.For(host)
+			if err != nil || len(ips) <= 0 {
+				// resolution over dnsid failed or yielded no addrs;
+				// last resort: resolve over the Default transport.
+				// skip if dnsid already is Default or fallback is disabled
+				if dnsid == x.Default || !defaultfallback {
+					log.W("proxy: reaches: %s resolve %s on %s failed: err %v / no addrs",
+						pid, host, dnsid, err)
+					continue
 				}
+				log.I("proxy: reaches: %s resolve %s on %s err %v / no addrs; using Default",
+					pid, host, dnsid, err)
+				ips, _ = dialers.Resolve(host, x.Default)
 			}
 			for _, ip := range ips {
 				ipp := netip.AddrPortFrom(ip, uint16(on))

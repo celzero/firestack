@@ -35,15 +35,16 @@ func ResolveFor(m ipmap.IPMapper, nom string, uid string, tids ...string) ([]net
 		// even if ipmapper lookups return no addrs, raw ipset
 		// may have seed addrs; which when empty, error out.
 		err = core.OneErr(err, errNoIps)
+		return nil, err
 	} else if uid == protect.MyUid {
 		// cache for dialers to use; only for MyUid, not for other uids
 		cache(nom, addrs)
 	}
-	return addrs, err
+	return addrs, nil
 }
 
-// Resolve is like ResolverFor but with uid = protect.MyUid.
-// See: [For] to get cached addrs and optionally resolve, and [CachedAddrs] to only get cached addrs.
+// Resolve is like [ResolveFor] but with uid = protect.MyUid.
+// See: [For] to get cached addrs and if missing, then resolve, and [CachedAddrs] to only get cached addrs.
 func Resolve(hostname string, tids ...string) (addrs []netip.Addr, err error) {
 	return ResolveFor(ipm, hostname, protect.MyUid, tids...)
 }

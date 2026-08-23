@@ -58,6 +58,9 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 		return nil, ErrNoHost
 	}
 	if protect.NeverResolve(host) {
+		if log.Verbose {
+			log.W("ipmapper: lookup: no-op; protected host: %s", host)
+		}
 		return nil, nil
 	}
 	if host == protect.Localhost || host == "localhost." {
@@ -149,7 +152,7 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 	ips := append(ip4, ip6...)
 
 	if log.Debug {
-		log.D("ipmapper: host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
+		log.D("ipmapper: lookup: host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
 			host, ips, xdns.Len(r4), xdns.Len(r6), uid, tid4, tid6, lerr4, lerr6)
 	}
 
