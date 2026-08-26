@@ -95,7 +95,7 @@ func TestOne(t *testing.T) {
 	resolver := fakeResolver{r}
 	dialers.Mapper(resolver)
 	settings.Debug = true
-	p := NewDcMult(ctx, pxr, ctl)
+	p := NewDcMult(ctx, pxr)
 	// csromania fetches certs, but not answers
 	// csromania := "sdns://AQIAAAAAAAAADTE0Ni43MC42Ni4yMjcgMTNyrVlWMsJBa4cvCY-FG925ZShMbL6aTxkJZDDbqVoeMi5kbnNjcnlwdC1jZXJ0LmNyeXB0b3N0b3JtLmlz"
 	// dctnl does not fetch certs

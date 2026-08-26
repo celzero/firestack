@@ -33,7 +33,6 @@ import (
 	"github.com/celzero/firestack/intra/dnsx"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
 	"github.com/celzero/firestack/intra/xdns"
 	"github.com/miekg/dns"
@@ -60,7 +59,6 @@ type DcMulti struct {
 	sigterm             context.CancelFunc
 	lastStatus          atomic.Int32
 	lastAddr            string
-	ctl                 protect.Controller
 	exit                ipn.Proxy // may be nil
 	est                 core.P2QuantileEstimator
 }
@@ -749,7 +747,18 @@ func stamp2str(s stamps.ServerStamp) string {
 }
 
 // NewDcMult creates a dnscrypt proxy
-func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controller) *DcMulti {
+func NewDcMult(pctx context.Context, px ipn.ProxyProvider) *DcMulti {
+	dc := newDcMult(pctx, px)
+	err := dc.start()
+	if err != nil {
+		log.E("dnscrypt: start failed: %v", err)
+	}
+	return dc
+}
+
+// newDcMult creates an (unstarted) dnscrypt proxy; proxy keys are generated,
+// but certificates are neither fetched nor refreshed periodically.
+func newDcMult(pctx context.Context, px ipn.ProxyProvider) *DcMulti {
 	ctx, cancel := context.WithCancel(pctx)
 	exit, err := px.ProxyFor(ipn.Exit)
 	if err != nil {
@@ -765,16 +774,43 @@ func NewDcMult(pctx context.Context, px ipn.ProxyProvider, ctl protect.Controlle
 		liveServers:         nil,
 		proxies:             px,
 		lastAddr:            "",
-		ctl:                 ctl,
 		exit:                exit, // may be nil
 		est:                 core.NewP50Estimator(ctx),
 	}
 	dc.lastStatus.Store(dnsx.Start)
-	err = dc.start()
-	if err != nil {
-		log.E("dnscrypt: start failed: %v", err)
+	if _, err := crypto_rand.Read(dc.proxySecretKey[:]); err != nil {
+		log.E("dnscrypt: keygen failed: %v", err)
 	}
+	curve25519.ScalarBaseMult(&dc.proxyPublicKey, &dc.proxySecretKey)
 	return dc
+}
+
+// NewTransport creates a free-standing (unregistered) DNSCrypt transport for
+// id from rawstamp (a sdns:// stamp), dialing via p's proxies. The returned
+// transport is not registered with p nor tracked by any resolver, and its
+// certificate is not refreshed; it is expected to be short-lived (as long as
+// the fetched certificate remains valid).
+func NewTransport(p *DcMulti, id, rawstamp string) (dnsx.Transport, error) {
+	if p == nil {
+		return nil, dnsx.ErrNoDcProxy
+	}
+	if len(rawstamp) <= 0 {
+		return nil, errNothing
+	}
+	stamp, err := stamps.NewServerStampFromString(rawstamp)
+	if err != nil {
+		return nil, fmt.Errorf("dnscrypt: stamp error for [%s]: %v", rawstamp, err)
+	}
+	if stamp.Proto != stamps.StampProtoTypeDNSCrypt {
+		return nil, fmt.Errorf("dnscrypt: unsupported proto for [%s]", rawstamp)
+	}
+	si, err := newServer(p, id, stamp)
+	if err != nil {
+		log.W("dnscrypt: new transport failed %s; %s; err: %v", id, rawstamp, err)
+		return nil, core.OneErr(err, errNoCert)
+	}
+	log.I("dnscrypt: new transport %s; %s", id, rawstamp)
+	return si, nil // si implements dnsx.Transport
 }
 
 // AddTransport creates and adds a dnscrypt transport to p

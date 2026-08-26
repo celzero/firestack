@@ -510,3 +510,53 @@ func addr2ipp(u ...net.UDPAddr) (ipps []netip.AddrPort) {
 	}
 	return // may be nil
 }
+
+func newServer(proxy *DcMulti, name string, stamp stamps.ServerStamp) (*server, error) {
+	if len(stamp.ServerPk) != ed25519.PublicKeySize {
+		serverPk, err := hex.DecodeString(strings.ReplaceAll(string(stamp.ServerPk), ":", ""))
+		if err != nil || len(serverPk) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("unsupported public key for [%s]: [%s]", name, stamp.ServerPk)
+		}
+		stamp.ServerPk = serverPk
+	}
+	certInfo, err := fetchCurrentDNSCryptCert(proxy, &name, stamp.ServerPk, stamp.ServerAddrStr, stamp.ProviderName)
+	if err != nil {
+		return nil, err
+	}
+	s, p := hostport(&stamp)
+	var tcpaddr *net.TCPAddr
+	var udpaddr *net.UDPAddr
+	if ips := dialers.For(s); len(ips) > 0 {
+		ipp := netip.AddrPortFrom(ips[0], p)
+		tcpaddr = net.TCPAddrFromAddrPort(ipp)
+		udpaddr = net.UDPAddrFromAddrPort(ipp)
+	} else {
+		return nil, fmt.Errorf("dnscrypt: no ips for [%s]", s)
+	}
+	if udpaddr == nil || tcpaddr == nil {
+		return nil, log.EE("%v for %s", errNoServers, stamp.ServerAddrStr)
+	}
+
+	ctx, done := context.WithCancel(proxy.ctx)
+	si := server{
+		ctx:                ctx,
+		done:               done,
+		Proto:              stamps.StampProtoTypeDNSCrypt,
+		MagicQuery:         certInfo.MagicQuery,
+		ClientPubKey:       &proxy.proxyPublicKey,
+		ServerPk:           certInfo.ServerPk,
+		SharedKey:          certInfo.SharedKey,
+		CryptoConstruction: certInfo.CryptoConstruction,
+		HostName:           stamp.ProviderName,
+		Name:               name,
+		UDPAddr:            *udpaddr, // never nil
+		TCPAddr:            *tcpaddr, // never nil
+		proxies:            proxy.proxies,
+		relay:              "",  // no relays for free-standing transports
+		relayref:           nil, // ditto
+		est:                core.NewP50Estimator(ctx),
+	}
+	si.status.Store(dnsx.Start)
+	log.I("dnscrypt: (%s) setup(free-standing): %s", name, si.HostName)
+	return &si, nil
+}

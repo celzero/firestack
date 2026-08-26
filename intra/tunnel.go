@@ -221,7 +221,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 	resolver.Add(newBlockAllTransport())                    // fixed
 	resolver.Add(newFixedTransport())                       // fixed
 	resolver.Add(newPlusTransport(ctx, resolver))           // fixed
-	resolver.Add(newDNSCryptTransport(ctx, proxies, bdg))   // fixed
+	resolver.Add(newDNSCryptTransport(ctx, proxies))        // fixed
 	resolver.Add(newMDNSTransport(ctx, dualstack, proxies)) // fixed
 
 	log.D("tun: <<< new >>>; resolvers: ok")

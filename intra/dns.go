@@ -166,8 +166,8 @@ func newPlusTransport(ctx context.Context, r dnsx.Resolver) dnsx.Transport {
 	return dnsx.NewPlusTransport(ctx, r /*and zero transports*/)
 }
 
-func newDNSCryptTransport(ctx context.Context, px ipn.ProxyProvider, bdg Bridge) (p dnsx.TransportMult) {
-	p = dnscrypt.NewDcMult(ctx, px, bdg)
+func newDNSCryptTransport(ctx context.Context, px ipn.ProxyProvider) (p dnsx.TransportMult) {
+	p = dnscrypt.NewDcMult(ctx, px)
 	return
 }
 
@@ -295,22 +295,24 @@ func AddDNSCryptTransport(t Tunnel, id, stamp string) (err error) {
 	}
 }
 
-// AddDNSCryptRelay adds a DNSCrypt relay transport to the tunnel's resolver.
-func AddDNSCryptRelay(t Tunnel, stamp string) error {
-	var tm dnsx.TransportMult
-	var err error
+// MakeDNSCryptTransport creates a free-standing (unregistered) DNSCrypt
+// transport for id from serverstamp (a sdns:// stamp), dialing via the
+// tunnel's proxies. Unlike [AddDNSCryptTransport], the returned transport is
+// not added to the tunnel's resolver nor to its DcProxy transport-mult, and
+// it is short-lived (its certificate is not refreshed).
+func MakeDNSCryptTransport(t Tunnel, id, stamp string) (dnsx.Transport, error) {
 	r, rerr := t.internalResolver()
 	if rerr != nil {
-		return rerr
+		return nil, rerr
 	}
-	if tm, err = r.GetMultInternal(dnsx.DcProxy); err != nil {
-		return err
+	var tm dnsx.TransportMult
+	if tm, rerr = r.GetMultInternal(dnsx.DcProxy); rerr != nil {
+		return nil, rerr
 	}
-	if p, ok := tm.(*dnscrypt.DcMulti); ok {
-		// relay transports are not added to the resolver
-		return dnscrypt.AddRelayTransport(p, stamp)
-	} else {
-		return dnsx.ErrNoDcProxy
+	if p, ok := tm.(*dnscrypt.DcMulti); !ok {
+		return nil, dnsx.ErrNoDcProxy
+	} else { // use p's proxies & keys; do not register with p
+		return dnscrypt.NewTransport(p, id, stamp)
 	}
 }
 
