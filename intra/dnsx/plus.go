@@ -49,9 +49,10 @@ type plus struct {
 
 	closed atomic.Bool
 	last   core.MutexValue[Transport]
-	// adblockcache memoizes t.plusIsAdblock results against GetAddr;
+
+	// filter memoizes t.plusIsAdblock results against GetAddr;
 	// keys are tr.Type() + "/" + tr.GetAddr().
-	adblockcache sync.Map // string => bool
+	filter sync.Map // string => bool
 }
 
 var _ Transport = (*plus)(nil)
@@ -223,10 +224,6 @@ refilter:
 	return ord, nil
 }
 
-// plusAdblockCache memoizes plusIsAdblock results against GetAddr;
-// keys are tr.Type() + "/" + tr.GetAddr().
-var plusAdblockCache sync.Map // string => bool
-
 // plusIsAdblock implements settings.PlusFilterAdblock: only encrypted
 // transports whose GetAddr is hosted by "adguard" or "mullvad" qualify.
 func (t *plus) plusIsAdblock(tr Transport) (y bool) {
@@ -237,17 +234,19 @@ func (t *plus) plusIsAdblock(tr Transport) (y bool) {
 	if len(addr) <= 0 {
 		return false
 	}
+	addr = strings.ToLower(addr) // case-insensitive match
 	// GetAddr alone cannot distinguish between transports of
 	// differing types hosted at the same address.
 	key := tr.Type() + "/" + addr
 
-	if v, ok := t.adblockcache.Load(key); ok {
+	if v, ok := t.filter.Load(key); ok {
 		return v.(bool)
 	}
 
-	y = IsEncrypted(tr) && (strings.Contains(strings.ToLower(addr), "adguard") ||
-		strings.Contains(strings.ToLower(addr), "mullvad"))
-	t.adblockcache.Store(key, y)
+	y = IsEncrypted(tr) && (strings.Contains(addr, "adguard") ||
+		strings.Contains(addr, "mullvad") ||
+		strings.Contains(addr, "controld"))
+	t.filter.Store(key, y)
 	return
 }
 
