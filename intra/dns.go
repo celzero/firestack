@@ -316,6 +316,27 @@ func MakeDNSCryptTransport(t Tunnel, id, stamp string) (dnsx.Transport, error) {
 	}
 }
 
+// AddDNSCryptRelay adds a DNSCrypt relay transport to the tunnel's resolver.
+func AddDNSCryptRelay(t Tunnel, stamp string) error {
+	var tm dnsx.TransportMult
+	var err error
+
+	r, rerr := t.internalResolver()
+	if rerr != nil {
+		return rerr
+	}
+	if tm, err = r.GetMultInternal(dnsx.DcProxy); err != nil {
+		return err
+
+	}
+	if p, ok := tm.(*dnscrypt.DcMulti); ok {
+		// relay transports are not added to the resolver
+		return dnscrypt.AddRelayTransport(p, stamp)
+	} else {
+		return dnsx.ErrNoDcProxy
+	}
+}
+
 func addDNSTransport(r dnsx.Resolver, t dnsx.Transport) error {
 	if !r.Add(t) {
 		return dnsx.ErrAddFailed
