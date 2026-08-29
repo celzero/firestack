@@ -68,7 +68,12 @@ func NewPlusTransport(ctx context.Context, r TransportProviderInternal, ts ...Tr
 		done:       done,
 		ipports:    fakePlusIpports,
 	}
+	context.AfterFunc(ctx, t.stopAll)
 
+	// ctx may be cancelled before all transports have had the
+	// chance to register; the mutex prevents that race.
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	for _, tr := range ts {
 		if len(idstr(tr)) > 0 {
 			t.transports[tr.ID()] = tr
@@ -76,7 +81,6 @@ func NewPlusTransport(ctx context.Context, r TransportProviderInternal, ts ...Tr
 	}
 
 	log.I("plus: at %s; added: %d/%d", t.GetAddr(), len(t.transports), len(ts))
-	context.AfterFunc(ctx, t.stopAll)
 	return t
 }
 
@@ -84,22 +88,29 @@ func (t *plus) stopAll() {
 	t.closed.Store(true)
 
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	trs := t.allLocked()
+	clear(t.transports)
+	t.mu.Unlock()
 
-	for _, tr := range t.transports {
+	for _, tr := range trs {
 		if err := tr.Stop(); err != nil {
 			log.E("plus: (%s) stop: %v", t.ID(), err)
 		}
 	}
-	clear(t.transports)
+
 	t.last.Store(nil)
+	// clear memoized adblock filter results
+	t.filter.Clear()
 }
 
-// String implements fmt.Stringer
 func (t *plus) all() []Transport {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
+	return t.allLocked()
+}
+
+func (t *plus) allLocked() []Transport {
 	const all = 0
 	return vals(t.transports, all)
 }
@@ -174,7 +185,7 @@ func (t *plus) ordered() ([]Transport, error) {
 
 	ord = core.CopyUniq(ord)
 
-	prev := ord
+	deduped := ord
 	strat := settings.PlusStrat.Load()
 	filter := settings.PlusFilter.Load()
 
@@ -216,9 +227,9 @@ refilter:
 			return nil, errTransportMultFilter
 		}
 		return nil, errNoSuchTransport
-	} else if len(ord) < len(prev) {
-		log.VV("plus: strat %d: filtered %d < chosen %d; chosen: %s / pref: %v",
-			strat, len(ord), len(prev), infcsv(ord...), infcsv(preferred...))
+	} else if len(ord) < len(deduped) {
+		log.VV("plus: strat %d: filtered %d < deduped %d; chosen: %s / pref: %v",
+			strat, len(ord), len(deduped), infcsv(ord...), infcsv(preferred...))
 	}
 
 	return ord, nil
@@ -280,7 +291,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 	for _, tr := range all {
 		cursmm := copySummary(outSmm)
 
-		if len(visited) > tries {
+		if len(visited) >= tries {
 			break
 		}
 
@@ -306,7 +317,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 		// HTTPS/SVCB blocks have 0 answer records when blocked
 		svcbblock := (xdns.HasHTTPQuestion(q) || xdns.HasSVCBQuestion(q)) && noans
 
-		finalsmm = cursmm
+		finalsmm = cursmm // overwritten each iteration; on exit, reflects the last queried transport
 
 		loged(err != nil || failed)("plus: queried %s for %s:%d (fid: %s); data: %s [noans? %t], code: %d, err? %v",
 			idstr(tr), qname, qtyp, outSmm.FID, finalsmm.RData, noans, finalsmm.RCode, err)
@@ -475,6 +486,8 @@ func (t *plus) GetInternal(id string) (Transport, error) {
 }
 
 func (t *plus) refresh() {
+	// clear memoized adblock filter results
+	t.filter.Clear()
 	if !plusSupportsCachedTransports {
 		return
 	}
