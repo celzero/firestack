@@ -112,7 +112,7 @@ func (c *pipconn) SetDeadline(t time.Time) error      { return nil }
 func (c *pipconn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *pipconn) SetWriteDeadline(t time.Time) error { return nil }
 
-func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error) {
+func (t *piph2) dialtlsctx(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
 	rawConn, err := t.dial(network, addr)
 	if err != nil || rawConn == nil || core.IsNil(rawConn) {
 		return nil, core.JoinErr(err, errNoProxyConn)
@@ -141,7 +141,7 @@ func (t *piph2) dialtls(network, addr string, cfg *tls.Config) (net.Conn, error)
 	}
 
 	conn := tls.Client(rawConn, cfg)
-	if err := conn.HandshakeContext(context.Background()); err != nil {
+	if err := conn.HandshakeContext(ctx); err != nil {
 		log.D("piph2: dialtls(%s) handshake error: %v", addr, err)
 		core.CloseConn(rawConn)
 		return nil, err
@@ -174,6 +174,15 @@ func (t *piph2) dial(network, addr string) (c net.Conn, err error) {
 	defer localDialStatus(&t.status, err)
 	logei(err)("piph2: dial(%s) %s (via %s); err? %v", network, addr, who, err)
 	return
+}
+
+// dialctx is a context-aware wrapper around dial, cancelling the dial
+// as soon as ctx is done; see: core.Gre in doh.go's asDialContext.
+func (t *piph2) dialctx(ctx context.Context, network, addr string) (net.Conn, error) {
+	c, err, _ := core.Gre("piph2.dialctx."+addr, func() (net.Conn, error) {
+		return t.dial(network, addr)
+	}, ctx)
+	return c, err
 }
 
 func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, po *settings.ProxyOptions) (*piph2, error) {
@@ -244,16 +253,16 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 		// t.client.Transport = &http3.RoundTripper{}
 		log.W("piph2: h3 not supported yet")
 		t.client.Transport = &http2.Transport{
-			DialTLS: t.dialtls,
+			DialTLSContext: t.dialtlsctx,
 		}
 	} else if trType == "h2" {
 		// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
 		t.client.Transport = &http2.Transport{
-			DialTLS: t.dialtls,
+			DialTLSContext: t.dialtlsctx,
 		}
 	} else {
 		t.client.Transport = &http.Transport{
-			Dial:                  t.dial,
+			DialContext:           t.dialctx,
 			ForceAttemptHTTP2:     true,
 			TLSHandshakeTimeout:   tlsHandshakeTimeout,
 			ResponseHeaderTimeout: responseHeaderTimeout,

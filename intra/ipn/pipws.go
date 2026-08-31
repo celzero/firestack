@@ -99,6 +99,15 @@ func (t *pipws) dial(network, addr string) (c net.Conn, err error) {
 	return
 }
 
+// dialctx is a context-aware wrapper around dial, cancelling the dial
+// as soon as ctx is done; see: core.Gre in doh.go's asDialContext.
+func (t *pipws) dialctx(ctx context.Context, network, addr string) (net.Conn, error) {
+	c, err, _ := core.Gre("pipws.dialctx."+addr, func() (net.Conn, error) {
+		return t.dial(network, addr)
+	}, ctx)
+	return c, err
+}
+
 func (t *pipws) wsconn(rurl, msg string) (c net.Conn, res *http.Response, err error) {
 	var ws *websocket.Conn
 	ctx := context.TODO()
@@ -252,7 +261,7 @@ func NewPipWsProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider
 
 func (t *pipws) h2(cfg *tls.Config) *http.Transport {
 	return &http.Transport{
-		Dial:                  t.dial,
+		DialContext:           t.dialctx,
 		TLSHandshakeTimeout:   writeTimeout,
 		ResponseHeaderTimeout: writeTimeout,
 		TLSClientConfig:       cfg,

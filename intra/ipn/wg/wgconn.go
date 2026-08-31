@@ -712,9 +712,13 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			s.use6.Store(dst6) // persist the working family
 			uc, fd, blackhole = s.getconn(dstIpp)
 		}
-		if uc == nil {
-			return syscall.EAFNOSUPPORT
-		}
+	}
+
+	if blackhole {
+		return nil
+	}
+	if uc == nil {
+		return syscall.EAFNOSUPPORT
 	}
 
 	var floodWg = settings.FloodWireGuard.Load()
@@ -988,12 +992,4 @@ func messageType(unobs []byte, t uint32) (y bool) {
 
 func ipok(ipp netip.AddrPort) bool {
 	return ipp.IsValid() && !ipp.Addr().IsUnspecified() && !ipp.Addr().IsMulticast()
-}
-
-// iffam returns the address family name for logging.
-func iffam(is6 bool) string {
-	if is6 {
-		return "v6"
-	}
-	return "v4"
 }

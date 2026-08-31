@@ -124,11 +124,10 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 
 func dnsclient(c *tls.Config) *dns.Client {
 	return &dns.Client{
-		Net:            "tcp-tls",
-		Dialer:         nil, // unused; dialers from px take precedence
-		Timeout:        dottimeout,
-		SingleInflight: true,      // coalsece queries
-		TLSConfig:      c.Clone(), // may be left unused
+		Net:       "tcp-tls",
+		Dialer:    nil, // unused; dialers from px take precedence
+		Timeout:   dottimeout,
+		TLSConfig: c.Clone(), // may be left unused
 	}
 }
 

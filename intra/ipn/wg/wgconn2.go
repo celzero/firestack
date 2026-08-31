@@ -731,9 +731,12 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 				br = s.ipv4PC
 			}
 		}
-		if c == nil {
-			return syscall.EAFNOSUPPORT
-		}
+	}
+	if blackhole {
+		return nil
+	}
+	if c == nil {
+		return syscall.EAFNOSUPPORT
 	}
 
 	msgs := s.getMessages() // from msgspool

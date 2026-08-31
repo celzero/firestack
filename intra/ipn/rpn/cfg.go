@@ -14,10 +14,12 @@
 package rpn
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"time"
@@ -166,7 +168,13 @@ func Exit64Endpoints() (v6 []netip.Addr, errs error) {
 func NewExtClient(d protect.RDialer) *BaseClient {
 	w := &BaseClient{d: d}
 	w.h2.Transport = &http.Transport{
-		Dial:                  d.Dial,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// cancel the dial as soon as ctx is done; see: core.Gre in doh.go
+			c, err, _ := core.Gre("rpn.dialctx."+addr, func() (net.Conn, error) {
+				return d.Dial(network, addr)
+			}, ctx)
+			return c, err
+		},
 		ForceAttemptHTTP2:     true,
 		ResponseHeaderTimeout: 15 * time.Second,
 		IdleConnTimeout:       30 * time.Second,
