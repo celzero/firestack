@@ -24,19 +24,37 @@ import (
 
 type icmpHandler struct {
 	*baseHandler
+	staller *core.ExpMap[netip.AddrPort, string] // src(addr:port) -> stallSecs
 }
 
 var _ netstack.GICMPHandler = (*icmpHandler)(nil)
 
+// pings allowed per source within icmpFloodTrackTTL, after
+// which each ping is stalled for up to icmptarpitMaxSecs.
+const (
+	icmpFloodHits     = 10 // pings allowed per source per window
+	icmptarpitMaxSecs = 5  // max stall per ping
+	icmpFloodTrackTTL = 10 * time.Second
+)
+
 func NewICMPHandler(pctx context.Context, resolver dnsx.Resolver, prox ipn.ProxyProvider, listener Listener) netstack.GICMPHandler {
 	h := &icmpHandler{
 		baseHandler: newBaseHandler(pctx, "icmp", resolver, prox, listener),
+		staller:     core.NewExpiringMapLifetime[netip.AddrPort, string](pctx, "icmp.staller", icmpFloodTrackTTL),
 	}
 
 	core.Gx("icmp.ps", h.processSummaries)
 
 	log.I("icmp: new handler created")
 	return h
+}
+
+func (h *icmpHandler) maybeStall(src netip.AddrPort) (secs uint32) {
+	if n := h.staller.Get(src); n > icmpFloodHits {
+		secs = icmptarpitMaxSecs
+	}
+	h.staller.SetMin(src) // track for icmpFloodTrackTTL
+	return
 }
 
 // Ping implements netstack.GICMPHandler. Takes ownership of msg.
@@ -92,6 +110,12 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		// see: netstack/dispatcher.go:newReadvDispatcher
 		// time.Sleep(blocktime)
 		return false // denied
+	}
+
+	// delay flooders; this fn is async, so stalling doesn't block dispatchers
+	if secs := h.maybeStall(source); secs > 0 {
+		log.I("t.icmp: flood: stalled %s => %s for %ds", source, target, secs)
+		time.Sleep(time.Duration(secs) * time.Second)
 	}
 
 	if px, err = h.prox.ProxyTo(cid, dst, "icmp", uid, pids); err != nil || px == nil {

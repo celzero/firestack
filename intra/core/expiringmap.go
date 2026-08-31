@@ -107,6 +107,13 @@ func (m *ExpMap[P, Q]) Get(key P) uint32 {
 	return v.hits
 }
 
+func (m *ExpMap[P, Q]) SetMin(key P) uint32 {
+	if done(m.ctx) || m.minlife <= 0 {
+		return 0
+	}
+	return m.Set(key, m.minlife)
+}
+
 // Set sets the expiry for the given key and returns the number of hits.
 // expiry is clamped to minlife. If the key was expired, its hit window
 // is reset to 0 before returning. Value is set to Q's zero value.

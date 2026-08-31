@@ -7,6 +7,7 @@
 package netstack
 
 import (
+	"golang.org/x/time/rate"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
@@ -14,7 +15,20 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
+const (
+	// icmpPingLimit caps generated ICMP messages per second:
+	// Firestack client code must consult Stack.AllowICMPMessage()
+	// but it auto-applies to gVisor generated ICMP errors (ipv4.go:allowICMPReply)
+	icmpPingLimit = rate.Limit(10)
+	// icmpPingBurst caps the initial burst:
+	// Firestack client code must consult Stack.AllowICMPMessage()
+	icmpPingBurst = 7
+)
+
 func SetNetstackOpts(s *stack.Stack) {
+	s.SetICMPLimit(icmpPingLimit)
+	s.SetICMPBurst(icmpPingBurst)
+
 	// TODO: other stack otps?
 	// github.com/xjasonlyu/tun2socks/blob/31468620e/core/option/option.go#L69
 

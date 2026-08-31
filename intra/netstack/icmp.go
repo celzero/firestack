@@ -84,6 +84,12 @@ func (f *icmpForwarder) reply4(id stack.TransportEndpointID, pkt *stack.PacketBu
 		log.D("icmp: v4: %s: type %v passthrough", f.o, hdr.Type())
 		return // not handled
 	}
+	// consult the stack-wide ICMP rate limiter; see: stackopts.go:SetNetstackOpts
+	// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv4/icmp.go
+	if !f.s.AllowICMPMessage() {
+		log.V("icmp: v4: %s: rate limited; dropping echo %s => %s", f.o, src, dst)
+		return true // handled (silently dropped)
+	}
 	ipHdr := header.IPv4(l3hdr)
 	replyData := stack.PayloadSince(pkt.TransportHeader())
 	localAddressBroadcast := pkt.NetworkPacketInfo.LocalAddressBroadcast
@@ -197,6 +203,14 @@ func (f *icmpForwarder) reply6(id stack.TransportEndpointID, pkt *stack.PacketBu
 	}
 
 	l3 := pkt.Network() // l3.Dst == id.LocalAddr and l3.Src == id.RemoteAddr
+
+	// consult the stack-wide ICMP rate limiter before; see: stackopts.go:SetNetstackOpts
+	// github.com/google/gvisor/blob/738e1d995f/pkg/tcpip/network/ipv6/icmp.go
+	if !f.s.AllowICMPMessage() {
+		log.V("icmp: v6: %s: rate limited; dropping echo %s => %s", f.o, l3.DestinationAddress(), l3.SourceAddress())
+		return true // handled (silently dropped)
+	}
+
 	route, err := f.s.FindRoute(pkt.NICID, l3.DestinationAddress(), l3.SourceAddress(), pkt.NetworkProtocolNumber, false)
 	if err != nil {
 		log.W("icmp: v6: %s: no route on %v to %s <= %s", f.o, pkt.NICID, l3.DestinationAddress(), l3.SourceAddress())

@@ -217,6 +217,12 @@ func (r *icmpResponder) process(h *icmpForwarder, nic tcpip.NICID, pkt *wire.Par
 		return
 	}
 
+	// consult the stack-wide ICMP rate limiter before; see: stackopts.go:SetNetstackOpts
+	if h.s != nil && !h.s.AllowICMPMessage() {
+		logwv(true)("icmp: responder: rate limited; dropping ping %s => %s", src, dst)
+		return
+	}
+
 	pinged := h.h.Ping(icmpMsg, src, dst)
 
 	resp, proto, l4proto, tag, err := r.echoReply(pkt, payload, pinged)
