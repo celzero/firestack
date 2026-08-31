@@ -743,6 +743,7 @@ runagain:
 			smm.Latency = time.Since(starttime).Seconds()
 			smm.Status = Complete
 			smm.Blocklists = blocklists
+			smm.BlockedTarget = qname
 			smm.RData = xdns.GetInterestingRData(res1)
 			smm.Msg = errNop.Error()
 			if log.Verbose {
@@ -801,7 +802,7 @@ runagain:
 	hasblocklists := len(blocklistnames) > 0
 	hasmsg := len(smm.Msg) > 0
 
-	if hasblocklists { // blocklists added even if pref.NOBLOCK is set
+	if hasblocklists { // blocklists & blockedtarget added even if pref.NOBLOCK is set
 		smm.Blocklists = blocklistnames
 		smm.BlockedTarget = blockedtarget
 	}

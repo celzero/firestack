@@ -53,7 +53,8 @@ type DNSSummary struct {
 	Status int32
 	// CSV of Rethink DNS+ blocklists (local or remote) names (if used).
 	Blocklists string
-	// Actual target (domain name) that was blocked (could be a CNAME or HTTPS/SVCB alias) by Blocklists.
+	// Actual target (domain name) that was blocked (could be QNAME, CNAME, or HTTPS/SVCB alias) by Blocklists.
+	// Note: Actual block response itself may have been overriden by NOBLOCK directive.
 	BlockedTarget string
 	// True if any among upstream transports (primary or secondary) returned blocked ans.
 	// Only valid for A/AAAA queries. Unspecified IPs are considered as "blocked ans".

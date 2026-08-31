@@ -1441,6 +1441,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, origin, network, s
 	ans0000 := xdns.AQuadAUnspecified(ansin) // ansin is not nil; ans64 may be nil
 
 	if ans0000 {
+		smm.BlockedTarget = qname
 		smm.UpstreamBlocks = true
 	}
 
