@@ -390,6 +390,7 @@ func (m *ipmap) get(hostOrIP string, typ IPSetType) (s *IPSet) {
 	return s
 }
 
+// GetMany implements [IPMap.GetMany].
 func (m *ipmap) GetMany(n uint8, ipver string) []netip.Addr {
 	m.RLock()
 	defer m.RUnlock()

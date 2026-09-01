@@ -345,8 +345,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			log.I("proxy: reaches: %s auto:http for %v urls", idstr(p), urls)
 			urlOrHostPortOrIPPortCsv = strings.Join(urls, ",")
 		case "ip":
-			ips := make([]netip.Addr, 0, autoSize)
-			log.I("proxy: reaches: %s auto:ip for %v ips", idstr(p), ips)
+			log.I("proxy: reaches: %s auto:ip for [%s] ips", idstr(p), ipfrag)
 
 			if ipfrag == "v4" {
 				protos = append(protos, "tcp4", "udp4")
@@ -355,16 +354,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			} else {
 				protos = append(protos, "tcp", "udp")
 			}
-			for _, ip := range dialers.SampleIPs(autoSize, ipfrag) {
-				if ipfrag == "v4" && ip.Is4() {
-					ips = append(ips, ip)
-				} else if ipfrag == "v6" && ip.Is6() {
-					ips = append(ips, ip)
-				} else if ipfrag == "" {
-					ips = append(ips, ip) // both v4 and v6
-				}
-
-			}
+			ips := dialers.SampleIPs(autoSize, ipfrag)
 			// default port for ip:port is 80 if left unspecified (see below)
 			urlOrHostPortOrIPPortCsv = strings.Join(core.Map(ips, func(ip netip.Addr) string { return ip.String() }), ",")
 		default:
@@ -373,6 +363,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 		}
 	}
 
+	httpverdict := false
 	pid := idstr(p)
 	hostportOrIPPort := strings.Split(urlOrHostPortOrIPPortCsv, ",")
 	if urls, oth := extractHttpURLs(urlOrHostPortOrIPPortCsv); len(urls) > 0 {
@@ -394,9 +385,11 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			tests...,
 		)
 
+		httpverdict = ok
 		logeif(!ok)("proxy: reaches: %s #%d / %d %v verdict (https): (to: %s) reachable? %t (more? %t)",
 			pid, who, len(urls), urlOrHostPortOrIPPortCsv, core.FmtPeriod(largeTimeoutForTest), ok, len(oth) > 0)
 
+		// if http fails, short circuit and fail this batch
 		if !ok || len(oth) <= 0 {
 			return ok
 		}
@@ -428,6 +421,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 
 	ipps := make([]netip.AddrPort, 0)
 	for _, h := range hostportOrIPPort {
+		h = strings.TrimSpace(h)
 		host, port, err := net.SplitHostPort(h)
 		if err != nil {
 			port = "80"
@@ -439,19 +433,19 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 			on = 80
 		}
 		if len(h) > 0 { // x may be ip, host
-			ips, err := dialers.Resolve(host, dnsid)
+			ips, err := dialers.Resolve(h, dnsid)
 			if err != nil || len(ips) <= 0 {
 				// resolution over dnsid failed or yielded no addrs;
 				// last resort: resolve over the Default transport.
 				// skip if dnsid already is Default or fallback is disabled
 				if dnsid == x.Default || !defaultfallback {
 					log.W("proxy: reaches: %s resolve %s on %s failed: err %v / no addrs",
-						pid, host, dnsid, err)
+						pid, h, dnsid, err)
 					continue
 				}
 				log.I("proxy: reaches: %s resolve %s on %s err %v / no addrs; using Default",
-					pid, host, dnsid, err)
-				ips, _ = dialers.Resolve(host, x.Default)
+					pid, h, dnsid, err)
+				ips, _ = dialers.Resolve(h, x.Default)
 			}
 			for _, ip := range ips {
 				ipp := netip.AddrPortFrom(ip, uint16(on))
@@ -484,20 +478,22 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 	}
 
 	if n <= 0 {
-		log.W("proxy: reaches: %s %v / %v; no tests for %s", pid, urlOrHostPortOrIPPortCsv, ipps, protos)
-		return false
+		// hostport tests could not be run; fall back to the httpverdict
+		logeif(!httpverdict)("proxy: reaches: %s %v / %v; no tests for %s; http verdict: %t",
+			pid, urlOrHostPortOrIPPortCsv, ipps, protos, httpverdict)
+		return httpverdict
 	}
 
 	ok, who, errs := core.Race("reach"+"."+pid, getproxytimeout, every(pid, tests)...)
 
-	logeif(!ok)("proxy: reaches: %s #%d %v => %v verdict (%s): reachable? %t; errs? %v",
-		pid, who, urlOrHostPortOrIPPortCsv, ipps, protos, ok, errs)
+	logeif(!ok && !httpverdict)("proxy: reaches: %s #%d %v => %v verdict (%s): http? %t; ip? %t; errs? %v",
+		pid, who, urlOrHostPortOrIPPortCsv, ipps, protos, httpverdict, ok, errs)
 
-	return ok
+	return ok || httpverdict
 }
 
 // Lightweight http transport client for one-time use
-func oneshothttp(_ context.Context, p Proxy, url *url.URL) (client *http.Client) {
+func oneshothttp(ctx context.Context, p Proxy, url *url.URL) (client *http.Client) {
 	v4, v6 := true, true
 	switch url.Fragment {
 	case "tcp", "udp":
@@ -511,7 +507,7 @@ func oneshothttp(_ context.Context, p Proxy, url *url.URL) (client *http.Client)
 		Timeout: maxHttpTimeout,
 		Transport: &http.Transport{
 			// TODO: use p.DialContext(ctx...)
-			DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
+			DialContext: func(_ context.Context, netw string, addr string) (net.Conn, error) {
 				host, port, err := net.SplitHostPort(addr)
 				if err != nil {
 					if url.Scheme == "https" {
@@ -540,7 +536,7 @@ func oneshothttp(_ context.Context, p Proxy, url *url.URL) (client *http.Client)
 				}
 
 				logeif(len(ipps) == 0)("proxy: reaches: %s dial(%s, %s [among %v]) for %s",
-					idstr(p), network, addr, ipps, url)
+					idstr(p), netw, addr, ipps, url)
 
 				if len(ipps) <= 0 {
 					return nil, errNoSuitableAddress
@@ -551,7 +547,7 @@ func oneshothttp(_ context.Context, p Proxy, url *url.URL) (client *http.Client)
 				// filter out the revelant IPs ourselves as dialers pkg does not
 				// respect ip-specific network type "tcp4" or "tcp6"
 				// see: cdial.go:commondial2()
-				return p.Dial(network, ipps[n].String())
+				return p.Dial(netw, ipps[n].String())
 			},
 			// Disable connection pooling for one-time use
 			DisableKeepAlives:   true,
@@ -879,14 +875,16 @@ func extractHttpURLs(csv string) (urls []*url.URL, oth []string) {
 // TODO: context carries cancel signal.
 func httpsReachesWorkCtx(p Proxy, url *url.URL) core.WorkCtx[bool] {
 	return func(ctx context.Context) (bool, error) {
-		return httpsReaches(idstr(p), oneshothttp(ctx, p, url), url)
+		return httpsReaches(ctx, idstr(p), oneshothttp(ctx, p, url), url)
 	}
 }
 
-func httpsReaches(who string, c *http.Client, url *url.URL) (bool, error) {
+func httpsReaches(ctx context.Context, who string, c *http.Client, url *url.URL) (bool, error) {
 	start := time.Now()
 
-	req, err := http.NewRequest("HEAD", url.String(), nil)
+	// ctx cancels the request when the caller (core.First) times out,
+	// ensuring in-flight dials and responses are aborted, not leaked.
+	req, err := http.NewRequestWithContext(ctx, "HEAD", url.String(), nil)
 	if err != nil {
 		return false, fmt.Errorf("proxy: reaches: err creating req: %w", err)
 	}
