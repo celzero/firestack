@@ -798,7 +798,7 @@ runagain:
 
 	ans2, blockedtarget, blocklistnames := r.blockA(t, t2, msg, nonalg, smm.Blocklists)
 
-	isnewans := ans2 != nil
+	hasblockedans := ans2 != nil // always blocked answer, if set
 	hasblocklists := len(blocklistnames) > 0
 	hasmsg := len(smm.Msg) > 0
 
@@ -810,7 +810,7 @@ runagain:
 		smm.Msg = errNop.Error() // no error
 	}
 	// do not block, only add blocklists if NOBLOCK is set
-	if !pref.NOBLOCK && isnewans {
+	if !pref.NOBLOCK && hasblockedans {
 		// overwrite if new answer
 		ans1 = ans2
 		// summary latency, response, status, ips also set by transports
@@ -825,14 +825,15 @@ runagain:
 				smm.ID, uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), smm.RData, smm.Status)
 		}
 		return res2, smm.ID, err
-	}
+	} // else: discard ans2 (which is always exclusively a blocked ans from rdns blocklists)
 
 	realips := Netip2Csv(xdns.IPs(nonalg))
+	// ans1 is upstream answer... does upstream block?
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
 	if log.Verbose {
 		log.V("dns: fwd: 7 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
-			smm.ID, uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), realips, smm.RData, smm.Status, isnewans, hasblocklists, ansblocked)
+			smm.ID, uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), realips, smm.RData, smm.Status, hasblockedans, hasblocklists, ansblocked)
 	}
 
 	if run == 1 {
