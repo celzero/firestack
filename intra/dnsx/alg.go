@@ -135,15 +135,6 @@ func hasLocalIPAnswer(ans *dns.Msg) bool {
 	return false
 }
 
-func anyLocalIP(ips []netip.Addr) bool {
-	for _, ip := range ips {
-		if isLocalIP(ip) {
-			return true
-		}
-	}
-	return false
-}
-
 // FirstCsvToken returns the first entry of a csv list, trimmed of spaces.
 // Used by OriginalAddr implementations.
 func FirstCsvToken(csv string) string {
