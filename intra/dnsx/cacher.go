@@ -79,6 +79,9 @@ type cache struct {
 	halflife time.Duration // how much to increment ttl on each read
 	bumps    int           // max bumps before we stop bumping a response
 	size     int           // max size of the cache
+
+	// reports whether qn is undelegated / special-use; may be nil
+	isUndelegatedFn func(qn string) bool
 }
 
 type cres struct {
@@ -101,17 +104,18 @@ type ctransport struct {
 	halflife   time.Duration                // increment ttl on each read
 	bumps      int                          // max bumps in lifetime of a cached response
 	size       int                          // max size of a cache bucket
+	rdns       RdnsResolver                 // undelegated / special-use domains source; may be nil
 	reqbarrier *core.Barrier[*cres, string] // coalesce requests for the same query
 	hangover   *core.Hangover               // tracks send failure threshold
 }
 
 var _ Cacher = (*ctransport)(nil)
 
-func NewDefaultCachingTransport(t Transport) Transport {
-	return NewCachingTransport(context.Background(), t, defttl)
+func NewDefaultCachingTransport(t Transport, rdns RdnsResolver) Transport {
+	return NewCachingTransport(context.Background(), t, defttl, rdns)
 }
 
-func NewCachingTransport(pctx context.Context, t Transport, ttl time.Duration) Transport {
+func NewCachingTransport(pctx context.Context, t Transport, ttl time.Duration, rdns RdnsResolver) Transport {
 	if t == nil {
 		return nil
 	}
@@ -136,12 +140,44 @@ func NewCachingTransport(pctx context.Context, t Transport, ttl time.Duration) T
 		halflife:   ttl / 2,
 		bumps:      defbumps,
 		size:       defsize,
+		rdns:       rdns, // may be nil
 		reqbarrier: core.NewBarrier[*cres](ctx, "dnsx.c.reqbar", battl),
 		hangover:   core.NewHangover(),
 	}
 	context.AfterFunc(ctx, ct.Clear)
 	log.I("cache: (%s) setup: %s; opts: %s", ct.ID(), ct.GetAddr(), ct)
 	return ct
+}
+
+// isUndelegatedDomain reports whether qn is an undelegated / special-use
+// domain per the localdomains trie. qn must already be normalized (see
+// qname); a nil trie never matches.
+func isUndelegatedDomain(trie x.RadixTree, qn string) bool {
+	if len(qn) <= 0 || trie == nil {
+		return false
+	}
+	return trie.HasAny(qn)
+}
+
+func (t *ctransport) localdomains() x.RadixTree {
+	if t == nil || t.rdns == nil || core.IsNil(t.rdns) {
+		return nil
+	}
+	return t.rdns.LocalDomains()
+}
+
+func (t *ctransport) isUndelegated(qn string) bool {
+	if t == nil {
+		return false
+	}
+	return isUndelegatedDomain(t.localdomains(), qn)
+}
+
+func (cb *cache) isUndelegated(qn string) bool {
+	if cb == nil || cb.isUndelegatedFn == nil {
+		return false
+	}
+	return cb.isUndelegatedFn(qn)
 }
 
 func (c *cres) copy() *cres {
@@ -274,6 +310,15 @@ func (cb *cache) put(key string, cc *cres) (ok bool) {
 
 	// do not cache .onion addresses
 	if strings.Contains(key, ".onion"+cacheKeySep) {
+		return
+	}
+
+	// do not cache undelegated domains when disabled
+	if !CacheUndelegatedQueries && cb.isUndelegated(qname(ans)) {
+		return
+	}
+	// do not cache A/AAAA answers containing local IPs when disabled
+	if !CacheLocalIPAnswers && hasLocalIPAnswer(ans) {
 		return
 	}
 	cb.mu.Lock()
@@ -445,9 +490,12 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 
 	// only check cache when transport is likely connected;
 	// skip freshCopy when !trok to avoid wasting bumps
+	// never serve undelegated answers from cache when disabled;
+	// local-ip answers are filtered after freshCopy (see cachedskip).
+	skipread := !CacheUndelegatedQueries && cb.isUndelegated(qname(q))
 	var v *cres
 	var isfresh bool
-	if trok {
+	if trok && !skipread {
 		v, isfresh = cb.freshCopy(key)
 	}
 	if trok && v != nil {
@@ -502,12 +550,13 @@ func (t *ctransport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.
 		cb = t.store[h]
 		if cb == nil {
 			cb = &cache{
-				c:        make(map[string]*cres),
-				mu:       &sync.RWMutex{},
-				size:     t.size,
-				ttl:      t.ttl,
-				bumps:    t.bumps,
-				halflife: t.halflife,
+				c:               make(map[string]*cres),
+				mu:              &sync.RWMutex{},
+				size:            t.size,
+				ttl:             t.ttl,
+				bumps:           t.bumps,
+				halflife:        t.halflife,
+				isUndelegatedFn: t.isUndelegated,
 			}
 			t.store[h] = cb
 		}
@@ -528,6 +577,13 @@ func (t *ctransport) P50() int64 {
 func (t *ctransport) GetAddr() string {
 	prefix := TransportPrefix(CT)
 	return prefix + t.Transport.GetAddr()
+}
+
+func (t *ctransport) OriginalAddr() string {
+	if t == nil || t.Transport == nil {
+		return ""
+	}
+	return t.Transport.OriginalAddr()
 }
 
 func (t *ctransport) IPPorts() []netip.AddrPort {

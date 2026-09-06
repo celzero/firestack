@@ -200,6 +200,13 @@ func (t *goosr) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(t, mid, n, seconds)
 }
 
+func (t *goosr) OriginalAddr() string {
+	if t == nil {
+		return ""
+	}
+	return dnsx.FirstCsvToken(t.GetAddr())
+}
+
 func (t *goosr) GetRelay() x.Proxy {
 	return nil
 }

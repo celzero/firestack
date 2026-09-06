@@ -714,6 +714,16 @@ func (p *DcMulti) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(p, mid, n, seconds)
 }
 
+func (p *DcMulti) OriginalAddr() string {
+	if p == nil {
+		return ""
+	}
+	if s := p.serversInfo.getOne(); s != nil {
+		return s.OriginalAddr()
+	}
+	return dnsx.FirstCsvToken(p.getAddr())
+}
+
 // TODO: lastRelay?
 func (p *DcMulti) GetRelay() x.Proxy {
 	return nil

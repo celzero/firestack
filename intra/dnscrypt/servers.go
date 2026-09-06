@@ -57,6 +57,7 @@ type server struct {
 	CryptoConstruction xdns.CryptoConstruction
 	Name               string // id of the server
 	HostName           string
+	OrigAddr           string // original stamp ServerAddrStr as set
 	UDPAddr            net.UDPAddr
 	TCPAddr            net.TCPAddr
 	proxies            ipn.ProxyProvider        // proxy-provider, may be nil
@@ -272,6 +273,7 @@ func fetchDNSCryptServerInfo(proxy *DcMulti, name string, stamp stamps.ServerSta
 		SharedKey:          certInfo.SharedKey,
 		CryptoConstruction: certInfo.CryptoConstruction,
 		HostName:           stamp.ProviderName,
+		OrigAddr:           stamp.ServerAddrStr,
 		Name:               name,
 		UDPAddr:            *udpaddr, // never nil
 		TCPAddr:            *tcpaddr, // never nil
@@ -412,6 +414,16 @@ func (s *server) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(s, mid, n, seconds)
 }
 
+func (s *server) OriginalAddr() string {
+	if s == nil {
+		return ""
+	}
+	if len(s.OrigAddr) > 0 {
+		return dnsx.FirstCsvToken(s.OrigAddr)
+	}
+	return dnsx.FirstCsvToken(s.HostName)
+}
+
 func (s *server) GetRelay() x.Proxy {
 	return s.getRelay()
 }
@@ -548,6 +560,7 @@ func newServer(proxy *DcMulti, name string, stamp stamps.ServerStamp) (*server, 
 		SharedKey:          certInfo.SharedKey,
 		CryptoConstruction: certInfo.CryptoConstruction,
 		HostName:           stamp.ProviderName,
+		OrigAddr:           stamp.ServerAddrStr,
 		Name:               name,
 		UDPAddr:            *udpaddr, // never nil
 		TCPAddr:            *tcpaddr, // never nil

@@ -167,6 +167,8 @@ const (
 	PlusFilterNone = iota
 	// Use only encrypted transport
 	PlusFilterAdblock
+	PlusFilterSecurity
+	PlusFilterFamily
 )
 
 var PlusStrat = atomic.Int32{}

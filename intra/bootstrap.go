@@ -273,7 +273,12 @@ func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.M
 	smm.ID = dnsx.Default
 	smm.Type = b.typ
 	smm.UID = protect.MyUid
-	if tr := b.tr; tr != nil {
+
+	b.mu.RLock()
+	tr := b.tr
+	b.mu.RUnlock()
+
+	if tr != nil {
 		if settings.Debug {
 			log.V("dns: default: %s query? %t", network, q != nil)
 		}
@@ -285,6 +290,8 @@ func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.M
 }
 
 func (b *bootstrap) P50() int64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if tr := b.tr; tr != nil {
 		return tr.P50()
 	}
@@ -292,8 +299,29 @@ func (b *bootstrap) P50() int64 {
 }
 
 func (b *bootstrap) GetAddr() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if tr := b.tr; tr != nil {
 		return tr.GetAddr()
+	}
+	return dnsx.NoDNS
+}
+
+func (b *bootstrap) OriginalAddr() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	// original url/hostport/ipport/csv as set via reinit; first csv entry
+	if len(b.url) > 0 {
+		return dnsx.FirstCsvToken(b.url)
+	}
+	if len(b.hostname) > 0 && b.hostname != protectedHostname && b.hostname != builtinHostname {
+		return dnsx.FirstCsvToken(b.hostname)
+	}
+	if len(b.ipports) > 0 {
+		return dnsx.FirstCsvToken(b.ipports)
+	}
+	if tr := b.tr; tr != nil {
+		return tr.OriginalAddr()
 	}
 	return dnsx.NoDNS
 }
@@ -303,6 +331,8 @@ func (b *bootstrap) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 }
 
 func (b *bootstrap) GetRelay() x.Proxy {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if tr := b.tr; tr != nil {
 		return tr.GetRelay() // usually nil
 	}
@@ -310,6 +340,8 @@ func (b *bootstrap) GetRelay() x.Proxy {
 }
 
 func (b *bootstrap) Relaying() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if tr := b.tr; tr != nil {
 		return tr.Relaying() // usually false
 	}
@@ -317,6 +349,8 @@ func (b *bootstrap) Relaying() bool {
 }
 
 func (b *bootstrap) IPPorts() []netip.AddrPort {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if tr := b.tr; tr != nil {
 		return tr.IPPorts()
 	}
@@ -324,6 +358,8 @@ func (b *bootstrap) IPPorts() []netip.AddrPort {
 }
 
 func (b *bootstrap) Status() int32 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	if tr := b.tr; tr != nil {
 		return tr.Status()
 	}
@@ -332,9 +368,11 @@ func (b *bootstrap) Status() int32 {
 
 func (b *bootstrap) Stop() error {
 	log.I("dns: default: stopping %s %s", b.typ, b.hostname)
-	if tr := b.tr; tr != nil {
-		return tr.Stop()
-	}
+
+	b.mu.RLock()
+	tr := b.tr
+	b.mu.RUnlock()
+	stopTransport(tr)
 	return nil
 }
 

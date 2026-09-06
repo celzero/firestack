@@ -27,6 +27,7 @@ func (m *mockTransport) ID() string                                    { return 
 func (m *mockTransport) Type() string                                  { return "mock" }
 func (m *mockTransport) P50() int64                                    { return int64(m.latency * 1000) }
 func (m *mockTransport) GetAddr() string                               { return "127.0.0.1:53" }
+func (m *mockTransport) OriginalAddr() string                          { return "127.0.0.1:53" }
 func (m *mockTransport) GetRelay() x.Proxy                             { return nil }
 func (m *mockTransport) Measure(string, int32, int32) *x.DNSMeasurement { return &x.DNSMeasurement{} }
 func (m *mockTransport) Status() int32                                 { return Complete }

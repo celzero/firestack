@@ -52,7 +52,7 @@ type plus struct {
 
 	// filter memoizes t.plusIsAdblock results against GetAddr;
 	// keys are tr.Type() + "/" + tr.GetAddr().
-	filter sync.Map // string => bool
+	filter sync.Map // string => string
 }
 
 var _ Transport = (*plus)(nil)
@@ -208,10 +208,18 @@ refilter:
 		goto refilter
 	}
 
-	if filter == settings.PlusFilterAdblock {
+	if filter != settings.PlusFilterNone {
+		fn := t.plusIsAdblock // default if none not set
+		switch filter {
+		case settings.PlusFilterAdblock:
+		case settings.PlusFilterSecurity:
+			fn = t.plusIsSecurity
+		case settings.PlusFilterFamily:
+			fn = t.plusIsFamily
+		}
 		// keep only encrypted transports from adguard or mullvad;
 		// unlike PlusOrder*, this filter is never relaxed on refilter
-		f := core.FilterLeft(ord, t.plusIsAdblock)
+		f := core.FilterLeft(ord, fn)
 		if len(f) <= 0 {
 			log.W("plus: strat %d: filter %d: no adguard/mullvad transports avail [exp: %d]: chosen: %s / pref: %s / errored: %v / ended: %v",
 				strat, filter, expected, infcsv(ord...), infcsv(preferred...), infcsv(errored...), infcsv(ended...))
@@ -223,7 +231,7 @@ refilter:
 	if len(ord) <= 0 {
 		log.W("plus: strat %d: zero transports avail [exp: %d]: sys? %s / pref: %s / errored: %v / ended: %v",
 			strat, expected, idstr(sys), infcsv(preferred...), infcsv(errored...), infcsv(ended...))
-		if filter == settings.PlusFilterAdblock {
+		if filter != settings.PlusFilterNone {
 			return nil, errTransportMultFilter
 		}
 		return nil, errNoSuchTransport
@@ -235,13 +243,12 @@ refilter:
 	return ord, nil
 }
 
-// plusIsAdblock implements settings.PlusFilterAdblock: only encrypted
-// transports whose GetAddr is hosted by "adguard" or "mullvad" qualify.
+// plusIsAdblock implements settings.PlusFilterAdblock.
 func (t *plus) plusIsAdblock(tr Transport) (y bool) {
 	if tr == nil {
 		return false
 	}
-	addr := tr.GetAddr()
+	addr := tr.OriginalAddr()
 	if len(addr) <= 0 {
 		return false
 	}
@@ -251,13 +258,77 @@ func (t *plus) plusIsAdblock(tr Transport) (y bool) {
 	key := tr.Type() + "/" + addr
 
 	if v, ok := t.filter.Load(key); ok {
-		return v.(bool)
+		return v.(string) == "pri"
 	}
 
-	y = IsEncrypted(tr) && (strings.Contains(addr, "adguard") ||
-		strings.Contains(addr, "mullvad") ||
-		strings.Contains(addr, "controld"))
-	t.filter.Store(key, y)
+	y = IsEncrypted(tr) && (strings.Contains(addr, "dns.adguard-dns") ||
+		strings.Contains(addr, "noads.joindns4") ||
+		strings.Contains(addr, "p2.freedns.controld")) ||
+		strings.Contains(addr, "freedns.controld.com/p2")
+	t.filter.Store(key, "pri")
+	return
+}
+
+// plusIsSecurity implements settings.PlusFilterSecurity.
+func (t *plus) plusIsSecurity(tr Transport) (y bool) {
+	if tr == nil {
+		return false
+	}
+	addr := tr.OriginalAddr()
+	if len(addr) <= 0 {
+		return false
+	}
+	addr = strings.ToLower(addr) // case-insensitive match
+	// Addr alone cannot distinguish between transports of
+	// differing types hosted at the same address.
+	key := tr.Type() + "/" + addr
+
+	if v, ok := t.filter.Load(key); ok {
+		return v.(string) == "sec"
+	}
+
+	y = IsEncrypted(tr) && (strings.Contains(addr, "dns.quad9") ||
+		strings.Contains(addr, "security.cloudflare-dns") ||
+		strings.Contains(addr, "p1.freedns.controld")) ||
+		strings.Contains(addr, "freedns.controld.com/p1") ||
+		strings.Contains(addr, "security-filter-dns.cleanbrowsing") ||
+		strings.Contains(addr, "doh.cleanbrowsing.org/doh/security-filter")
+	t.filter.Store(key, "sec")
+	return
+}
+
+// plusIsFamily implements settings.PlusFilterFamily.
+func (t *plus) plusIsFamily(tr Transport) (y bool) {
+	if tr == nil {
+		return false
+	}
+	addr := tr.OriginalAddr()
+	if len(addr) <= 0 {
+		return false
+	}
+	addr = strings.ToLower(addr) // case-insensitive match
+	// Addr alone cannot distinguish between transports of
+	// differing types hosted at the same address.
+	key := tr.Type() + "/" + addr
+
+	if v, ok := t.filter.Load(key); ok {
+		return v.(string) == "fam"
+	}
+
+	// adguard-dns.io/en/public-dns.html
+	// quad9.net/service/service-addresses-and-features
+	// controld.com/free-dns#quick-setups
+	// developers.cloudflare.com/1.1.1.1/setup
+	// cleanbrowsing.org/learn/what-is-encrypted-dns
+	y = IsEncrypted(tr) && (strings.Contains(addr, "doh.cleanbrowsing.org/doh/family-filter") ||
+		strings.Contains(addr, "family-filter-dns.cleanbrowsing") ||
+		strings.Contains(addr, "adult-filter-dns.cleanbrowsing.org") ||
+		strings.Contains(addr, "doh.cleanbrowsing.org/doh/adult-filter") ||
+		strings.Contains(addr, "family.cloudflare-dns.com") ||
+		strings.Contains(addr, "family.freedns.controld.com")) ||
+		strings.Contains(addr, "freedns.controld.com/family") ||
+		strings.Contains(addr, "family.adguard-dns")
+	t.filter.Store(key, "fam")
 	return
 }
 
@@ -370,6 +441,13 @@ func (t *plus) P50() int64 {
 
 func (t *plus) GetAddr() string {
 	return TransportPrefix(t.ID()) + t.ipports[0].String()
+}
+
+func (t *plus) OriginalAddr() string {
+	if l := t.latest(); l != nil {
+		return l.OriginalAddr()
+	}
+	return ""
 }
 
 func (t *plus) Measure(mid string, n, seconds int32) *x.DNSMeasurement {

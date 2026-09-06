@@ -51,6 +51,7 @@ type transport struct {
 	id string
 
 	addrport string // hostname, ip:port, protect.Selfhost:53, protect.Systemhost:53, protect.HostlessXYZ:53
+	origaddr string // original hostport/ipport/csv as set; first csv entry
 	port     uint16
 
 	client   *dns.Client
@@ -77,7 +78,14 @@ func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ip
 	if err != nil {
 		return
 	}
-	return newTransport(ctx, id, do, px)
+	t, err = newTransport(ctx, id, do, px)
+	if err == nil && t != nil {
+		t.origaddr = hostOrHostport
+		if len(ipcsv) > 0 {
+			t.origaddr = hostOrHostport + "," + ipcsv
+		}
+	}
+	return
 }
 
 // NewTransport returns a DNS53 transport serving from ip & port, ready for use.
@@ -114,6 +122,7 @@ func newTransport(pctx context.Context, id string, do *settings.DNSOptions, px i
 		id:   id,
 		// may be hostname:port or ip:port or protect.Selfhost or protect.Systemhost
 		addrport: do.AddrPort(),
+		origaddr: do.AddrPort(),
 		port:     do.Port(),
 		pool:     core.NewMultConnPool[uint64](ctx),
 		// todo: renable once we know why pooled wireguard dns conns are troublesome
@@ -382,6 +391,16 @@ func (t *transport) getAddr() string {
 
 func (t *transport) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(t, mid, n, seconds)
+}
+
+func (t *transport) OriginalAddr() string {
+	if t == nil {
+		return ""
+	}
+	if len(t.origaddr) > 0 {
+		return dnsx.FirstCsvToken(t.origaddr)
+	}
+	return dnsx.FirstCsvToken(t.addrport)
 }
 
 func (t *transport) GetRelay() x.Proxy {

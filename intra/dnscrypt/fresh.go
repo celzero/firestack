@@ -109,6 +109,14 @@ func (s *severbyid) GetAddr() string {
 	return dnsx.NoDNS
 }
 
+// OriginalAddr implements [dnsx.Transport].
+func (s *severbyid) OriginalAddr() string {
+	if t := s.t(); t != nil {
+		return t.OriginalAddr()
+	}
+	return dnsx.NoDNS
+}
+
 // Measure implements [dnsx.Transport].
 func (s *severbyid) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(s, mid, n, seconds)

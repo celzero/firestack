@@ -95,6 +95,7 @@ type transport struct {
 	typ  string // dnsx.DOH / dnsx.ODOH
 
 	url      string // endpoint URL
+	origurl  string // original endpoint/target url as set
 	hostname string // endpoint hostname
 	port     uint16
 
@@ -199,6 +200,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 			return nil, fmt.Errorf("no hostname in %s", rawurl)
 		}
 		t.url = parsedurl.String()
+		t.origurl = rawurl
 		t.hostname = parsedurl.Hostname()
 		t.port = DohPortU16
 		if port, _ := strconv.ParseUint(parsedurl.Port(), 10, 16); port > 0 {
@@ -237,6 +239,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		}
 
 		t.url = configurl.String()        // odohconfigdns
+		t.origurl = otargeturl              // original target url as set
 		t.hostname = configurl.Hostname() // 1.1.1.1
 		t.port = DohPortU16               // TODO: grab port from configUrl
 		t.odohtargetname = targeturl.Hostname()
@@ -942,6 +945,16 @@ func (t *transport) GetAddr() string {
 
 func (t *transport) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(t, mid, n, seconds)
+}
+
+func (t *transport) OriginalAddr() string {
+	if t == nil {
+		return ""
+	}
+	if len(t.origurl) > 0 {
+		return dnsx.FirstCsvToken(t.origurl)
+	}
+	return dnsx.FirstCsvToken(t.url)
 }
 
 func (t *transport) GetRelay() x.Proxy {

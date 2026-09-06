@@ -80,11 +80,81 @@ var (
 	anyaddr4 = netip.IPv4Unspecified()
 	anyaddr6 = netip.IPv6Unspecified()
 
+	// CacheUndelegatedQueries controls whether answers for undelegated
+	// (local / special-use) domains are cached. When false, such answers
+	// are neither stored in nor served from the dnsx caches.
+	CacheUndelegatedQueries = false
+	// CacheLocalIPAnswers controls whether A/AAAA answers containing
+	// local (private / loopback / link-local / multicast / unspecified)
+	// IPs are cached. When false, such answers are neither stored in
+	// nor served from the dnsx caches.
+	CacheLocalIPAnswers = false
+
+	cgnat4 = netip.MustParsePrefix("100.64.0.0/10")
+
 	errAlgNoTransport    = errors.New("no alg transport")
 	errAlgNotAvail       = errors.New("no valid alg ips")
 	errAlgCannotRegister = errors.New("cannot register alg ip")
 	errAlgCannotSubst    = errors.New("cannot substitute alg ip")
 )
+
+func isLocalIP(ip netip.Addr) bool {
+	if !ip.IsValid() {
+		return false
+	}
+	u := ip.Unmap()
+	// unspecified (0.0.0.0/::) signals blocks, not local answers;
+	// never treat it as local so block signalling keeps working.
+	if !u.IsValid() || u.IsUnspecified() {
+		return false
+	}
+	if u.IsLoopback() || u.IsPrivate() ||
+		u.IsLinkLocalUnicast() || u.IsLinkLocalMulticast() || u.IsMulticast() {
+		return true
+	}
+	if u.Is4() && cgnat4.Contains(u) {
+		return true
+	}
+	// remaining non-global unicast (reserved, test-net, etc.)
+	// is treated as local / non-cacheable.
+	if !u.IsGlobalUnicast() {
+		return true
+	}
+	return false
+}
+
+func hasLocalIPAnswer(ans *dns.Msg) bool {
+	if ans == nil {
+		return false
+	}
+	for _, ip := range xdns.AQuadAAnswers(ans) {
+		if isLocalIP(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyLocalIP(ips []netip.Addr) bool {
+	for _, ip := range ips {
+		if isLocalIP(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// FirstCsvToken returns the first entry of a csv list, trimmed of spaces.
+// Used by OriginalAddr implementations.
+func FirstCsvToken(csv string) string {
+	if len(csv) <= 0 {
+		return ""
+	}
+	if i := strings.Index(csv, ","); i >= 0 {
+		return strings.TrimSpace(csv[:i])
+	}
+	return strings.TrimSpace(csv)
+}
 
 func isAlgErr(err error) bool {
 	return (err == errAlgCannotRegister || err == errAlgNotAvail || err == errAlgCannotSubst)
@@ -1133,12 +1203,31 @@ func (t *dnsgateway) stop() {
 	copy(t.hexes, rfc8215a)
 }
 
+func (t *dnsgateway) isUndelegated(qn string) bool {
+	if t == nil {
+		return false
+	}
+	return isUndelegatedDomain(t.localdomains(), qn)
+}
+
+// localdomains returns undelegated / special-use domains trie from outer resolver; may be nil.
+func (t *dnsgateway) localdomains() x.RadixTree {
+	if t == nil || t.rdns == nil || core.IsNil(t.rdns) {
+		return nil
+	}
+	return t.rdns.LocalDomains()
+}
+
 func (t *dnsgateway) fromInternalCache(tid, uid, fid string, q *dns.Msg, typ iptype) (ans *dns.Msg, err error) {
 	if skipInternalCache(tid) {
 		return nil, errSkipInternalCache
 	}
 	// Skip answering from internal cache when DNSSEC is requested
 	if typ == typreal && xdns.IsDNSSECRequested(q) {
+		return nil, errSkipInternalCache
+	}
+	// never serve undelegated queries from internal cache when disabled
+	if !CacheUndelegatedQueries && t.isUndelegated(qname(q)) {
 		return nil, errSkipInternalCache
 	}
 	a, aaaa := xdns.HasAQuestion(q), xdns.HasAAAAQuestion(q)

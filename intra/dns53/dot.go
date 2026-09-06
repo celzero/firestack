@@ -39,6 +39,7 @@ type dot struct {
 	id string // id of the transport
 
 	addrport string // ip:port or hostname:port
+	origaddr string // original url or hostport as set
 	port     uint16 // port number
 	host     string // hostname from the url
 
@@ -103,6 +104,7 @@ func NewTLSTransport(ctx context.Context, id, rawurl string, addrs []string, px 
 		host:          hostname,
 		skipTLSVerify: skipTLSVerify,
 		addrport:      addrport, // may or may not be ipaddr
+		origaddr:      rawurl,
 		port:          port,
 		proxies:       px,
 		relay:         relay,
@@ -402,6 +404,16 @@ func (t *dot) GetAddr() string {
 
 func (t *dot) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(t, mid, n, seconds)
+}
+
+func (t *dot) OriginalAddr() string {
+	if t == nil {
+		return ""
+	}
+	if len(t.origaddr) > 0 {
+		return dnsx.FirstCsvToken(t.origaddr)
+	}
+	return dnsx.FirstCsvToken(t.addrport)
 }
 
 func (t *dot) IPPorts() (ipps []netip.AddrPort) {

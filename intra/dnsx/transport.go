@@ -249,7 +249,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	} else if tr, ok := dtr.(Transport); !ok {
 		log.W("dns: not a transport; ignoring %s @ %s", dtrid, dtraddr)
 	} else {
-		ctr := NewCachingTransport(r.ctx, tr, ttl10m)
+		ctr := NewCachingTransport(r.ctx, tr, ttl10m, r)
 		r.Lock()
 		r.transports[idstr(tr)] = tr // regular
 		if ctr != nil {
@@ -374,7 +374,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 		// as the stop/start for it is handled DcMulti
 		r.Lock()
 		r.transports[tid] = t
-		if ct := NewCachingTransport(r.ctx, t, ttl10m); ct != nil {
+		if ct := NewCachingTransport(r.ctx, t, ttl10m, r); ct != nil {
 			ctid := idstr(ct)
 			r.transports[ctid] = ct
 			caching = true
@@ -392,7 +392,7 @@ func (r *resolver) Add(dt x.DNSTransport) (ok bool) {
 			r.transports[tid] = t
 		}
 		// always recreate caching transport
-		if ct := NewCachingTransport(r.ctx, t, ttl10m); ct != nil {
+		if ct := NewCachingTransport(r.ctx, t, ttl10m, r); ct != nil {
 			ctid := idstr(ct)
 			// re-attempt closing cache if closing it above was skipped
 			r.stopIfExistsLocked(ctid)
@@ -526,6 +526,14 @@ func (r *resolver) IsDnsAddrPort(ipport netip.AddrPort) bool {
 // Implements [RdnsResolver].
 func (r *resolver) IsDnsAddr(ip netip.Addr) bool {
 	return r.isDnsIp(ip)
+}
+
+// LocalDomains implements [RdnsResolver].
+func (r *resolver) LocalDomains() x.RadixTree {
+	if r == nil {
+		return nil
+	}
+	return r.localdomains
 }
 
 // lookup implements [ResolverSelf].
@@ -1506,7 +1514,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 		// todo: remove this once we let users "pin" domains to resolvers
 		// github.com/celzero/rethink-app/issues/1153
 		// skip override when preventing DNS capture on port53 is turned off
-	} else if len(qname) > 0 && r.localdomains.HasAny(qname) {
+	} else if len(qname) > 0 && isUndelegatedDomain(r.LocalDomains(), qname) {
 		id = Goos // system is primary; see: transport.go:determineTransports()
 	}
 	return

@@ -69,6 +69,13 @@ func (t *errorer) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 	return dnsx.Perf(t, mid, n, seconds)
 }
 
+func (t *errorer) OriginalAddr() string {
+	if t == nil {
+		return ""
+	}
+	return dnsx.FirstCsvToken(t.ipport)
+}
+
 func (t *errorer) GetRelay() x.Proxy {
 	return nil
 }

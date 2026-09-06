@@ -70,6 +70,8 @@ type RdnsResolver interface {
 	IsDnsAddrPort(ipport netip.AddrPort) bool
 	// IsDnsAddr returns true if the ip is resolver's fake endpoint
 	IsDnsAddr(ip netip.Addr) bool
+	// LocalDomains returns undelegated / special-use domains trie; may be nil
+	LocalDomains() x.RadixTree
 	// blockQ determines if a DNS query is blocked by chosen RethinkDNS blocklist.
 	blockQ(Transport, Transport, *dns.Msg) (*dns.Msg, string, error)
 	// blockA determines if a DNS answer is blocked by chosen RethinkDNS blocklist.

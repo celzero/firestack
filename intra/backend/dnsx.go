@@ -128,6 +128,8 @@ type DNSTransport interface {
 	P50() int64
 	// Return the server host address used to initialize this transport.
 	GetAddr() string
+	// Original URL or IP:port
+	OriginalAddr() string
 	// Return the proxy (relay) always used by this transport.
 	// Returns nil if there isn't any.
 	GetRelay() Proxy
