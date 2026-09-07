@@ -12,7 +12,10 @@
 
 package core
 
-import "sync/atomic"
+import (
+	"reflect"
+	"sync/atomic"
+)
 
 // Volatile is a concurrency-safe holder for a value of type T.
 // It never panics on inconsistent dynamic types, unlike sync/atomic.Value.
@@ -46,7 +49,9 @@ func (a *Volatile[T]) LoadOk() (T, bool) {
 		return zz, false
 	}
 	if x := a.v.Load(); x != nil {
-		return x.(wrappedValue[T]).v, true
+		if w, ok := x.(wrappedValue[T]); ok {
+			return w.v, true
+		}
 	}
 	var zz T
 	return zz, false
@@ -69,7 +74,9 @@ func (a *Volatile[T]) Swap(new T) (old T) {
 		return
 	}
 	if ov := a.v.Swap(wrappedValue[T]{new}); ov != nil {
-		return ov.(wrappedValue[T]).v
+		if w, ok := ov.(wrappedValue[T]); ok {
+			return w.v
+		}
 	}
 	var zz T
 	return zz
@@ -99,8 +106,7 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 			ok = true
 			return
 		}
-		var zero T
-		if any(old) == any(zero) && a.v.CompareAndSwap(nil, wrappedValue[T]{new}) {
+		if isZeroValue(old) && a.v.CompareAndSwap(nil, wrappedValue[T]{new}) {
 			ok = true
 		}
 	}()
@@ -110,4 +116,24 @@ func (a *Volatile[T]) Cas(old, new T) (ok bool) {
 // CompareAndSwap is an alias for Cas.
 func (a *Volatile[T]) CompareAndSwap(old, new T) bool {
 	return a.Cas(old, new)
+}
+
+// isZeroValue reports whether v equals zero T without panicking
+// on non-comparable dynamic types.
+func isZeroValue[T any](v T) bool {
+	var zero T
+	av := any(v)
+	az := any(zero)
+	if av == nil || az == nil {
+		return av == nil && az == nil
+	}
+	ta := reflect.TypeOf(av)
+	tz := reflect.TypeOf(az)
+	if ta == nil || tz == nil {
+		return false
+	}
+	if !ta.Comparable() || !tz.Comparable() {
+		return false
+	}
+	return av == az
 }
