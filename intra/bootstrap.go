@@ -63,11 +63,12 @@ type bootstrap struct {
 	mu       sync.RWMutex      // protects following fields:
 	proxies  ipn.ProxyProvider // never nil if underlying transport is set
 	mapper   ipmap.IPMapper    // resolver for internal queries; set via kickstart
-	tr       dnsx.Transport    // the underlying transport
 	typ      string            // DOH or DNS53
 	ipports  string            // never empty for DNS53
 	url      string            // never empty for DOH
 	hostname string            // never empty
+
+	tr core.Volatile[dnsx.Transport] // the underlying transport
 }
 
 var _ DefaultDNS = (*bootstrap)(nil)
@@ -238,25 +239,24 @@ func (b *bootstrap) kickstartLocked(px ipn.ProxyProvider, m ipmap.IPMapper) erro
 		err = errDefaultTransportType
 	}
 
-	if prev := b.tr; prev != nil {
+	// always override previous transport with (new) tr; even if nil
+	prev := b.tr.Swap(tr)
+	if prev != nil {
 		core.Gx1("dns.bootstrap.stop", stopTransport, prev) // stop after new transport is ready
 		log.I("dns: default: removing %s %s[%s]; using %s %s",
-			b.typ, b.hostname, b.IPPorts(), typstr(tr), ippstr(tr))
+			b.typ, b.hostname, ippstr(prev), typstr(tr), ippstr(tr))
 	}
-
-	// always override previous transport with (new) tr; even if nil
-	b.tr = tr
 
 	if err != nil {
 		log.E("dns: default: start; err %v", err)
 		return err
-	} else if b.tr == nil {
+	} else if b.get() == nil {
 		log.W("dns: default: start; nil transport %s %s", b.typ, b.hostname)
 		return errCannotStart
 	}
 
 	log.I("dns: default: start; %s with %s[%s]; ok? %t",
-		b.typ, b.hostname, b.GetAddr(), len(b.ipports) > 0)
+		b.typ, b.hostname, addrstr(tr), len(b.ipports) > 0)
 	return nil
 }
 
@@ -274,10 +274,7 @@ func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.M
 	smm.Type = b.typ
 	smm.UID = protect.MyUid
 
-	b.mu.RLock()
-	tr := b.tr
-	b.mu.RUnlock()
-
+	tr := b.get()
 	if tr != nil {
 		if settings.Debug {
 			log.V("dns: default: %s query? %t", network, q != nil)
@@ -290,18 +287,14 @@ func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.M
 }
 
 func (b *bootstrap) P50() int64 {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if tr := b.tr; tr != nil {
+	if tr := b.get(); tr != nil {
 		return tr.P50()
 	}
 	return 0
 }
 
 func (b *bootstrap) GetAddr() string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if tr := b.tr; tr != nil {
+	if tr := b.get(); tr != nil {
 		return tr.GetAddr()
 	}
 	return dnsx.NoDNS
@@ -309,18 +302,23 @@ func (b *bootstrap) GetAddr() string {
 
 func (b *bootstrap) OriginalAddr() string {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	url := b.url
+	hostname := b.hostname
+	ipports := b.ipports
+	tr := b.get()
+	b.mu.RUnlock()
+
 	// original url/hostport/ipport/csv as set via reinit; first csv entry
-	if len(b.url) > 0 {
-		return dnsx.FirstCsvToken(b.url)
+	if len(url) > 0 {
+		return dnsx.FirstCsvToken(url)
 	}
-	if len(b.hostname) > 0 && b.hostname != protectedHostname && b.hostname != builtinHostname {
-		return dnsx.FirstCsvToken(b.hostname)
+	if len(hostname) > 0 && hostname != protectedHostname && hostname != builtinHostname {
+		return dnsx.FirstCsvToken(hostname)
 	}
-	if len(b.ipports) > 0 {
-		return dnsx.FirstCsvToken(b.ipports)
+	if len(ipports) > 0 {
+		return dnsx.FirstCsvToken(ipports)
 	}
-	if tr := b.tr; tr != nil {
+	if tr != nil {
 		return tr.OriginalAddr()
 	}
 	return dnsx.NoDNS
@@ -331,36 +329,28 @@ func (b *bootstrap) Measure(mid string, n, seconds int32) *x.DNSMeasurement {
 }
 
 func (b *bootstrap) GetRelay() x.Proxy {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if tr := b.tr; tr != nil {
+	if tr := b.get(); tr != nil {
 		return tr.GetRelay() // usually nil
 	}
 	return nil
 }
 
 func (b *bootstrap) Relaying() bool {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if tr := b.tr; tr != nil {
+	if tr := b.get(); tr != nil {
 		return tr.Relaying() // usually false
 	}
 	return false
 }
 
 func (b *bootstrap) IPPorts() []netip.AddrPort {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if tr := b.tr; tr != nil {
+	if tr := b.get(); tr != nil {
 		return tr.IPPorts()
 	}
 	return dnsx.NoIPPort
 }
 
 func (b *bootstrap) Status() int32 {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if tr := b.tr; tr != nil {
+	if tr := b.get(); tr != nil {
 		return tr.Status()
 	}
 	return dnsx.ClientError // see also: dnsx/plus.go
@@ -368,30 +358,41 @@ func (b *bootstrap) Status() int32 {
 
 func (b *bootstrap) Stop() error {
 	log.I("dns: default: stopping %s %s", b.typ, b.hostname)
-
-	b.mu.RLock()
-	tr := b.tr
-	b.mu.RUnlock()
-	stopTransport(tr)
+	stopTransport(b.get())
 	return nil
 }
 
 func typstr(tr dnsx.Transport) string {
-	if tr == nil {
-		return "<notype>"
+	if tr == nil || core.IsNil(tr) {
+		return "<none>"
 	}
 	return tr.Type()
 }
 
 func ippstr(tr dnsx.Transport) string {
-	if tr == nil {
-		return "<noaddr>"
+	if tr == nil || core.IsNil(tr) {
+		return "<noip>"
 	}
 	return fmt.Sprintf("%v", tr.IPPorts())
 }
 
+func addrstr(tr dnsx.Transport) string {
+	if tr == nil || core.IsNil(tr) {
+		return "<noaddr>"
+	}
+	return tr.GetAddr()
+}
+
 func stopTransport(t dnsx.Transport) {
-	if t != nil {
+	if t != nil && core.IsNotNil(t) {
 		_ = t.Stop()
 	}
+}
+
+func (b *bootstrap) get() dnsx.Transport {
+	v, ok := b.tr.LoadOk()
+	if !ok {
+		return nil
+	}
+	return v
 }

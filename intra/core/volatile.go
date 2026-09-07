@@ -53,6 +53,7 @@ func (a *Volatile[T]) LoadOk() (T, bool) {
 }
 
 // Store sets the value. Never panics on type mismatch.
+// t may be nil.
 func (a *Volatile[T]) Store(t T) {
 	if a == nil {
 		return
@@ -62,6 +63,7 @@ func (a *Volatile[T]) Store(t T) {
 
 // Swap stores new and returns the previous value.
 // Returns zero if empty or receiver is nil.
+// new may be nil.
 func (a *Volatile[T]) Swap(new T) (old T) {
 	if a == nil {
 		return
@@ -74,6 +76,7 @@ func (a *Volatile[T]) Swap(new T) (old T) {
 }
 
 // Tango is an alias for Swap.
+// new may be nil.
 func (a *Volatile[T]) Tango(new T) (old T) {
 	if a == nil {
 		return
