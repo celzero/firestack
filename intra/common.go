@@ -312,12 +312,20 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *FlowSummary) {
 	isrwext := false
 	didSet := false
 	timeoutsecs := 0
-	// enable core.Pipe (sendfile/zero-copy) optimizations on TCP if
-	// read & write deadlines are not set (as in rwext is effectively
-	// a no-op) by unwrapping the underlying remote conn from rwext.
+	// enable core.Pipe (sendfile/zero-copy) optimizations on TCP only
+	// when no read/write deadline is actually configured (timeoutsecs
+	// <= 0), in which case rwext is a no-op wrapper and unwrapping is
+	// safe. Do NOT unwrap merely because didSet is true: SetTimeout
+	// (via core.SetTimeoutSockOpt) only sets TCP_USER_TIMEOUT, which
+	// bounds unacknowledged *writes*, not idle *reads*. If remote is
+	// unwrapped here while a positive timeoutsecs is configured, the
+	// only mechanism that can bound a stalled Read() (rwext's
+	// extendr/extendw, which set a real per-call deadline) is lost,
+	// and a peer that silently stops sending (no RST/FIN) causes
+	// Read() -- and thus this whole forward() -- to block forever.
 	if r, ok := remote.(rwext); ok {
 		isrwext = true
-		if timeoutsecs, didSet = r.SetTimeout(); didSet || timeoutsecs <= 0 {
+		if timeoutsecs, didSet = r.SetTimeout(); timeoutsecs <= 0 {
 			remote = r.Unwrap() // c may be *net.TCPConn or *demuxconn or *dialers.retrier|splitter
 		}
 	}
