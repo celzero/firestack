@@ -476,9 +476,17 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 	r.mu.Lock()
 	c := r.conn // r.conn may be provisional or final connection
+	rdeadline := r.readDeadline
 	r.mu.Unlock()
 
 	if c != nil {
+		// always (re)apply the caller's current read deadline (as set via
+		// SetReadDeadline, eg: rwext.extendr) to the underlying conn before
+		// reading from it; otherwise, once the retry sequence completes
+		// (see below), this deadline is applied to c just once and never
+		// again, so subsequent idle reads on c can block indefinitely even
+		// as callers keep extending r.readDeadline on every call.
+		_ = c.SetReadDeadline(rdeadline)
 		for reads := range maxEmptyReads {
 			n, err = c.Read(buf)
 			if n == 0 && err == nil { // no data and no error
@@ -670,6 +678,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 
 	r.mu.Lock()
 	c := r.conn // retry has completed, so r.conn is final and may not need locking?
+	wdeadline := r.writeDeadline
 	r.mu.Unlock()
 	if c == nil {
 		cerr := log.EE("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn; after: %s",
@@ -677,6 +686,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 		return 0, core.JoinErr(cerr, errNilConn)
 	}
 
+	// always (re)apply the caller's current write deadline; see Read() for why.
+	_ = c.SetWriteDeadline(wdeadline)
 	n, err := c.Write(b)
 	if err != nil {
 		err = log.EE("retrier: write: %s: [%s=>%s]; b: %d/%d (retried? %t); after: %s; err? %v",
@@ -746,8 +757,11 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	}
 
 	if !optimizedWriteTo {
-		// write to w from c until EOF
-		b, err = core.Stream(w, c)
+		// write to w from r (not raw c) until EOF, so that r.Read's
+		// per-call deadline refresh (see Read()) stays in effect; reading
+		// from c directly bypasses that refresh and can hang indefinitely
+		// once the retry sequence above has completed.
+		b, err = core.Stream(w, r)
 		bytes += b
 	}
 
@@ -842,8 +856,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	}
 
 	if !optimizedReadFrom {
-		// read from reader into c until EOF
-		b, err = core.Stream(c, reader)
+		// read from reader into r (not raw c) until EOF; see WriteTo for why.
+		b, err = core.Stream(r, reader)
 		bytes += b
 	}
 
