@@ -94,9 +94,10 @@ func dbgTCPInfo(c protect.Conn) string {
 	if cerr != nil || operr != nil || info == nil {
 		return fmt.Sprintf("tcpinfo-err(ctl=%v,op=%v)", cerr, operr)
 	}
-	return fmt.Sprintf("tcpi[state=%d rtt=%dus rttvar=%dus retx=%d total_retx=%d last_data_recv=%dms last_data_sent=%dms unacked=%d]",
+	return fmt.Sprintf("tcpi[state=%d rtt=%dus rttvar=%dus retx=%d total_retx=%d last_data_recv=%dms last_data_sent=%dms unacked=%d snd_mss=%d rcv_mss=%d pmtu=%d]",
 		info.State, info.Rtt, info.Rttvar, info.Retransmits, info.Total_retrans,
-		info.Last_data_recv, info.Last_data_sent, info.Unacked)
+		info.Last_data_recv, info.Last_data_sent, info.Unacked,
+		info.Snd_mss, info.Rcv_mss, info.Pmtu)
 }
 
 // retrier implements the DuplexConn interface and must
