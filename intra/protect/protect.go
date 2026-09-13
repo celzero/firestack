@@ -126,12 +126,17 @@ func ifbind(who string, ctl Controller) func(string, string, syscall.RawConn) er
 // logged, never fatal) on newly-created, not-yet-connected TCP sockets, to
 // guard against a path-MTU-discovery blackhole (see clampedMSS doc above).
 // No-op for non-TCP networks.
+//
+// DEBUG-INSTRUMENTATION (temporary, remove once Zee5/PMTUD investigation is
+// closed): logs a getsockopt readback of TCP_MAXSEG immediately after
+// setting it, since some kernels silently cap/ignore the requested value.
 func clampMSS(who, network string, sock int) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		if err := unix.SetsockoptInt(sock, unix.IPPROTO_TCP, unix.TCP_MAXSEG, clampedMSS); err != nil {
-			log.D("protect: %s: mss-clamp(%d) on %s sock; err? %v", who, clampedMSS, network, err)
-		}
+		serr := unix.SetsockoptInt(sock, unix.IPPROTO_TCP, unix.TCP_MAXSEG, clampedMSS)
+		got, gerr := unix.GetsockoptInt(sock, unix.IPPROTO_TCP, unix.TCP_MAXSEG)
+		log.I("protect: dbg: %s: mss-clamp: set(%d)? err=%v; readback=%d; err=%v; %s sock",
+			who, clampedMSS, serr, got, gerr, network)
 	default: // udp, unix, etc: no-op
 	}
 }
