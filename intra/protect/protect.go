@@ -36,6 +36,7 @@ import (
 	b "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/log"
+	"golang.org/x/sys/unix"
 )
 
 // See: ipmap.LookupNetIP; Selfhost -> dnsx.Default; Systemhost -> dnsx.System
@@ -55,6 +56,22 @@ const (
 
 	// if true, only protects the socket from routing loops & binds to active network.
 	onlyProtectWildcardAddrs = false
+
+	// clampedMSS is a conservative TCP MSS ceiling advertised (pre-connect,
+	// via TCP_MAXSEG) on all outbound TCP sockets. Mitigates a path-MTU
+	// discovery blackhole class of bug: a remote peer sends a full-MTU-sized
+	// segment that needs in-flight fragmentation on some hop of the path;
+	// the fragmentation-needed ICMP reply required for real PMTUD is
+	// filtered/lost (common middlebox misconfiguration), so the peer's
+	// retransmits of the oversized segment never make it through and the
+	// connection goes silent forever. Clamping our advertised MSS forces
+	// the remote peer to never send us a segment large enough to trigger
+	// this, at the cost of marginally smaller segments on high-throughput
+	// transfers. 1400 leaves headroom under the standard 1500-byte Ethernet
+	// MTU for the worst-case combined IPv4/IPv6 + TCP header overhead plus
+	// any additional encapsulation (eg: PPPoE, WireGuard, GRE, VPN) that may
+	// exist on the path.
+	clampedMSS = 1400
 )
 
 var MyUid = strconv.Itoa(os.Getuid())
@@ -86,6 +103,7 @@ func ifbind(who string, ctl Controller) func(string, string, syscall.RawConn) er
 		log.VV("control: netbinder: %s: %s(%s); err? %v", who, network, addr, err)
 		return c.Control(func(fd uintptr) {
 			sock := int(fd)
+			clampMSS(who, network, sock)
 			if onlyProtectWildcardAddrs && !maybeGlobalUnicast(addr, true) {
 				ctl.Protect(who, sock)
 				return
@@ -101,6 +119,20 @@ func ifbind(who string, ctl Controller) func(string, string, syscall.RawConn) er
 				ctl.Protect(who, sock)
 			}
 		})
+	}
+}
+
+// clampMSS sets a conservative TCP_MAXSEG ceiling (best-effort; errors are
+// logged, never fatal) on newly-created, not-yet-connected TCP sockets, to
+// guard against a path-MTU-discovery blackhole (see clampedMSS doc above).
+// No-op for non-TCP networks.
+func clampMSS(who, network string, sock int) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		if err := unix.SetsockoptInt(sock, unix.IPPROTO_TCP, unix.TCP_MAXSEG, clampedMSS); err != nil {
+			log.D("protect: %s: mss-clamp(%d) on %s sock; err? %v", who, clampedMSS, network, err)
+		}
+	default: // udp, unix, etc: no-op
 	}
 }
 
