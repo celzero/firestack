@@ -609,15 +609,22 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 					return nil, log.EE("proxy: client: invalid port %q in %q", port, addr)
 				}
 
+				pid := p.ID()
+				loopingback := settings.Loopingback.Load()
+				defaultfallback := settings.DefaultDNSAsFallback.Load()
 				// use preferred when proxy does not have dns
 				dnsid := x.Preferred
 				if hasDNS := len(p.DNS()) > 0; hasDNS {
-					dnsid = p.ID()
+					dnsid = pid
+				} else if p.Type() == INTERNET { // Exit or Exit64
+					dnsid = x.Default // TODO: should it be x.System for DNS64/NAT64?
+				} else if local(pid) && !loopingback { // Base
+					dnsid = x.Default
 				}
 
 				ips, err := dialers.Resolve(host, dnsid)
 				if err != nil {
-					if dnsid != x.Default && settings.DefaultDNSAsFallback.Load() {
+					if dnsid != x.Default && defaultfallback {
 						log.D("proxy: client: %s on %s resolve %s err %s: %v; using Default",
 							idstr(p), network, dnsid, host, err)
 						ips = dialers.For(host)
