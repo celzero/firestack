@@ -62,25 +62,28 @@ func (rw rwext) Write(b []byte) (n int, err error) {
 // ReadFrom implements core.RetrierConn.
 func (rw rwext) ReadFrom(r io.Reader) (n int64, err error) {
 	switch c := rw.Unwrap().(type) {
-	case io.ReaderFrom:
-		// disable read and write deadlines for rw.Conn as
-		// io.ReaderFrom does not support io.Reader+io.Writer
-		// semantics which rwext relies on to extend deadlines.
+	case *net.TCPConn:
+		// disable read and write deadlines for rw.Conn as io.ReaderFrom
+		// (splice/sendfile) does not support io.Reader+io.Writer semantics
+		// which rwext relies on to extend deadlines; safe only for a true
+		// os-level conn where the syscall itself is a single operation, not
+		// an unbounded higher-level relay loop that can go idle forever.
 		rw.extendForever()
 		return c.ReadFrom(r)
 	default:
 	}
-	// nb: stream rw (which extends deadlines) not rw.Conn
+	// nb: stream rw (which extends deadlines) not rw.Conn; this also covers
+	// wrapper types (eg: *dialers.retrier) that implement io.ReaderFrom but
+	// may internally fall back to a plain, idle-able copy loop of their own
+	// -- such types must not have their deadlines disabled outright.
 	return core.Stream(rw, r)
 }
 
 // WriteTo implements core.RetrierConn.
 func (rw rwext) WriteTo(w io.Writer) (n int64, err error) {
 	switch c := rw.Unwrap().(type) {
-	case io.WriterTo:
-		// disable read and write deadlines for rw.Conn as
-		// io.WriterTo does not support io.Reader+io.Writer
-		// semantics which rwext relies on to extend deadlines.
+	case *net.TCPConn:
+		// see ReadFrom for why this is scoped to a genuine os-level conn.
 		rw.extendForever()
 		return c.WriteTo(w)
 	default:
