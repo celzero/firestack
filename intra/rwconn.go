@@ -9,6 +9,7 @@ package intra
 import (
 	"io"
 	"net"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -16,11 +17,28 @@ import (
 	"github.com/celzero/firestack/intra/settings"
 )
 
+// warmReadGraceSec is the minimum idle-read grace period (secs) granted to a
+// TCP conn once it has successfully read at least one byte from the remote
+// (ie: proven to not be a PMTUD/censorship blackhole -- the failure mode
+// settings.DialerOpts.ReadTimeoutSec's default (10s) was introduced to catch,
+// see: PersistentState.kt:dialTimeoutSec). Persistent HTTP/1.1|2 keep-alive
+// conns routinely sit fully idle between a completed response and the app's
+// next logical request; eg: Zee5's cold-cache DRM/token provisioning after
+// receiving its DASH/HLS manifest response can legitimately exceed the base
+// 10s idle deadline, causing Firestack to RST an already-healthy, still-in-
+// use connection out from under the app before it's reused -- manifesting as
+// a silent, permanent player hang (no retry, no app-visible error). Root
+// caused via 3-state (vpn-off / vpn-on+warm-app-cache / vpn-on+cold-app-
+// cache) logcat capture+diff, 2026-09-13. Never-yet-successful (cold) conns
+// are unaffected and keep the short, aggressive base deadline.
+const warmReadGraceSec = 45
+
 // rwext wraps MinConn and extends deadline to minimum(min, settings.DialerOpts)
 // on every read and write.
 type rwext struct {
-	net.Conn        // underlying conn
-	minidle  uint32 // min idle timeout in secs
+	net.Conn              // underlying conn
+	minidle  uint32       // min idle timeout in secs
+	warm     *atomic.Bool // set once a read succeeds on this conn; never nil
 }
 
 // TODO? var _ core.DuplexCloser = (*rwext)(nil)
@@ -51,7 +69,11 @@ func (rw rwext) Unwrap() net.Conn {
 
 func (rw rwext) Read(b []byte) (n int, err error) {
 	rw.extendr()
-	return rw.Conn.Read(b)
+	n, err = rw.Conn.Read(b)
+	if n > 0 && rw.warm != nil {
+		rw.warm.Store(true) // conn proven alive; grant a longer idle grace hereon
+	}
+	return
 }
 
 func (rw rwext) Write(b []byte) (n int, err error) {
@@ -103,8 +125,13 @@ func (rw rwext) SyscallConn() (syscall.RawConn, error) {
 func (rw rwext) deadlines() (r, w uint32) {
 	dopt := settings.GetDialerOpts()
 	// -ve ints go higher than 2^31 w/ uint: go.dev/play/p/Rrqk_V8a7W0
-	return max(rw.minidle, uint32(dopt.ReadTimeoutSec)),
-		max(rw.minidle, uint32(dopt.WriteTimeoutSec))
+	r = max(rw.minidle, uint32(dopt.ReadTimeoutSec))
+	if rw.warm != nil && rw.warm.Load() {
+		// already exchanged >=1 byte on this conn: not a blackhole candidate;
+		// extend (never shrink) the read-idle grace for keep-alive reuse gaps.
+		r = max(r, warmReadGraceSec)
+	}
+	return r, max(rw.minidle, uint32(dopt.WriteTimeoutSec))
 }
 
 func (rw rwext) extendForever() {
