@@ -836,8 +836,10 @@ runagain:
 	} // else: discard ans2 (which is always exclusively a blocked ans from rdns blocklists)
 
 	realips := Netip2Csv(xdns.IPs(nonalg))
-	// ans1 is upstream answer... does upstream block?
-	ansblocked := xdns.AQuadAUnspecified(ans1)
+	// ans1 is upstream answer... does upstream block? some public
+	// ad/tracker-blocking resolvers sinkhole to loopback (127.0.0.1/::1)
+	// instead of the unspecified address; treat both as upstream blocks.
+	ansblocked := xdns.AQuadAUnspecified(ans1) || xdns.AQuadALoopback(ans1)
 
 	if log.Verbose {
 		log.V("dns: fwd: 7 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
