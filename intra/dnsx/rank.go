@@ -180,33 +180,34 @@ func (r *resolver) fetchRank(fid string, qname string) (int32, int32, []string) 
 
 	endpoint := rankDomURL + url.PathEscape(strings.ToLower(qname))
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, 0, []string{"rank err req: " + err.Error()}
+	}
 
 	resp, err := client.Do(req)
-	if resp == nil && err == nil {
-		err = errNoRankConn
-	}
-	if err != nil {
-		return 0, 0, []string{"rank get: " + err.Error()}
+	if resp == nil || err != nil {
+		err = core.OneErr(err, errNoRankConn)
+		return 0, 0, []string{"rank err get: " + err.Error()}
 	}
 	defer core.Close(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, 0, []string{"rank http: " + strconv.Itoa(resp.StatusCode)}
+		return 0, 0, []string{"rank err http: " + strconv.Itoa(resp.StatusCode)}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, rankMaxBody))
 	if err != nil {
-		return 0, 0, []string{"rank read: " + err.Error()}
+		return 0, 0, []string{"rank err read: " + err.Error()}
 	}
 
 	var rr rankReply
 	if err := json.Unmarshal(body, &rr); err != nil {
-		return 0, 0, []string{"rank json: " + err.Error()}
+		return 0, 0, []string{"rank err json: " + err.Error()}
 	}
 
 	if !rr.Success {
 		if len(rr.Errors) <= 0 {
-			rr.Errors = []string{"rank lookup failed"}
+			rr.Errors = []string{"rank err lookup: failed"}
 		}
 		return 0, 0, rr.Errors
 	}
