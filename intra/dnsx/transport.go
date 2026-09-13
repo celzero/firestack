@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
 	"net/netip"
 	"slices"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/dialers"
+	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/protect/ipmap"
@@ -114,6 +116,7 @@ var (
 	errTransportEnd         = errors.New("dns: transport ended")
 	errTransportPaused      = errors.New("dns: transport paused")
 	errOnQueryTimeout       = errors.New("dns: timeout fetching query prefs")
+	errOnPrequeryTimeout    = errors.New("dns: timeout fetching domain prefs")
 	errOnUpstreamAnsTimeout = errors.New("dns: timeout fetching answer prefs")
 	errBlockFreeTransport   = errors.New("dns: block free transport")
 	errNoRdns               = errors.New("dns: no rdns")
@@ -201,6 +204,9 @@ type resolver struct {
 	gateway      Gateway
 	localdomains x.RadixTree
 
+	// http client dialing over the base proxy for rank lookups
+	rankclient *http.Client
+
 	listener   x.DNSListener
 	smms       chan *x.DNSSummary
 	laststatus atomic.Int32
@@ -224,7 +230,7 @@ func (h *resolver) Status() int32 {
 var _ Resolver = (*resolver)(nil)
 var _ x.DNSResolver = (*resolver)(nil)
 
-func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x.DNSListener, pt NatPt) *resolver {
+func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x.DNSListener, pt NatPt, px ipn.ProxyProvider) *resolver {
 	var dtraddr, dtrid string
 
 	ctx, cancel := context.WithCancel(pctx)
@@ -240,6 +246,7 @@ func NewResolver(pctx context.Context, fakeaddrs string, dtr x.DNSTransport, l x
 	}
 	r.loadaddrs(fakeaddrs)
 	r.gateway = NewDNSGateway(r.ctx, r.dnsaddrs, r, pt)
+	r.rankclient = makeRankClient(px) // may be nil; rank-gated queries fail closed
 	if dtr != nil {
 		dtraddr = dtr.GetAddr()
 		dtrid = dtr.ID()
@@ -666,6 +673,19 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid
 	qname := ogsmm.QName
 	qtyp := ogsmm.QType
 
+	domopts, opqcompleted := core.Grx("r.onPrequery."+fid+"."+qname, func(_ context.Context) (*x.DomainOpts, error) {
+		return r.listener.OnPrequery(who, uid, qname, qtyp), nil
+	}, listenerTimeout)
+
+	if !opqcompleted {
+		log.W("dns: fwd: %s for %s; no prequery for %s:%d", fid, uid, qname, qtyp)
+		ogsmm.Latency = time.Since(starttime).Seconds()
+		ogsmm.Status = ClientError
+		ogsmm.Msg = errOnPrequeryTimeout.Error()
+		r.queueSummary(ogsmm)
+		return nil, NoDNS, errOnPrequeryTimeout
+	}
+
 	pref, oqcompleted := core.Grx("r.onQuery."+fid+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 		return r.listener.OnQuery(who, uid, qname, qtyp), nil
 	}, listenerTimeout)
@@ -673,7 +693,7 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid
 	onQueryDone = time.Since(starttime).Seconds()
 
 	if !oqcompleted || pref == nil {
-		log.W("dns: fwd: for %s; no preferences (%t) for %s:%d", uid, pref == nil, qname, qtyp)
+		log.W("dns: fwd: %s for %s; no preferences (%t) for %s:%d", fid, uid, pref == nil, qname, qtyp)
 		ogsmm.Latency = onQueryDone
 		ogsmm.Status = ClientError
 		ogsmm.Msg = errOnQueryTimeout.Error()
@@ -688,6 +708,11 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid
 		ogsmm.UID = prefuid
 		senduid = prefuid
 	}
+
+	// ranks from OnPrequery hints, fetching from the rank endpoint when
+	// stale; reported on every summary; enforced (fail closed) per run below.
+	rank, rankbig, rankerr, rankblock, rankreason := r.resolveRank(domopts, qname)
+	ogsmm.Rank, ogsmm.RankBig, ogsmm.RankError = rank, rankbig, rankerr
 
 	smm := copySummary(ogsmm)
 
@@ -742,6 +767,26 @@ runagain:
 
 	smm.Type = t.Type()
 	smm.ID = idstr(t)
+
+	if rankblock && !skipRankBlock(pref, presetIPs, t, t2) {
+		ans, qerr := xdns.RefusedResponseFromMessage(msg)
+		if qerr == nil {
+			smm.Latency = time.Since(starttime).Seconds()
+			smm.Status = Complete
+			smm.BlockedTarget = qname
+			smm.RData = xdns.GetInterestingRData(ans)
+			smm.Msg = rankreason
+			if log.Verbose {
+				log.V("dns: fwd: 2r %s for %s (fid: %s); r%d, rank blocked %s:%d (%d/%d)",
+					smm.ID, uid, smm.FID, run, qname, qtyp, rank, rankbig)
+			}
+			return ans, smm.ID, nil
+		}
+		if log.Verbose {
+			log.V("dns: fwd: 2r %s for %s (fid: %s); r%d, rank block skipped %s:%d: %v",
+				smm.ID, uid, smm.FID, run, qname, qtyp, qerr)
+		}
+	}
 
 	res1, blocklists, err := r.blockQ(t, t2, msg) // skips if the t, t2 are alg/block-free
 	if err == nil {

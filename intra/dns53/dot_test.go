@@ -117,7 +117,8 @@ var (
 	autoNsOpts = &x.DNSOpts{IPCSV: "", TIDCSV: x.CT + "test0:" + x.RpnWin}
 )
 
-func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts { return autoNsOpts }
+func (*fakeBdg) OnPrequery(_, _, _ string, _ int) *x.DomainOpts { return nil }
+func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts       { return autoNsOpts }
 func (*fakeBdg) OnUpstreamAnswer(_ string, _ *x.DNSSummary, _ *x.DNSOpts, _ string) *x.DNSOpts {
 	return nil
 }
@@ -163,7 +164,7 @@ func TestDot(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 	r4, err := resolv.Lookup(q, protect.MyUid)
 	ko(t, err)
@@ -208,7 +209,7 @@ func TestProxyReaches(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3", dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 
 	exit, _ := pxr.ProxyFor(ipn.Exit)
@@ -253,7 +254,7 @@ func TestSEProxy(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 
 	/*if err := pxr.RegisterSE(); err != nil {
@@ -325,7 +326,7 @@ func TestWgReaches(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 
 	wgconf, err := os.ReadFile("wg.conf")
@@ -420,7 +421,7 @@ func TestWinReaches(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 
 	readWinJson := true
@@ -530,7 +531,7 @@ func TestWinReaches(t *testing.T) {
 
 	ilog.VV("\n-----------------------DIAL--------------------------\n")
 	u, _ := url.Parse("https://tnreginet.gov.in/")
-	c1 := ipn.HttpClient(propx, "tcp", 20*time.Second)
+	c1 := ipn.HttpClient2(propx, "tcp", 20*time.Second)
 	r, err := c1.Get(u.String())
 	ko(t, err)
 
@@ -601,7 +602,7 @@ func TestWinDownloadSpeed(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 
 	readWinJson := true
@@ -645,7 +646,7 @@ func TestWinDownloadSpeed(t *testing.T) {
 	}
 
 	// create an HTTP client that dials through the RPN proxy
-	proxyClient := ipn.HttpClient(propx, "tcp", 60*time.Second)
+	proxyClient := ipn.HttpClient2(propx, "tcp", 60*time.Second)
 
 	// create a speedtest client with the proxy-routed HTTP client
 	st := speedtest.New(speedtest.WithDoer(proxyClient))
@@ -740,7 +741,7 @@ func TestPerfReal(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 	resolv.Add(dtr)
 

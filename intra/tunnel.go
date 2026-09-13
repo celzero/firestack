@@ -202,7 +202,7 @@ func NewTunnel2(fd, linkmtu, tunmtu int, ifaddrs, fakedns string, dtr DefaultDNS
 			proxies == nil, services == nil)
 	}
 
-	resolver := dnsx.NewResolver(ctx, fakedns, dtr, bdg, natpt)
+	resolver := dnsx.NewResolver(ctx, fakedns, dtr, bdg, natpt, proxies)
 
 	// kickstart may call into ProxyFor which has a multi-second wait time
 	// when proxies are not found

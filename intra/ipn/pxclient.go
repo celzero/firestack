@@ -250,7 +250,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 
 	log.VV("proxy: client: %s fetching windscribe via %s...", idstr(p), network)
 
-	client := httpClient(p, network, maxHttpTimeout)
+	client := HttpClient2(p, network, maxHttpTimeout)
 	resp, err := client.Do(req)
 	if resp == nil {
 		return nil, core.OneErr(err, errors.New("proxy: client: windscribe nil response"))
@@ -561,7 +561,7 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	log.VV("proxy: client: %s fetching %s via %s...", idstr(p), rawurl, network)
 
 	// TODO: pool clients
-	client := httpClient(p, network, maxHttpTimeout)
+	client := HttpClient2(p, network, maxHttpTimeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -586,11 +586,15 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 }
 
 // Exported for testing only.
-func HttpClient(p Proxy, network string, timeout time.Duration) *http.Client {
-	return httpClient(p, network, timeout)
+func HttpClient2(p Proxy, network string, timeout time.Duration) *http.Client {
+	return httpClient(p, network, timeout, false)
 }
 
-func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client {
+func HttpClient(p Proxy, network string, timeout time.Duration, keepalive bool) *http.Client {
+	return httpClient(p, network, timeout, keepalive)
+}
+
+func httpClient(p Proxy, network string, httpTimeout time.Duration, keepalive bool) *http.Client {
 	return &http.Client{
 		Timeout: httpTimeout,
 		Transport: &http.Transport{
@@ -677,7 +681,7 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 			},
 			TLSHandshakeTimeout:   httpTimeout / 2,
 			ResponseHeaderTimeout: httpTimeout - 2,
-			DisableKeepAlives:     true,
+			DisableKeepAlives:     !keepalive,
 			ForceAttemptHTTP2:     true,
 		},
 	}
