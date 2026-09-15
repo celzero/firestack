@@ -35,6 +35,107 @@ var fakePlusIpports = []netip.AddrPort{
 	netip.MustParseAddrPort("[fdaa:9125::9]:53"),
 }
 
+type filterFlags uint8
+
+// 0 is no filters
+const (
+	filterAd filterFlags = 1 << iota
+	filterSec
+	filterFam
+)
+
+type filterAttr struct {
+	typ, addr string // lowercase
+	mask      filterFlags
+}
+
+func (a filterAttr) has(f filterFlags) bool { return a.mask&f != 0 }
+
+func blocksAd(enc bool, addr string) bool {
+	return enc && (strings.Contains(addr, "dns.adguard-dns") ||
+		strings.Contains(addr, "noads.joindns4") ||
+		strings.Contains(addr, "p2.freedns.controld")) ||
+		strings.Contains(addr, "freedns.controld.com/p2")
+}
+
+func blocksMal(enc bool, addr string) bool {
+	return enc && (strings.Contains(addr, "dns.quad9") ||
+		strings.Contains(addr, "security.cloudflare-dns") ||
+		strings.Contains(addr, "p1.freedns.controld")) ||
+		strings.Contains(addr, "freedns.controld.com/p1") ||
+		strings.Contains(addr, "security-filter-dns.cleanbrowsing") ||
+		strings.Contains(addr, "doh.cleanbrowsing.org/doh/security-filter")
+}
+
+func blocksUnsafe(enc bool, addr string) bool {
+	// adguard-dns.io/en/public-dns.html
+	// quad9.net/service/service-addresses-and-features
+	// controld.com/free-dns#quick-setups
+	// developers.cloudflare.com/1.1.1.1/setup
+	// cleanbrowsing.org/learn/what-is-encrypted-dns
+	return enc && (strings.Contains(addr, "doh.cleanbrowsing.org/doh/family-filter") ||
+		strings.Contains(addr, "family-filter-dns.cleanbrowsing") ||
+		strings.Contains(addr, "adult-filter-dns.cleanbrowsing.org") ||
+		strings.Contains(addr, "doh.cleanbrowsing.org/doh/adult-filter") ||
+		strings.Contains(addr, "family.cloudflare-dns.com") ||
+		strings.Contains(addr, "family.freedns.controld.com")) ||
+		strings.Contains(addr, "freedns.controld.com/family") ||
+		strings.Contains(addr, "family.adguard-dns")
+}
+
+func makeFilterAttr(typ, addr string) filterAttr {
+	var mask filterFlags
+	enc := isEncrypted(typ)
+	if blocksAd(enc, addr) {
+		mask |= filterAd
+	}
+	if blocksMal(enc, addr) {
+		mask |= filterSec
+	}
+	if blocksUnsafe(enc, addr) {
+		mask |= filterFam
+	}
+	return filterAttr{typ: typ, addr: addr, mask: mask}
+}
+
+func (t *plus) classifyFilterFor(tr Transport) {
+	if tr == nil {
+		return
+	}
+	id := tr.ID()
+	if len(id) <= 0 {
+		return
+	}
+	typ := tr.Type()
+	addr := strings.ToLower(tr.OriginalAddr())
+	if len(addr) <= 0 {
+		return
+	}
+	t.filter.Store(id, makeFilterAttr(typ, addr))
+}
+
+func (t *plus) fattr(tr Transport) filterAttr {
+	id := tr.ID()
+	typ := tr.Type()
+	addr := strings.ToLower(tr.OriginalAddr())
+	if len(id) <= 0 || len(addr) <= 0 {
+		// do not cache id-less or addr-less transports; a later lookup
+		// after the transport gains an addr must not see a stale empty entry.
+		if len(addr) <= 0 {
+			return filterAttr{typ: typ, addr: addr}
+		}
+		return makeFilterAttr(typ, addr)
+	}
+	if v, ok := t.filter.Load(id); ok {
+		if attr, ok := v.(filterAttr); ok && attr.typ == typ && attr.addr == addr {
+			return attr
+		} // else: transport with id has swapped out for another type / orig-addr
+	}
+	attr := makeFilterAttr(typ, addr)
+	t.filter.Store(id, attr)
+	return attr
+}
+
 type plus struct {
 	mu sync.RWMutex // protects all
 	// id => transport; should contain transports owned by Plus
@@ -50,9 +151,9 @@ type plus struct {
 	closed atomic.Bool
 	last   core.MutexValue[Transport]
 
-	// filter memoizes t.plusIsAdblock results against GetAddr;
-	// keys are tr.Type() + "/" + tr.GetAddr().
-	filter sync.Map // string => string
+	// filter memoizes plus filter classifications per transport;
+	// keys are tr.ID() => plusFilterAttr.
+	filter sync.Map // string => plusFilterAttr
 }
 
 var _ Transport = (*plus)(nil)
@@ -73,11 +174,15 @@ func NewPlusTransport(ctx context.Context, r TransportProviderInternal, ts ...Tr
 	// ctx may be cancelled before all transports have had the
 	// chance to register; the mutex prevents that race.
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	for _, tr := range ts {
 		if len(idstr(tr)) > 0 {
 			t.transports[tr.ID()] = tr
 		}
+	}
+	t.mu.Unlock()
+	// classify outside the mutex: tr.OriginalAddr/Type must never run under t.mu.
+	for _, tr := range ts {
+		t.classifyFilterFor(tr)
 	}
 
 	log.I("plus: at %s; added: %d/%d", t.GetAddr(), len(t.transports), len(ts))
@@ -99,7 +204,7 @@ func (t *plus) stopAll() {
 	}
 
 	t.last.Store(nil)
-	// clear memoized adblock filter results
+	// clear memoized filter classifications
 	t.filter.Clear()
 }
 
@@ -244,92 +349,27 @@ refilter:
 }
 
 // plusIsAdblock implements settings.PlusFilterAdblock.
-func (t *plus) plusIsAdblock(tr Transport) (y bool) {
+func (t *plus) plusIsAdblock(tr Transport) bool {
 	if tr == nil {
 		return false
 	}
-	addr := tr.OriginalAddr()
-	if len(addr) <= 0 {
-		return false
-	}
-	addr = strings.ToLower(addr) // case-insensitive match
-	// GetAddr alone cannot distinguish between transports of
-	// differing types hosted at the same address.
-	key := tr.Type() + "/" + addr
-
-	if v, ok := t.filter.Load(key); ok {
-		return v.(string) == "pri"
-	}
-
-	y = IsEncrypted(tr) && (strings.Contains(addr, "dns.adguard-dns") ||
-		strings.Contains(addr, "noads.joindns4") ||
-		strings.Contains(addr, "p2.freedns.controld")) ||
-		strings.Contains(addr, "freedns.controld.com/p2")
-	t.filter.Store(key, "pri")
-	return
+	return t.fattr(tr).has(filterAd)
 }
 
 // plusIsSecurity implements settings.PlusFilterSecurity.
-func (t *plus) plusIsSecurity(tr Transport) (y bool) {
+func (t *plus) plusIsSecurity(tr Transport) bool {
 	if tr == nil {
 		return false
 	}
-	addr := tr.OriginalAddr()
-	if len(addr) <= 0 {
-		return false
-	}
-	addr = strings.ToLower(addr) // case-insensitive match
-	// Addr alone cannot distinguish between transports of
-	// differing types hosted at the same address.
-	key := tr.Type() + "/" + addr
-
-	if v, ok := t.filter.Load(key); ok {
-		return v.(string) == "sec"
-	}
-
-	y = IsEncrypted(tr) && (strings.Contains(addr, "dns.quad9") ||
-		strings.Contains(addr, "security.cloudflare-dns") ||
-		strings.Contains(addr, "p1.freedns.controld")) ||
-		strings.Contains(addr, "freedns.controld.com/p1") ||
-		strings.Contains(addr, "security-filter-dns.cleanbrowsing") ||
-		strings.Contains(addr, "doh.cleanbrowsing.org/doh/security-filter")
-	t.filter.Store(key, "sec")
-	return
+	return t.fattr(tr).has(filterSec)
 }
 
 // plusIsFamily implements settings.PlusFilterFamily.
-func (t *plus) plusIsFamily(tr Transport) (y bool) {
+func (t *plus) plusIsFamily(tr Transport) bool {
 	if tr == nil {
 		return false
 	}
-	addr := tr.OriginalAddr()
-	if len(addr) <= 0 {
-		return false
-	}
-	addr = strings.ToLower(addr) // case-insensitive match
-	// Addr alone cannot distinguish between transports of
-	// differing types hosted at the same address.
-	key := tr.Type() + "/" + addr
-
-	if v, ok := t.filter.Load(key); ok {
-		return v.(string) == "fam"
-	}
-
-	// adguard-dns.io/en/public-dns.html
-	// quad9.net/service/service-addresses-and-features
-	// controld.com/free-dns#quick-setups
-	// developers.cloudflare.com/1.1.1.1/setup
-	// cleanbrowsing.org/learn/what-is-encrypted-dns
-	y = IsEncrypted(tr) && (strings.Contains(addr, "doh.cleanbrowsing.org/doh/family-filter") ||
-		strings.Contains(addr, "family-filter-dns.cleanbrowsing") ||
-		strings.Contains(addr, "adult-filter-dns.cleanbrowsing.org") ||
-		strings.Contains(addr, "doh.cleanbrowsing.org/doh/adult-filter") ||
-		strings.Contains(addr, "family.cloudflare-dns.com") ||
-		strings.Contains(addr, "family.freedns.controld.com")) ||
-		strings.Contains(addr, "freedns.controld.com/family") ||
-		strings.Contains(addr, "family.adguard-dns")
-	t.filter.Store(key, "fam")
-	return
+	return t.fattr(tr).has(filterFam)
 }
 
 func (t *plus) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
@@ -512,11 +552,11 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 	}
 
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	if oldt, ok := t.transports[tr.ID()]; ok {
 		if core.PtrEq(oldt, newt) {
+			t.mu.Unlock()
 			log.I("plus: add %s@%s: already present", newt.ID(), newt.GetAddr())
+			t.classifyFilterFor(newt)
 			return true
 		}
 		core.Gxe("plus.stop."+oldt.ID(), oldt.Stop)
@@ -524,6 +564,8 @@ func (t *plus) Add(tr x.DNSTransport) bool {
 	}
 
 	t.transports[tr.ID()] = newt
+	t.mu.Unlock()
+	t.classifyFilterFor(newt)
 
 	log.I("plus: add %s@%s; old stopped? %t, cacher? %t",
 		newt.ID(), newt.GetAddr(), oldTransportStopped, cachingTransport)
@@ -537,6 +579,7 @@ func (t *plus) Remove(id string) (y bool) {
 	delete(t.transports, id)
 	t.mu.Unlock()
 
+	t.filter.Delete(id)
 	if tr != nil {
 		tr.Stop()
 		y = true
@@ -564,8 +607,11 @@ func (t *plus) GetInternal(id string) (Transport, error) {
 }
 
 func (t *plus) refresh() {
-	// clear memoized adblock filter results
+	// redo filter classifications;
 	t.filter.Clear()
+	for _, tr := range t.all() {
+		t.classifyFilterFor(tr)
+	}
 	if !plusSupportsCachedTransports {
 		return
 	}
