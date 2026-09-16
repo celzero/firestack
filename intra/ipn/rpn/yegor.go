@@ -130,6 +130,7 @@ const (
 	maxPerRegionWgConfs  = 4
 	maxAnyWgConfs        = 8
 	wsMaxPermaWgKeys     = 5
+	maxDNSSyncTries      = 2
 
 	disablePermaCreds = true
 
@@ -2520,45 +2521,80 @@ func listKeys(h *http.Client, ent *WsEntitlement, bearer string) (*WsWgListKeysR
 }
 
 // getDNSFilters returns the current DNS filter list.
+// retried [maxDNSSyncTries] times after random wait > 1s (but less than 2s).
 func getDNSFilters(h *http.Client, ent *WsEntitlement, bearer string) ([]WsFilter, error) {
 	if len(bearer) <= 0 {
 		return nil, errWsNoToken
 	}
 	tokst := tokenState(bearer)
+
+	minwait := 1000   // ms
+	maxjitter := 1000 // ms
+
 	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wsgetfilterspath)
-	req, err := http.NewRequest("GET", u.String(), nil)
-	if err != nil {
-		return nil, log.EE("ws: filters: get: req err: %v", err)
-	}
-	authHeader(req, bearer)
-	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
+	for t := range maxDNSSyncTries {
+		canretry := t < maxDNSSyncTries-1
+		wait := time.Duration(minwait+rand.IntN(maxjitter)) * time.Millisecond
 
-	if log.Verbose {
-		log.V("ws: filters: get: req: %s tok %s", u.String(), tokst)
-	}
+		req, err := http.NewRequest("GET", u.String(), nil)
+		if err != nil {
+			return nil, log.EE("ws: filters: get: req err: %v", err)
+		}
+		authHeader(req, bearer)
+		didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
-	res, err := h.Do(req)
-	if err != nil || res == nil {
-		return nil, log.EE("ws: filters: get: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
-	}
-	defer core.Close(res.Body)
-	updateDidTokenIfNeeded(ent, res)
-	if res.StatusCode != http.StatusOK {
-		return nil, wsErr(res, "getrob/"+tokst)
-	}
+		if log.Verbose {
+			log.V("ws: filters: get: (#%d) req: %s tok %s", t, u.String(), tokst)
+		}
 
-	var out WsFiltersResponse
-	if _, err = wsRes(res, &out, "getrob/"+tokst); err != nil {
-		return nil, err
-	}
-	if len(out.Data.Filters) <= 0 {
-		return nil, log.EE("ws: filters: get: %v; tok? %s", errWsNoFilters, tokst)
-	}
-	log.I("ws: filters: get: ok (tok? %s); %d filters", tokst, len(out.Data.Filters))
-	return out.Data.Filters, nil
+		res, err := h.Do(req)
+		if err != nil || res == nil {
+			if canretry {
+				log.W("ws: filters: get: (#%d) do err (nil? %t / tok? %s): %v; retry in %s",
+					t, res == nil, tokst, err, core.FmtPeriod(wait))
+				time.Sleep(wait)
+				continue
+			}
+			return nil, log.EE("ws: filters: get: (#%d) do err (nil? %t / tok? %s): %v", t, res == nil, tokst, err)
+		}
+		updateDidTokenIfNeeded(ent, res)
+		if res.StatusCode != http.StatusOK {
+			if canretry {
+				core.Close(res.Body)
+				log.W("ws: filters: get: (#%d) (%d) retry in %s; tok? %s",
+					t, res.StatusCode, core.FmtPeriod(wait), tokst)
+				time.Sleep(wait)
+				continue
+			}
+			err2 := wsErr(res, "getfilter/"+tokst)
+			core.Close(res.Body)
+			return nil, err2
+		}
+
+		var out WsFiltersResponse
+		_, err = wsRes(res, &out, "getfilter/"+tokst)
+		core.Close(res.Body)
+		if err != nil {
+			return nil, err // no retry
+		}
+
+		if len(out.Data.Filters) <= 0 {
+			if canretry {
+				log.W("ws: filters: get: (#%d) empty filters retry in %s; tok? %s", t, core.FmtPeriod(wait), tokst)
+				time.Sleep(wait)
+				continue
+			}
+			return nil, log.EE("ws: filters: get: (#%d) %v; tok? %s", t, errWsNoFilters, tokst)
+		}
+		log.I("ws: filters: get: (#%d) ok (tok? %s); %d filters", t, tokst, len(out.Data.Filters))
+		return out.Data.Filters, nil
+	} // else: maxDNSSyncTries not set or exceeded?
+
+	return nil, log.EE("ws: filters: get: unreachable; tok? %s", tokst)
 }
 
 // setDNSFilter enables or disables on a DNS filterID.
+// retried [maxDNSSyncTries] times after random wait > 1s (but less than 2s).
 func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, enable bool) error {
 	if len(bearer) <= 0 {
 		return errWsNoToken
@@ -2573,38 +2609,69 @@ func setDNSFilter(h *http.Client, ent *WsEntitlement, bearer, filterID string, e
 		return log.EE("ws: filters: set: marshal err: %v", err)
 	}
 
+	minwait := 1000   // ms
+	maxjitter := 1000 // ms
+
 	u := baseurl(ent.TestDomain, ent.Cid).JoinPath(wssetfilterpath)
-	req, err := http.NewRequest("PUT", u.String(), strings.NewReader(string(body)))
-	if err != nil {
-		return log.EE("ws: filters: set: req err: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	authHeader(req, bearer)
-	didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
+	for t := range maxDNSSyncTries {
+		canretry := t < maxDNSSyncTries-1
+		wait := time.Duration(minwait+rand.IntN(maxjitter)) * time.Millisecond
 
-	if log.Verbose {
-		log.V("ws: filters: set: %s status=%d req: %s tok %s", filterID, status, u.String(), tokst)
-	}
+		req, err := http.NewRequest("PUT", u.String(), strings.NewReader(string(body)))
+		if err != nil {
+			return log.EE("ws: filters: set: req err: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		authHeader(req, bearer)
+		didAndDBHeader(req, ent.Did, ent.DidToken, ent.TestDomain)
 
-	res, err := h.Do(req)
-	if err != nil || res == nil {
-		return log.EE("ws: filters: set: do err (nil? %t / tok? %s): %v", res == nil, tokst, err)
-	}
-	defer core.Close(res.Body)
-	updateDidTokenIfNeeded(ent, res)
-	if res.StatusCode != http.StatusOK {
-		return wsErr(res, "setrob("+filterID+")/"+tokst)
-	}
+		if log.Verbose {
+			log.V("ws: filters: set: (#%d) %s status=%d req: %s tok %s", t, filterID, status, u.String(), tokst)
+		}
 
-	var out WsFilterSetResponse
-	if _, err = wsRes(res, &out, "setrob("+filterID+")/"+tokst); err != nil {
-		return err
-	}
-	if out.Data.Success != 1 {
-		return log.EE("ws: filters: set: %s status=%d success!=1; tok? %s", filterID, status, tokst)
-	}
-	log.I("ws: filters: set: ok %s status=%d (tok? %s)", filterID, status, tokst)
-	return nil
+		res, err := h.Do(req)
+		if err != nil || res == nil {
+			if canretry {
+				log.W("ws: filters: set: (#%d) do err (nil? %t / tok? %s): %v; retry in %s",
+					t, res == nil, tokst, err, core.FmtPeriod(wait))
+				time.Sleep(wait)
+				continue
+			}
+			return log.EE("ws: filters: set: (#%d) do err (nil? %t / tok? %s): %v", t, res == nil, tokst, err)
+		}
+		updateDidTokenIfNeeded(ent, res)
+		if res.StatusCode != http.StatusOK {
+			if canretry {
+				core.Close(res.Body)
+				log.W("ws: filters: set: (#%d) %s status=%d (%d) retry in %s; tok? %s",
+					t, filterID, status, res.StatusCode, core.FmtPeriod(wait), tokst)
+				time.Sleep(wait)
+				continue
+			}
+			err2 := wsErr(res, "setrob("+filterID+")/"+tokst)
+			core.Close(res.Body)
+			return err2
+		}
+
+		var out WsFilterSetResponse
+		_, err = wsRes(res, &out, "setrob("+filterID+")/"+tokst)
+		core.Close(res.Body)
+		if err != nil {
+			return err // no retry
+		}
+		if out.Data.Success != 1 {
+			if canretry {
+				log.W("ws: filters: set: (#%d) %s status=%d success!=1 retry in %s; tok? %s", t, filterID, status, core.FmtPeriod(wait), tokst)
+				time.Sleep(wait)
+				continue
+			}
+			return log.EE("ws: filters: set: (#%d) %s status=%d success!=1; tok? %s", t, filterID, status, tokst)
+		}
+		log.I("ws: filters: set: (#%d) ok %s status=%d (tok? %s)", t, filterID, status, tokst)
+		return nil
+	} // else: maxDNSSyncTries not set or exceeded?
+
+	return log.EE("ws: filters: set: %s status=%d unreachable; tok? %s", filterID, status, tokst)
 }
 
 // syncDNSFilters reconciles the Robert DNS filters on the server with the desired state
