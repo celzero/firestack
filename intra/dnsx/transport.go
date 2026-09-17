@@ -647,7 +647,8 @@ func (r *resolver) forward(q *dns.Msg, who, fid, uid string, chosenids ...string
 	// when PtMode forces protocol translation, resolve AAAA in parallel
 	// so that dns64/nat64 caches are warm for subsequent translations.
 	pt := settings.PtMode.Load()
-	if who == OriginTunnel && xdns.IsAQType(uint16(qtyp)) && ptmodeIsForce(pt) {
+	// do not send v6 queries for undelegated domains queried over non-System DNS.
+	if who == OriginTunnel && xdns.IsAQType(uint16(qtyp)) && ptmodeIsForce(pt) && len(r.requiresGoosOrLocal(qname)) > 0 {
 		msg6 := xdns.Request6FromRequest4(q)
 		smm6 := copySummary(ogsmm)
 		smm6.QType = int(dns.TypeAAAA)
@@ -657,6 +658,7 @@ func (r *resolver) forward(q *dns.Msg, who, fid, uid string, chosenids ...string
 			log.V("dns: fwd: for %s; force6 for %s:%s:%d; ptmode=%s", uid, fid6, qname, qtyp, pt)
 		}
 
+		// TODO: take in to consideration that in non-Loopback mode, PtMode translations won't work for UidSelf.
 		core.Gx("r.fwd.aaaa."+fid6+"."+qname, func() {
 			_, _, _ = r.forwardInner(msg6, smm6, who, fid6, uid, chosenids...)
 		})
