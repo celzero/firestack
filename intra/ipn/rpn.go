@@ -48,6 +48,9 @@ type rpnp struct {
 	kids map[string]struct{}
 	// server metadata for each forked kid (keyed by CC)
 	skids map[string]*x.RpnServer
+	// auto-excluded CCs (2-letter, upper-case) for Auto ("**") selection;
+	// maintained incrementally by fork/purge, pushed via syncAutoExclusions
+	cckids map[string]struct{}
 	// server metadata for the main proxy
 	s *x.RpnServer
 }
@@ -80,7 +83,16 @@ func asRpnProxy(e Proxy, srv *x.RpnServer, acc RpnAcc, pxr Rpn) (RpnProxy, error
 		return nil, errRpnIDsMismatch
 	}
 	log.D("proxy: rpn: make: %s[%s]", providerid, proxyid)
-	return &rpnp{sync.RWMutex{}, e, acc, pxr, make(map[string]struct{}, 0), make(map[string]*x.RpnServer, 0), srv}, nil
+	return &rpnp{
+		mu:     sync.RWMutex{},
+		p:      e,
+		RpnAcc: acc,
+		pxr:    pxr,
+		kids:   make(map[string]struct{}, 0),
+		skids:  make(map[string]*x.RpnServer, 0),
+		cckids: make(map[string]struct{}, 0),
+		s:      srv,
+	}, nil
 }
 
 func (r *rpnp) ensureProxy() Proxy {
@@ -363,6 +375,19 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 
 	log.I("proxy: rpn: fork: %s[%s]", provider, cc)
 
+	// if the kid collides with the main's CC, move Auto to a different loc
+	if mainCC, ok := r.mainCCPart(); ok && len(mainCC) > 0 {
+		if inCC := autoCCPart(cc, provider); inCC == mainCC {
+			log.I("proxy: rpn: fork: %s[%s] collides with main; re-forking main...", provider, cc)
+			r.syncAutoExclusions(cc)
+			err = r.forkMain()
+		}
+		if err != nil {
+			log.E("proxy: rpn: fork: %s[%s] main collide re-fork failed; err? %v", provider, cc, err)
+			return nil, err
+		}
+	}
+
 	// forked proxy must start paused if existing is paused
 	// re-adds + updates if the proxy already exists
 	kid, srv, err := r.pxr.addRpnProxy(acc, cc)
@@ -373,7 +398,14 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 		if srv != nil {
 			r.skids[cc] = srv
 		}
+		if inCC := autoCCPart(cc, provider); len(inCC) > 0 {
+			if r.cckids == nil {
+				r.cckids = make(map[string]struct{})
+			}
+			r.cckids[inCC] = struct{}{}
+		}
 		r.mu.Unlock()
+		r.syncAutoExclusions()
 	}
 
 	return kid, err
@@ -391,6 +423,72 @@ func (r *rpnp) forkMain() error {
 
 	logei(err)("proxy: rpn: forkMain: %s; err? %v", mainpid, err)
 	return err
+}
+
+// autoCCPart extracts the 2-letter CC from "CITY;CC", "providerCITY;CC",
+// "CC" or "provider+CC". Returns "" for wildcards ("**"), empties, or
+// malformed inputs. MultiCountry only.
+func autoCCPart(cc, provider string) string {
+	cc = strings.TrimSpace(cc)
+	if len(provider) > 0 {
+		cc, _ = strings.CutPrefix(cc, provider)
+	}
+	if i := strings.LastIndex(cc, ";"); i >= 0 {
+		cc = cc[i+1:]
+	}
+	cc = strings.ToUpper(strings.TrimSpace(cc))
+	if len(cc) < 2 || cc == anyCountryCode {
+		return ""
+	}
+	return cc
+}
+
+// mainCCPart returns the CC the main proxy is currently serving, if known.
+// Prefers s.CC (set for Auto mains); falls back to parsing s.Key.
+func (r *rpnp) mainCCPart() (string, bool) {
+	if !r.RpnAcc.MultiCountry() {
+		return "", false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.s == nil {
+		return "", false
+	}
+	if cc := strings.ToUpper(strings.TrimSpace(r.s.CC)); len(cc) >= 2 {
+		return cc, true
+	}
+	return autoCCPart(r.s.Key, ""), true
+}
+
+// syncAutoExclusions pushes the incrementally-maintained cckids set
+// (plus any extra CCs) to the embedded RpnAcc via SetExcludedAutoCCs
+// (now part of the RpnAcc interface) so Auto ("**") Conf avoids them.
+// Never touches the Ops() copy; the acc implementation owns persistence
+// (WsClient persists via Store). Callers maintain cckids except for extra,
+// which sync merges in.
+func (r *rpnp) syncAutoExclusions(extra ...string) {
+	if r == nil || r.RpnAcc == nil || !r.RpnAcc.MultiCountry() {
+		return
+	}
+	provider := r.RpnAcc.ProviderID()
+	r.mu.Lock()
+	for _, e := range extra {
+		if cc := autoCCPart(e, provider); len(cc) > 0 {
+			if r.cckids == nil {
+				r.cckids = make(map[string]struct{})
+			}
+			r.cckids[cc] = struct{}{}
+		}
+	}
+	ccs := make([]string, 0, len(r.cckids))
+	for cc := range r.cckids {
+		ccs = append(ccs, cc)
+	}
+	r.mu.Unlock()
+	// always push (even when empty) so a purged set clears the acc
+	csv := strings.Join(ccs, ",")
+	r.RpnAcc.SetExcludedAutoCCs(csv)
+	log.I("proxy: rpn: auto-excl: %s => %s", provider, csv)
 }
 
 // ccCsvAsSet mods a comma-separated list of country codes into a lookup set.
@@ -420,6 +518,9 @@ func (r *rpnp) forkAll() error {
 
 	log.I("proxy: rpn: forkAll: %s [%v] incl: %d / excl: %d", provider, kids, len(kids), len(excludedSet))
 
+	// rebuild exclusions from all kids before
+	// to avoid forked countries chosen to be main.
+	r.syncAutoExclusions()
 	e := r.forkMain()
 	errs = append(errs, e)
 
@@ -490,6 +591,11 @@ func (r *rpnp) PurgeAll() (n uint32) {
 	if r.purgeMain() {
 		n++
 	}
+	// cckids tracks live kids only; purgeAll removed everything
+	r.mu.Lock()
+	clear(r.cckids)
+	r.mu.Unlock()
+	r.syncAutoExclusions()
 	return
 }
 
@@ -539,7 +645,11 @@ func (r *rpnp) purge(cc string) bool {
 	r.mu.Lock()
 	delete(r.kids, cc)
 	delete(r.skids, cc)
+	if inCC := autoCCPart(cc, provider); len(inCC) > 0 {
+		delete(r.cckids, inCC)
+	}
 	r.mu.Unlock()
+	r.syncAutoExclusions()
 
 	log.D("proxy: rpn: purge: %s[%s]? %t", provider, cc, rmv)
 	return rmv

@@ -95,6 +95,7 @@ type RpnOps struct {
 	dnsConfig         string // csv of DNS filter presets: "family", "security", "social", "privacy", "all", "none", "default"
 	forceInit         bool   // when false, skips expensive ops unless absolutely required.
 	excludeCCs        string // csv of (sorted) country codes to exclude from selection.
+	excludedAutoCCs   string // csv of country codes (sorted) to exclude from "Auto" selection.
 }
 
 func NewRpnOps() *RpnOps {
@@ -153,6 +154,26 @@ func (o *RpnOps) SetExcludeCCs(v string) {
 	}
 	o.excludeCCs = strings.Join(out, ",")
 }
+
+// For internal use only.
+func (o *RpnOps) SetExcludedAutoCCs(v string) {
+	if len(v) <= 0 {
+		o.excludedAutoCCs = ""
+		return
+	}
+
+	parts := slices.Sorted(strings.SplitSeq(v, ","))
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.ToUpper(strings.TrimSpace(p))
+		if len(p) > 0 {
+			out = append(out, p)
+		}
+	}
+	o.excludedAutoCCs = strings.Join(out, ",")
+}
+
+func (o RpnOps) ExcludedAutoCCs() (csv string) { return o.excludedAutoCCs }
 
 // ExcludeCCs returns the CSV of country codes excluded from CC selection.
 func (o RpnOps) ExcludeCCs() (csv string) { return o.excludeCCs }

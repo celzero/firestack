@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -1045,6 +1046,22 @@ func (a *WsClient) Ops() *x.RpnOps {
 	return &ops
 }
 
+// SetExcludedAutoCCs replaces the auto-exclusion set used for Auto ("**")
+// selection. Internal use only; called by ipn fork logic to keep Auto away
+// from explicitly forked countries. Persists via Store since Ops() returns
+// a copy and in-place mutation would be lost.
+func (a *WsClient) SetExcludedAutoCCs(csv string) {
+	if a == nil {
+		return
+	}
+	old, ok := a.ops.Load().(x.RpnOps)
+	if !ok {
+		return
+	}
+	old.SetExcludedAutoCCs(csv)
+	a.ops.Store(old)
+}
+
 // Expires implements x.RpnAcc.
 func (a *WsClient) Expires() int64 {
 	if a == nil {
@@ -1076,7 +1093,7 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 		return nil, errWsNoCcConfig
 	}
 
-	// Return cached locations if the session's loc_hash hasn't changed.
+	// return cached locations if the session's loc_hash hasn't changed.
 	if c.Session != nil && a.locsid.Load() == c.Session.LocHash {
 		if cur := a.locs.Load(); cur != nil {
 			return cur, nil
@@ -1146,6 +1163,10 @@ func (a *WsClient) Update(ops *x.RpnOps) (newstate []byte, err error) {
 			// retain existing dns config
 			ops.SetDNSConfig(curops.DNSConfig())
 		}
+		if len(ops.ExcludedAutoCCs()) <= 0 {
+			// retain existing auto exclusions (fork-maintained)
+			ops.SetExcludedAutoCCs(curops.ExcludedAutoCCs())
+		}
 	}
 	start := time.Now()
 	b, refreshed, needsRedo, err := makeWsWgFrom(a.http, c, *ops, true /*updating*/, ops.ChangesConfig(*curops))
@@ -1209,6 +1230,10 @@ func (a *WsClient) Conf(cc string) (string, *x.RpnServer, error) {
 	cc = strings.ToUpper(cc)
 
 	excl := ccCsvAsSet(a.Ops().ExcludeCCs())
+	autoExcl := ccCsvAsSet(a.Ops().ExcludedAutoCCs())
+	if chooseAny && len(autoExcl) > 0 {
+		maps.Insert(excl, maps.All(autoExcl))
+	}
 	// if a specific (non-wildcard) CC is explicitly excluded, bail early
 	if !chooseAny && len(excl) > 0 {
 		if _, excluded := excl[cc]; excluded {
@@ -1312,7 +1337,10 @@ reconf:
 		logew(retried)("ws: conf: cc %s(%s): all visited(%d) / excluded(%d) / bad(%d); tot: %d / excl: %d; retry?",
 			cc, city, v, xl, badc, tot, len(excl), !retried)
 		if !retried {
-			clear(excl) // fail open; excluded none
+			clear(excl) // fail open for user exclusions; keep auto exclusions
+			if chooseAny {
+				maps.Insert(excl, maps.All(autoExcl))
+			}
 			clear(visited)
 			retried = true
 			goto reconf
