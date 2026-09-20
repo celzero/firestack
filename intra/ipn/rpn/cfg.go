@@ -57,11 +57,7 @@ type RpnAcc interface {
 	x.RpnAcc
 	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz, x.RpnWin
 	MultiCountry() bool
-	Conf(key string) (string, *x.RpnServer, error)
-	// SetExcludedAutoCCs replaces the auto-exclusion set used for Auto ("**")
-	// selection. Internal use only; called by ipn fork logic to keep Auto away
-	// from explicitly forked countries.
-	SetExcludedAutoCCs(string)
+	Conf(key string, ccs []string) (string, *x.RpnServer, error)
 }
 
 var _ RpnAcc = (*WsClient)(nil)
@@ -92,16 +88,17 @@ type RpnStateless struct {
 	RpnUpdateless
 }
 
-func (RpnStateless) Updated() int64                               { return neverEver.UnixMilli() }
-func (RpnStateless) State() ([]byte, error)                       { return nil, errRpnStateless }
-func (RpnStateless) Conf(cc string) (string, *x.RpnServer, error) { return "", nil, errRpnStateless }
-func (RpnStateless) Entitlement() (x.RpnEntitlement, error)       { return nil, errRpnStateless }
+func (RpnStateless) Updated() int64         { return neverEver.UnixMilli() }
+func (RpnStateless) State() ([]byte, error) { return nil, errRpnStateless }
+func (RpnStateless) Conf(cc string, ccs []string) (string, *x.RpnServer, error) {
+	return "", nil, errRpnStateless
+}
+func (RpnStateless) Entitlement() (x.RpnEntitlement, error) { return nil, errRpnStateless }
 
 type RpnUpdateless struct{}
 
 func (RpnUpdateless) Ops() *x.RpnOps                   { return nil }
 func (RpnUpdateless) Update(*x.RpnOps) ([]byte, error) { return nil, errRpnUpdateless }
-func (RpnUpdateless) SetExcludedAutoCCs(string)        {} // no-op
 
 type RpnMultiCountryServers struct {
 	all []x.RpnServer

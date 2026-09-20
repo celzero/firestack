@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -1046,22 +1045,6 @@ func (a *WsClient) Ops() *x.RpnOps {
 	return &ops
 }
 
-// SetExcludedAutoCCs replaces the auto-exclusion set used for Auto ("**")
-// selection. Internal use only; called by ipn fork logic to keep Auto away
-// from explicitly forked countries. Persists via Store since Ops() returns
-// a copy and in-place mutation would be lost.
-func (a *WsClient) SetExcludedAutoCCs(csv string) {
-	if a == nil {
-		return
-	}
-	old, ok := a.ops.Load().(x.RpnOps)
-	if !ok {
-		return
-	}
-	old.SetExcludedAutoCCs(csv)
-	a.ops.Store(old)
-}
-
 // Expires implements x.RpnAcc.
 func (a *WsClient) Expires() int64 {
 	if a == nil {
@@ -1163,10 +1146,6 @@ func (a *WsClient) Update(ops *x.RpnOps) (newstate []byte, err error) {
 			// retain existing dns config
 			ops.SetDNSConfig(curops.DNSConfig())
 		}
-		if len(ops.ExcludedAutoCCs()) <= 0 {
-			// retain existing auto exclusions (fork-maintained)
-			ops.SetExcludedAutoCCs(curops.ExcludedAutoCCs())
-		}
 	}
 	start := time.Now()
 	b, refreshed, needsRedo, err := makeWsWgFrom(a.http, c, *ops, true /*updating*/, ops.ChangesConfig(*curops))
@@ -1204,7 +1183,7 @@ func (a *WsClient) shallowCopyConfig(b *WsClient) (copied bool, err error) {
 }
 
 // Conf implements RpnAcc.
-func (a *WsClient) Conf(cc string) (string, *x.RpnServer, error) {
+func (a *WsClient) Conf(cc string, exclusions []string) (string, *x.RpnServer, error) {
 	cfg := a.config()
 	if cfg == nil {
 		return "", nil, errWsNoConfig
@@ -1230,9 +1209,17 @@ func (a *WsClient) Conf(cc string) (string, *x.RpnServer, error) {
 	cc = strings.ToUpper(cc)
 
 	excl := ccCsvAsSet(a.Ops().ExcludeCCs())
-	autoExcl := ccCsvAsSet(a.Ops().ExcludedAutoCCs())
-	if chooseAny && len(autoExcl) > 0 {
-		maps.Insert(excl, maps.All(autoExcl))
+	autoExcl := make(map[string]struct{}, len(exclusions))
+	if chooseAny {
+		for _, ax := range exclusions {
+			ax = strings.ToUpper(strings.TrimSpace(ax))
+			if len(ax) > 0 {
+				autoExcl[ax] = struct{}{}
+			}
+		}
+		for ax := range autoExcl {
+			excl[ax] = struct{}{}
+		}
 	}
 	// if a specific (non-wildcard) CC is explicitly excluded, bail early
 	if !chooseAny && len(excl) > 0 {
@@ -1341,6 +1328,7 @@ reconf:
 		if !retried {
 			clear(excl) // fail open for user exclusions; keep auto exclusions
 			if chooseAny {
+				// TODO: fail open for chooseAny, too?
 				excl = autoExcl
 			}
 			clear(visited)

@@ -7,6 +7,7 @@
 package core
 
 import (
+	"iter"
 	"math/rand"
 	"slices"
 )
@@ -81,6 +82,20 @@ func Map[T, U any](arr []T, transform func(T) U) (out []U) {
 		out = append(out, transform(x))
 	}
 	return out
+}
+
+func Map2[T, U any](arr []T, transform func(T) U, test func(T) bool) (out []U) {
+	out = make([]U, 0, len(arr))
+	for _, x := range arr {
+		if test(x) {
+			out = append(out, transform(x))
+		}
+	}
+	return out
+}
+
+func MapSeq[T, U any](arr []T, transform func(T) U) (out iter.Seq[U]) {
+	return slices.Values(Map(arr, transform))
 }
 
 // WithoutElem returns arr (may be a copy) removing all occurrences of elem.

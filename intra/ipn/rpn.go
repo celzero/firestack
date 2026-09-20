@@ -49,9 +49,6 @@ type rpnp struct {
 	kids map[string]struct{}
 	// server metadata for each forked kid (keyed by city;country)
 	skids map[string]*x.RpnServer
-	// maintained incrementally by fork/purge, see: syncAutoExclusions
-	// (keyed by country)
-	cckids map[string]struct{}
 	// server metadata for the main proxy
 	s *x.RpnServer
 }
@@ -91,7 +88,6 @@ func asRpnProxy(e Proxy, srv *x.RpnServer, acc RpnAcc, pxr Rpn) (RpnProxy, error
 		pxr:    pxr,
 		kids:   make(map[string]struct{}, 0),
 		skids:  make(map[string]*x.RpnServer, 0),
-		cckids: make(map[string]struct{}, 0),
 		s:      srv,
 	}, nil
 }
@@ -329,7 +325,7 @@ func (r *rpnp) Fork(cc string) (x.Proxy, error) {
 }
 
 // cc may be a fully qualified ID (in case of re-forking the main proxy), too.
-func (r *rpnp) fork(cc string) (x.Proxy, error) {
+func (r *rpnp) fork(cc string, extra ...string) (x.Proxy, error) {
 	// do not hold lock while calling into pxr as it can callback via Emplace.
 	main, err := r.requireProxy()
 	if err != nil || main == nil {
@@ -350,7 +346,8 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 		// re-forking main proxy (which may not be multi-country acc) via Update() => forkAll()
 		log.I("proxy: rpn: fork: %s main cc %s; re-adding...", provider, cc)
 		// expect Emplace to be called
-		mp, ms, err := r.pxr.addRpnProxy(acc, cc) // re-generates conf and re-adds
+		exclude := r.excludedCCs(extra...)
+		mp, ms, err := r.pxr.addRpnProxy(acc, cc, exclude...) // re-generates conf and re-adds
 		// see: Emplace (and errBadEmplace)
 		if mp != nil && core.IsNotNil(mp) {
 			r.mu.Lock()
@@ -382,8 +379,7 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 	if mcc, ok := r.mainCountryCode(); ok && len(mcc) > 0 {
 		if incc == mcc {
 			log.I("proxy: rpn: fork: %s[%s] collides with main; re-forking main...", provider, cc)
-			r.syncAutoExclusions(cc)
-			go r.forkMain()
+			go r.forkMain(cc)
 		}
 	}
 
@@ -397,17 +393,13 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 		if srv != nil {
 			r.skids[cc] = srv
 		}
-		if len(incc) > 0 {
-			r.cckids[incc] = struct{}{}
-		}
 		r.mu.Unlock()
-		r.syncAutoExclusions()
 	}
 
 	return kid, err
 }
 
-func (r *rpnp) forkMain() error {
+func (r *rpnp) forkMain(extra ...string) error {
 	main, err := r.requireProxy()
 	if err != nil || main == nil {
 		return log.EE("proxy: rpn: forkMain: main missing; err? %v", err)
@@ -415,27 +407,10 @@ func (r *rpnp) forkMain() error {
 
 	mainpid := idstr(main)
 
-	_, err = r.fork(mainpid) // re-adds main proxy (via Emplace)
+	_, err = r.fork(mainpid, extra...)
 
 	logei(err)("proxy: rpn: forkMain: %s; err? %v", mainpid, err)
 	return err
-}
-
-// extractCountryCode extracts the 2-letter CC from "CITY;CC", "providerCITY;CC",
-// "CC" or "provider+CC". Returns "" for main ("**") and invalid CCs.
-func extractCountryCode(ccKey, provider string) string {
-	ccKey = strings.TrimSpace(ccKey)
-	if len(provider) > 0 {
-		ccKey, _ = strings.CutPrefix(ccKey, provider)
-	}
-	if i := strings.LastIndex(ccKey, ";"); i >= 0 {
-		ccKey = ccKey[i+1:]
-	}
-	ccKey = strings.ToUpper(strings.TrimSpace(ccKey))
-	if len(ccKey) < 2 || ccKey == anyCountryCode {
-		return ""
-	}
-	return ccKey
 }
 
 // mainCountryCode returns the country the main proxy is currently hosted at, if known.
@@ -457,32 +432,34 @@ func (r *rpnp) mainCountryCode() (string, bool) {
 	return extractCountryCode(s.Key, r.RpnAcc.ProviderID()), true
 }
 
-// syncAutoExclusions pushes the incrementally-maintained cckids set
-// (plus any extra CCs) to the embedded RpnAcc via SetExcludedAutoCCs
-// (now part of the RpnAcc interface) so Auto ("**") Conf avoids them.
-// Never touches the Ops() copy; the acc implementation owns persistence
-// (WsClient persists via Store). Callers maintain cckids except for extra,
-// which sync merges in.
-func (r *rpnp) syncAutoExclusions(extra ...string) {
+func (r *rpnp) excludedCCs(extra ...string) []string {
 	if r == nil || r.RpnAcc == nil || !r.RpnAcc.MultiCountry() {
-		return
+		return nil
 	}
+
 	provider := r.RpnAcc.ProviderID()
-	r.mu.Lock()
-	for _, e := range extra {
-		if cc := extractCountryCode(e, provider); len(cc) > 0 {
-			r.cckids[cc] = struct{}{}
-		}
+	kids := r.flattenKids()
+	excluded := make(map[string]struct{}, len(kids)+len(extra))
+	xfrm := func(cc string) string {
+		return extractCountryCode(cc, provider)
 	}
-	ccs := make([]string, 0, len(r.cckids))
-	for cc := range r.cckids {
-		ccs = append(ccs, cc)
+	filter := func(cc string) bool {
+		return len(cc) >= 2
 	}
-	r.mu.Unlock()
-	// always push (even when empty) so a purged set clears the acc
-	csv := strings.Join(ccs, ",")
-	r.RpnAcc.SetExcludedAutoCCs(csv)
-	log.I("proxy: rpn: auto-excl: %s => %s", provider, csv)
+
+	for _, x := range core.Map2(kids, xfrm, filter) {
+		excluded[x] = struct{}{}
+	}
+
+	for _, x := range core.Map2(extra, xfrm, filter) {
+		excluded[x] = struct{}{}
+	}
+
+	exccs := make([]string, 0, len(excluded))
+	for x := range excluded {
+		exccs = append(exccs, x)
+	}
+	return exccs
 }
 
 // ccCsvAsSet mods a comma-separated list of country codes into a lookup set.
@@ -512,9 +489,6 @@ func (r *rpnp) forkAll() error {
 
 	log.I("proxy: rpn: forkAll: %s [%v] incl: %d / excl: %d", provider, kids, len(kids), len(excludedSet))
 
-	// rebuild exclusions from all kids before
-	// to avoid forked countries chosen to be main.
-	r.syncAutoExclusions()
 	e := r.forkMain()
 	errs = append(errs, e)
 
@@ -585,11 +559,6 @@ func (r *rpnp) PurgeAll() (n uint32) {
 	if r.purgeMain() {
 		n++
 	}
-	// cckids tracks live kids only; purgeAll removed everything
-	r.mu.Lock()
-	clear(r.cckids)
-	r.mu.Unlock()
-	r.syncAutoExclusions()
 	return
 }
 
@@ -639,11 +608,7 @@ func (r *rpnp) purge(cc string) bool {
 	r.mu.Lock()
 	delete(r.kids, cc)
 	delete(r.skids, cc)
-	if cc2 := extractCountryCode(cc, provider); len(cc2) > 0 {
-		delete(r.cckids, cc2)
-	}
 	r.mu.Unlock()
-	r.syncAutoExclusions()
 
 	log.D("proxy: rpn: purge: %s[%s]? %t", provider, cc, rmv)
 	return rmv
@@ -800,4 +765,21 @@ func (r *rpnp) Update(ops *x.RpnOps) (newState []byte, err error) {
 		core.Gxe("rpn.fork."+r.ProviderID(), r.forkAll)
 	}
 	return
+}
+
+// extractCountryCode extracts the 2-letter CC from "CITY;CC", "providerCITY;CC",
+// "CC" or "provider+CC". Returns "" for main ("**") and invalid CCs.
+func extractCountryCode(ccKey, provider string) string {
+	ccKey = strings.TrimSpace(ccKey)
+	if len(provider) > 0 {
+		ccKey, _ = strings.CutPrefix(ccKey, provider)
+	}
+	if i := strings.LastIndex(ccKey, ";"); i >= 0 {
+		ccKey = ccKey[i+1:]
+	}
+	ccKey = strings.ToUpper(strings.TrimSpace(ccKey))
+	if len(ccKey) < 2 || ccKey == anyCountryCode {
+		return ""
+	}
+	return ccKey
 }
