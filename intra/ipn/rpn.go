@@ -48,8 +48,7 @@ type rpnp struct {
 	kids map[string]struct{}
 	// server metadata for each forked kid (keyed by CC)
 	skids map[string]*x.RpnServer
-	// auto-excluded CCs (2-letter, upper-case) for Auto ("**") selection;
-	// maintained incrementally by fork/purge, pushed via syncAutoExclusions
+	// maintained incrementally by fork/purge, see: syncAutoExclusions
 	cckids map[string]struct{}
 	// server metadata for the main proxy
 	s *x.RpnServer
@@ -399,9 +398,6 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 			r.skids[cc] = srv
 		}
 		if inCC := autoCCPart(cc, provider); len(inCC) > 0 {
-			if r.cckids == nil {
-				r.cckids = make(map[string]struct{})
-			}
 			r.cckids[inCC] = struct{}{}
 		}
 		r.mu.Unlock()
@@ -474,9 +470,6 @@ func (r *rpnp) syncAutoExclusions(extra ...string) {
 	r.mu.Lock()
 	for _, e := range extra {
 		if cc := autoCCPart(e, provider); len(cc) > 0 {
-			if r.cckids == nil {
-				r.cckids = make(map[string]struct{})
-			}
 			r.cckids[cc] = struct{}{}
 		}
 	}
