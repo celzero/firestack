@@ -45,10 +45,12 @@ type rpnp struct {
 	pxr Rpn
 
 	// forked child proxy IDs, may be empty (returned proxy IDs may have stopped)
+	// (keyed by city;country)
 	kids map[string]struct{}
-	// server metadata for each forked kid (keyed by CC)
+	// server metadata for each forked kid (keyed by city;country)
 	skids map[string]*x.RpnServer
 	// maintained incrementally by fork/purge, see: syncAutoExclusions
+	// (keyed by country)
 	cckids map[string]struct{}
 	// server metadata for the main proxy
 	s *x.RpnServer
@@ -374,16 +376,14 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 
 	log.I("proxy: rpn: fork: %s[%s]", provider, cc)
 
-	// if the kid collides with the main's CC, move Auto to a different loc
-	if mainCC, ok := r.mainCCPart(); ok && len(mainCC) > 0 {
-		if inCC := autoCCPart(cc, provider); inCC == mainCC {
+	incc := extractCountryCode(cc, provider)
+
+	// if incoming kid collides with main, move main to a different loc
+	if mcc, ok := r.mainCountryCode(); ok && len(mcc) > 0 {
+		if incc == mcc {
 			log.I("proxy: rpn: fork: %s[%s] collides with main; re-forking main...", provider, cc)
 			r.syncAutoExclusions(cc)
-			err = r.forkMain()
-		}
-		if err != nil {
-			log.E("proxy: rpn: fork: %s[%s] main collide re-fork failed; err? %v", provider, cc, err)
-			return nil, err
+			go r.forkMain()
 		}
 	}
 
@@ -397,8 +397,8 @@ func (r *rpnp) fork(cc string) (x.Proxy, error) {
 		if srv != nil {
 			r.skids[cc] = srv
 		}
-		if inCC := autoCCPart(cc, provider); len(inCC) > 0 {
-			r.cckids[inCC] = struct{}{}
+		if len(incc) > 0 {
+			r.cckids[incc] = struct{}{}
 		}
 		r.mu.Unlock()
 		r.syncAutoExclusions()
@@ -421,39 +421,40 @@ func (r *rpnp) forkMain() error {
 	return err
 }
 
-// autoCCPart extracts the 2-letter CC from "CITY;CC", "providerCITY;CC",
-// "CC" or "provider+CC". Returns "" for wildcards ("**"), empties, or
-// malformed inputs. MultiCountry only.
-func autoCCPart(cc, provider string) string {
-	cc = strings.TrimSpace(cc)
+// extractCountryCode extracts the 2-letter CC from "CITY;CC", "providerCITY;CC",
+// "CC" or "provider+CC". Returns "" for main ("**") and invalid CCs.
+func extractCountryCode(ccKey, provider string) string {
+	ccKey = strings.TrimSpace(ccKey)
 	if len(provider) > 0 {
-		cc, _ = strings.CutPrefix(cc, provider)
+		ccKey, _ = strings.CutPrefix(ccKey, provider)
 	}
-	if i := strings.LastIndex(cc, ";"); i >= 0 {
-		cc = cc[i+1:]
+	if i := strings.LastIndex(ccKey, ";"); i >= 0 {
+		ccKey = ccKey[i+1:]
 	}
-	cc = strings.ToUpper(strings.TrimSpace(cc))
-	if len(cc) < 2 || cc == anyCountryCode {
+	ccKey = strings.ToUpper(strings.TrimSpace(ccKey))
+	if len(ccKey) < 2 || ccKey == anyCountryCode {
 		return ""
 	}
-	return cc
+	return ccKey
 }
 
-// mainCCPart returns the CC the main proxy is currently serving, if known.
-// Prefers s.CC (set for Auto mains); falls back to parsing s.Key.
-func (r *rpnp) mainCCPart() (string, bool) {
+// mainCountryCode returns the country the main proxy is currently hosted at, if known.
+func (r *rpnp) mainCountryCode() (string, bool) {
 	if !r.RpnAcc.MultiCountry() {
 		return "", false
 	}
+
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if r.s == nil {
+	s := r.s
+	r.mu.RUnlock()
+
+	if s == nil {
 		return "", false
 	}
-	if cc := strings.ToUpper(strings.TrimSpace(r.s.CC)); len(cc) >= 2 {
+	if cc := strings.ToUpper(strings.TrimSpace(s.CC)); len(cc) >= 2 {
 		return cc, true
 	}
-	return autoCCPart(r.s.Key, ""), true
+	return extractCountryCode(s.Key, r.RpnAcc.ProviderID()), true
 }
 
 // syncAutoExclusions pushes the incrementally-maintained cckids set
@@ -469,7 +470,7 @@ func (r *rpnp) syncAutoExclusions(extra ...string) {
 	provider := r.RpnAcc.ProviderID()
 	r.mu.Lock()
 	for _, e := range extra {
-		if cc := autoCCPart(e, provider); len(cc) > 0 {
+		if cc := extractCountryCode(e, provider); len(cc) > 0 {
 			r.cckids[cc] = struct{}{}
 		}
 	}
@@ -638,8 +639,8 @@ func (r *rpnp) purge(cc string) bool {
 	r.mu.Lock()
 	delete(r.kids, cc)
 	delete(r.skids, cc)
-	if inCC := autoCCPart(cc, provider); len(inCC) > 0 {
-		delete(r.cckids, inCC)
+	if cc2 := extractCountryCode(cc, provider); len(cc2) > 0 {
+		delete(r.cckids, cc2)
 	}
 	r.mu.Unlock()
 	r.syncAutoExclusions()
