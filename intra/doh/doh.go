@@ -66,7 +66,8 @@ const (
 
 	purgethreshold = 1 * time.Minute
 
-	echRetryPeriod = 8 * time.Hour
+	echRetryPeriod   = 8 * time.Hour
+	urlipRetryPeriod = 8 * time.Hour
 
 	avoidEchForFixedRelays = true
 )
@@ -99,6 +100,14 @@ type transport struct {
 	hostname string // endpoint hostname
 	port     uint16
 
+	// ip endpoint for doh; ex: https://1.1.1.1/dns-query
+	// used iff no ech for hostname / url
+	urlip         string // IP endpoint URL, empty if unset/invalid
+	hostnameip    string // IP from ipurl
+	portip        uint16
+	usingIpUrl    atomic.Bool  // true while urlip is in-use
+	iplastattempt atomic.Int64 // last use of urlip; in unixmillis
+
 	tlsconfig      *tls.Config                // preset tlsconfig for the endpoint
 	echconfig      atomic.Pointer[tls.Config] // echconfig for the endpoint; may be nil
 	echrejects     atomic.Uint32              // number of running ech rejections
@@ -124,12 +133,13 @@ var _ dnsx.Transport = (*transport)(nil)
 // NewTransport returns a POST-only DoH transport.
 // `id` identifies this transport.
 // `rawurl` is the DoH template in string form.
+// `ipurl` is an optional IP-literal endpoint (ex: https://1.1.1.1/dns-query)
 // `addrs` is a list of IP addresses to bootstrap dialers.
 // `px` is the proxy provider, may be nil (eg for id == dnsx.Default)
 // `m` is the IPMapper implementation (usually the dnsx resolver) for
 // internal queries, never nil.
-func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
-	return newTransport(ctx, dnsx.DOH, id, rawurl, "", addrs, px, m)
+func NewTransport(ctx context.Context, id, rawurl, ipurl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
+	return newTransport(ctx, dnsx.DOH, id, rawurl, ipurl, "", addrs, px, m)
 }
 
 // NewTransport returns a POST-only Oblivious DoH transport.
@@ -141,10 +151,10 @@ func NewTransport(ctx context.Context, id, rawurl string, addrs []string, px ipn
 // `m` is the IPMapper implementation (usually the dnsx resolver) for
 // internal queries, never nil.
 func NewOdohTransport(ctx context.Context, id, endpoint, target string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
-	return newTransport(ctx, dnsx.ODOH, id, endpoint, target, addrs, px, m)
+	return newTransport(ctx, dnsx.ODOH, id, endpoint, "", target, addrs, px, m)
 }
 
-func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
+func newTransport(ctx context.Context, typ, id, rawurl, ipurl, otargeturl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
 	isodoh := typ == dnsx.ODOH
 
 	var renewed, getrelayretried bool
@@ -208,6 +218,14 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		}
 		// addrs are pre-determined ip addresses for url / hostname
 		renewed = dnsx.RegisterAddrs(t.id, t.hostname, addrs)
+		if urlip, hostip, portip, ok := parseIpUrl(ipurl); ok {
+			t.urlip = urlip
+			t.hostnameip = hostip
+			t.portip = portip
+			// seed dialers so the IP literal resolves to itself
+			dnsx.RegisterAddrs(t.id, t.hostnameip, []string{t.hostnameip})
+			log.I("doh: %s ip endpoint: %s", t.id, t.urlip)
+		}
 	} else {
 		t.odohtransport = &odohtransport{}
 
@@ -239,7 +257,7 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 		}
 
 		t.url = configurl.String()        // odohconfigdns
-		t.origurl = otargeturl              // original target url as set
+		t.origurl = otargeturl            // original target url as set
 		t.hostname = configurl.Hostname() // 1.1.1.1
 		t.port = DohPortU16               // TODO: grab port from configUrl
 		t.odohtargetname = targeturl.Hostname()
@@ -274,10 +292,18 @@ func newTransport(ctx context.Context, typ, id, rawurl, otargeturl string, addrs
 	// (dialers.ECH) may take up to its timeout, which must not block
 	// transport construction (and hence Plus init). If it hasn't completed
 	// by the first query, httpClientsFor still fetches it lazily.
-	core.Go("doh.ech."+id, func() { t.getOrCreateEchConfigIfNeeded() })
+	core.Go("doh.ech."+id, func() {
+		t.getOrCreateEchConfigIfNeeded()
+		// prefer ip doh endpoint (if any) if no ech.
+		if t.hasIpUrl() && t.echconfig.Load() == nil {
+			t.iplastattempt.Store(time.Now().UnixMilli())
+			t.usingIpUrl.Store(true)
+			log.I("doh: %s no ech; prefer ipurl %s", t.id, t.urlip)
+		}
+	})
 
-	log.I("doh: new transport(%s): %s; relay? %t; addrs? %v; resolved? %t, ech? %t",
-		t.typ, t.url, len(relay) > 0, addrs, renewed, t.echconfig.Load() != nil)
+	log.I("doh: new transport(%s): %s; ipurl? %s (use? %t); relay? %t; addrs? %v; resolved? %t, ech? %t",
+		t.typ, t.url, t.urlip, t.usingIpUrl.Load(), len(relay) > 0, addrs, renewed, t.echconfig.Load() != nil)
 	return t, nil
 }
 
@@ -312,6 +338,79 @@ func (t *transport) echVerifyFn() func(tls.ConnectionState) error {
 		}
 	}
 	return nil // delegate to stdlib
+}
+
+// parseIpUrl strictly validates an IP DoH endpoint URL.
+// force uses https scheme.
+func parseIpUrl(raw string) (u, iphost string, port uint16, ok bool) {
+	if len(raw) <= 0 {
+		return
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed == nil {
+		return
+	}
+	if parsed.Scheme != "https" {
+		parsed.Scheme = "https"
+	}
+	host := parsed.Hostname()
+	if len(host) <= 0 {
+		return
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return
+	}
+	port = DohPortU16
+	if p, _ := strconv.ParseUint(parsed.Port(), 10, 16); p > 0 {
+		port = uint16(p)
+	}
+	return parsed.String(), addr.String(), port, true
+}
+
+func (t *transport) hasIpUrl() bool {
+	return t != nil && t.typ != dnsx.ODOH && len(t.urlip) > 0 && len(t.hostnameip) > 0
+}
+
+func (t *transport) useIpUrl() bool {
+	if !t.hasIpUrl() {
+		return false
+	}
+	if t.echconfig.Load() != nil {
+		return false
+	}
+	return t.usingIpUrl.Load()
+}
+
+// maybeRecheckIpUrl re-enables the IP path at most once every [urlipRetryPeriod].
+func (t *transport) maybeRecheckIpUrl() {
+	if t == nil || t.typ == dnsx.ODOH || !t.hasIpUrl() {
+		return
+	}
+	if t.usingIpUrl.Load() {
+		return
+	}
+	if t.echconfig.Load() != nil {
+		return
+	}
+	prev := t.iplastattempt.Load()
+	now := time.Now().UnixMilli()
+	if prev > 0 && now-prev < urlipRetryPeriod.Milliseconds() {
+		return
+	}
+	if !t.iplastattempt.CompareAndSwap(prev, now) {
+		return
+	}
+	t.usingIpUrl.Store(true)
+	log.I("doh: %s re-enable ipurl %s", t.id, t.urlip)
+}
+
+func shouldUseHostname(qerr *dnsx.QueryError) bool {
+	if qerr == nil {
+		return false
+	}
+	st := qerr.Status()
+	return st == dnsx.SendFailed || st == dnsx.TransportError
 }
 
 func asDialContext(who string, d protect.DialFn) func(context.Context, string, string) (net.Conn, error) {
@@ -675,8 +774,9 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blockli
 	var server net.Addr
 	var conn net.Conn
 	start := time.Now()
-	// either t.hostname or t.odohtargetname or t.odohproxy
+	// either t.hostname/t.iphostname or t.odohtargetname or t.odohproxy
 	hostname := req.URL.Hostname()
+	usedip := false // determined later
 
 	// Error cleanup function.  If the query fails, this function will close the
 	// underlying socket and disconfirm the server IP.  Empirically, sockets often
@@ -687,21 +787,27 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blockli
 		// server addr would be of relay / proxy (ex: 127.0.0.1:9050) if used
 		usedrelay := len(t.relay) > 0
 		usedproxy := !dnsx.IsLocalProxy(pid) // pid == dnsx.NetNoProxy => ipn.Block
-		hasserveraddr := server != nil && !usedrelay && !usedproxy
+		hasserveraddr := server != nil && !usedrelay && !usedproxy && !usedip
 
-		if hostname != t.hostname {
-			log.I("doh: redirected %s => %s", t.hostname, hostname)
-			t.hostname = hostname
-		}
-		if hasserveraddr {
-			if qerr == nil {
-				// record a working IP address for this server
-				dialers.Confirm3(hostname, server)
-				return
-			} else {
-				ok := dialers.Disconfirm3(hostname, server)
-				log.D("doh: disconfirming %s, %s done? %t", hostname, server, ok)
+		if !usedip {
+			if hostname != t.hostname {
+				log.I("doh: redirected %s => %s", t.hostname, hostname)
+				t.hostname = hostname
 			}
+			if hasserveraddr {
+				if qerr == nil {
+					// record a working IP address for this server
+					dialers.Confirm3(hostname, server)
+					return
+				} else {
+					ok := dialers.Disconfirm3(hostname, server)
+					log.D("doh: disconfirming %s, %s done? %t", hostname, server, ok)
+				}
+			}
+		} else if shouldUseHostname(qerr) {
+			t.iplastattempt.Store(time.Now().UnixMilli())
+			t.usingIpUrl.Store(false)
+			log.W("doh: %s ipurl %s failed (%v); fallback to %s", t.id, t.urlip, qerr, t.url)
 		}
 		if qerr != nil {
 			log.I("doh: close failing doh conn %s; why? %v", hostname, qerr)
@@ -739,7 +845,7 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blockli
 	}
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &trace))
 
-	log.VV("doh: sending query to: %s", t.hostname)
+	log.VV("doh: sending query to: %s", req.Host)
 
 	res, rpid, echdialer, err := t.fetch(pid, req)
 
@@ -766,6 +872,8 @@ func (t *transport) do(pid string, req *http.Request) (ans []byte, rpid, blockli
 	// update the hostname, which could have changed due to a redirect
 	// for ex, 1.1.1.1 or cloudflare-dns.com => one.one.one.one
 	hostname = res.Request.URL.Hostname()
+	_, iperr := netip.ParseAddr(hostname)
+	usedip = iperr == nil
 
 	sc := res.StatusCode
 	if sc != http.StatusOK { // 4xx
@@ -822,11 +930,17 @@ func (t *transport) asDohRequest(msg *dns.Msg) (req *http.Request, err error) {
 	if err != nil {
 		return
 	}
+	// do not use t.hostport() here as it is generic to both doh and odoh
+	base := t.url
+	if t.useIpUrl() {
+		base = t.urlip
+	}
+
 	if t.preferGET {
-		url := t.url + "?dns=" + base64.RawURLEncoding.EncodeToString(q)
+		url := base + "?dns=" + base64.RawURLEncoding.EncodeToString(q)
 		req, err = http.NewRequest(http.MethodGet, url, nil)
 	} else {
-		req, err = http.NewRequest(http.MethodPost, t.url, bytes.NewBuffer(q))
+		req, err = http.NewRequest(http.MethodPost, base, bytes.NewBuffer(q))
 	}
 	if err != nil {
 		return
@@ -848,8 +962,7 @@ func (t *transport) Type() string {
 }
 
 func (t *transport) chooseProxy(fid string, pids ...string) string {
-	host, port := t.hostport()
-	// TODO: doh3 is udp?
+	host, port := t.hostport() // TODO: doh3 is udp?
 	return dnsx.ChooseHealthyProxyHostPort(fid+" doh."+t.id, dnsx.NetTypeTCP, host, port, pids, t.proxies)
 }
 
@@ -859,6 +972,9 @@ func (t *transport) hostport() (addr string, port uint16) {
 	if t.typ == dnsx.ODOH && len(t.odohproxyname) > 0 {
 		addr = t.odohproxyname
 		port = t.odohproxyport
+	} else if t.useIpUrl() {
+		addr = t.hostnameip
+		port = t.portip
 	}
 	return
 }
@@ -868,6 +984,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 	var ech bool
 	var elapsed time.Duration
 	var qerr *dnsx.QueryError
+
+	t.maybeRecheckIpUrl()
 
 	loopingback := settings.Loopingback.Load()
 	canproxy := dnsx.CanUseProxy(t.id)
@@ -932,8 +1050,8 @@ func (t *transport) P50() int64 {
 }
 
 func (t *transport) GetAddr() string {
-	addr := t.hostname
-	if t.typ == dnsx.ODOH {
+	addr, _ := t.hostport() // returns proxyname for odoh
+	if t.typ == dnsx.ODOH { // override with targetname instead
 		addr = t.odohtargetname
 	}
 
@@ -972,12 +1090,7 @@ func (t *transport) Relaying() bool {
 }
 
 func (t *transport) IPPorts() (ipps []netip.AddrPort) {
-	addr := t.hostname
-	port := t.port
-	if t.typ == dnsx.ODOH && len(t.odohproxyname) > 0 {
-		addr = t.odohproxyname
-		port = t.odohproxyport
-	}
+	addr, port := t.hostport()
 	for _, ip := range dialers.For(addr) {
 		ipps = append(ipps, netip.AddrPortFrom(ip, port))
 	}

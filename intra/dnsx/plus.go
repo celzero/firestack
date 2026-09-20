@@ -60,6 +60,7 @@ func blocksAd(enc bool, addr string) bool {
 
 func blocksMal(enc bool, addr string) bool {
 	return enc && (strings.Contains(addr, "dns.quad9") ||
+		strings.Contains(addr, "9.9.9.9") ||
 		strings.Contains(addr, "security.cloudflare-dns") ||
 		strings.Contains(addr, "p1.freedns.controld")) ||
 		strings.Contains(addr, "freedns.controld.com/p1") ||
@@ -78,6 +79,7 @@ func blocksUnsafe(enc bool, addr string) bool {
 		strings.Contains(addr, "adult-filter-dns.cleanbrowsing.org") ||
 		strings.Contains(addr, "doh.cleanbrowsing.org/doh/adult-filter") ||
 		strings.Contains(addr, "family.cloudflare-dns.com") ||
+		strings.Contains(addr, "1.1.1.3") ||
 		strings.Contains(addr, "family.freedns.controld.com")) ||
 		strings.Contains(addr, "freedns.controld.com/family") ||
 		strings.Contains(addr, "family.adguard-dns")

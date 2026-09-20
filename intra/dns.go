@@ -28,13 +28,13 @@ import (
 // MakeDoHTransport creates a DNS-over-HTTPS transport for id, dialing via the
 // tunnel's proxies. ipcsv, if any, is a csv of IP (or ip:port) addresses of the
 // DoH server, used to bypass the system resolver when dialing url.
-func MakeDoHTransport(t Tunnel, id, url, ipcsv string) (dnsx.Transport, error) {
+func MakeDoHTransport(t Tunnel, id, url, ipurl, ipcsv string) (dnsx.Transport, error) {
 	px, perr := t.internalProxies()
 	r, rerr := t.internalResolver()
 	if perr != nil || rerr != nil {
 		return nil, core.JoinErr(perr, rerr)
 	}
-	return doh.NewTransport(t.internalCtx(), id, url, csv2slice(ipcsv), px, r)
+	return doh.NewTransport(t.internalCtx(), id, url, ipurl, csv2slice(ipcsv), px, r)
 }
 
 // MakeODoHTransport creates an Oblivious-DoH transport for id, dialing via the
@@ -232,12 +232,12 @@ func AddProxyDNS(t Tunnel, p x.Proxy) error {
 
 // AddDoHTransport creates and adds a Transport that connects to the specified DoH server.
 // `url` is the URL of a DoH server (no template, POST-only).
-func AddDoHTransport(t Tunnel, id, url, ipcsv string) error {
+func AddDoHTransport(t Tunnel, id, url, ipurl, ipcsv string) error {
 	r, rerr := t.internalResolver()
 	if rerr != nil {
 		return rerr
 	}
-	dns, err := MakeDoHTransport(t, id, url, ipcsv)
+	dns, err := MakeDoHTransport(t, id, url, ipurl, ipcsv)
 	if err != nil {
 		return err
 	}
