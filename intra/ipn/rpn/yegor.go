@@ -1242,6 +1242,7 @@ func (a *WsClient) Conf(cc string) (string, *x.RpnServer, error) {
 		}
 	}
 
+	usingperma := false
 	retried := false
 reconf:
 	tot := 0  // total seen
@@ -1296,6 +1297,7 @@ reconf:
 			var confok bool
 			if usePerma && cfg.PermaCreds != nil {
 				confstr, confok = rc.MakeUapiConfig(cfg.PermaCreds, portstr)
+				usingperma = true
 			} else {
 				confstr, confok = rc.MakeUapiConfig(cfg.Creds, portstr)
 			}
@@ -1325,8 +1327,8 @@ reconf:
 	}
 	if len(out) > 0 {
 		r := rand.IntN(len(out))
-		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t): %d[%s/%s] (port: %s)",
-			cc, city, c, len(out), chooseAny, r, srvs[r].City, srvs[r].CC, portstr)
+		log.I("ws: conf: cc %s(%s): %d/%d => chosen (any? %t / usingperma? %t): %d[%s/%s] (port: %s)",
+			cc, city, c, len(out), chooseAny, usingperma, r, srvs[r].City, srvs[r].CC, portstr)
 		// change key to "any"
 		if chooseAny {
 			srvs[r].Key = anycc
@@ -1334,12 +1336,12 @@ reconf:
 		return out[r], &srvs[r], nil
 	}
 	if xl > 0 && (tot == 0 || v <= xl) { // fail open if all CCs excluded
-		logew(retried)("ws: conf: cc %s(%s): all visited(%d) / excluded(%d) / bad(%d); tot: %d / excl: %d; retry?",
-			cc, city, v, xl, badc, tot, len(excl), !retried)
+		logew(retried)("ws: conf: cc %s(%s): all visited(%d) / excluded(%d) / bad(%d); tot: %d / excl: %d (autoExcl: %d); retry?",
+			cc, city, v, xl, badc, tot, len(excl), len(autoExcl), !retried)
 		if !retried {
 			clear(excl) // fail open for user exclusions; keep auto exclusions
 			if chooseAny {
-				maps.Insert(excl, maps.All(autoExcl))
+				excl = autoExcl
 			}
 			clear(visited)
 			retried = true
