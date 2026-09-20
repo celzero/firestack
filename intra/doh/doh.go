@@ -139,7 +139,14 @@ var _ dnsx.Transport = (*transport)(nil)
 // `m` is the IPMapper implementation (usually the dnsx resolver) for
 // internal queries, never nil.
 func NewTransport(ctx context.Context, id, rawurl, ipurl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
-	return newTransport(ctx, dnsx.DOH, id, rawurl, ipurl, "", addrs, px, m)
+	noodoh := ""
+	return newTransport(ctx, dnsx.DOH, id, rawurl, ipurl, noodoh, addrs, px, m)
+}
+
+func NewTransport2(ctx context.Context, id, rawurl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
+	noipurl := ""
+	noodoh := ""
+	return newTransport(ctx, dnsx.DOH, id, rawurl, noipurl, noodoh, addrs, px, m)
 }
 
 // NewTransport returns a POST-only Oblivious DoH transport.
@@ -151,7 +158,8 @@ func NewTransport(ctx context.Context, id, rawurl, ipurl string, addrs []string,
 // `m` is the IPMapper implementation (usually the dnsx resolver) for
 // internal queries, never nil.
 func NewOdohTransport(ctx context.Context, id, endpoint, target string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {
-	return newTransport(ctx, dnsx.ODOH, id, endpoint, "", target, addrs, px, m)
+	noipurl := ""
+	return newTransport(ctx, dnsx.ODOH, id, endpoint, noipurl, target, addrs, px, m)
 }
 
 func newTransport(ctx context.Context, typ, id, rawurl, ipurl, otargeturl string, addrs []string, px ipn.ProxyProvider, m ipmap.IPMapper) (*transport, error) {

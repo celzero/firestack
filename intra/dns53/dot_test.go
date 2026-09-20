@@ -246,8 +246,8 @@ func TestSEProxy(t *testing.T) {
 
 	_ = xdns.NetAndProxyID("tcp", dnsx.NetBaseProxy)
 
-	tr, _ := doh.NewTransport(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr, netr)
-	dtr, _ := doh.NewTransport(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr, netr)
+	tr, _ := doh.NewTransport2(ctx, "test0", "http://zero.rethinkdns.com/dns-query/", []string{"104.21.83.62"}, pxr, netr)
+	dtr, _ := doh.NewTransport2(ctx, x.Default, "http://zero.rethinkdns.com/dns-query/", []string{"172.67.214.246"}, pxr, netr)
 	if tr == nil || dtr == nil {
 		t.Fatal("nil dns transports")
 	}
@@ -791,7 +791,7 @@ func TestPerfRealDoH(t *testing.T) {
 	settings.Debug = true
 	dialers.Mapper(netr)
 
-	tr, err := doh.NewTransport(ctx, "perf-doh", "https://cloudflare-dns.com/dns-query", []string{"1.1.1.1", "2606:4700:4700::1111"}, pxr, netr)
+	tr, err := doh.NewTransport2(ctx, "perf-doh", "https://cloudflare-dns.com/dns-query", []string{"1.1.1.1", "2606:4700:4700::1111"}, pxr, netr)
 	if err != nil || tr == nil {
 		t.Fatalf("nil doh transport: %v", err)
 	}
