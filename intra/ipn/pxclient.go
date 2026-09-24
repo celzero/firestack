@@ -38,6 +38,7 @@ const (
 	defaultMullvadV6URL = "https://ipv6.am.i.mullvad.net/json"
 	maxIPBodySize       = int64(128 * 1024)
 	maxHttpTimeout      = 10 * time.Second
+	shortHttpTimeout    = 4 * time.Second
 	httpResponseTimeout = 3 * time.Second
 )
 
@@ -237,7 +238,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 		return nil, errors.New("testing: windscribe skipped")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), maxHttpTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shortHttpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wsGeoURL, nil)
@@ -250,7 +251,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 
 	log.VV("proxy: client: %s fetching windscribe via %s...", idstr(p), network)
 
-	client := HttpClient2(p, network, maxHttpTimeout)
+	client := HttpClient2(p, network, shortHttpTimeout)
 	resp, err := client.Do(req)
 	if resp == nil {
 		return nil, core.OneErr(err, errors.New("proxy: client: windscribe nil response"))
@@ -550,7 +551,7 @@ func applyMullvad(meta *x.IPMetadata, resp *mullvadResp) {
 }
 
 func fetch(p Proxy, network, rawurl string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), maxHttpTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shortHttpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
@@ -561,7 +562,7 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	log.VV("proxy: client: %s fetching %s via %s...", idstr(p), rawurl, network)
 
 	// TODO: pool clients
-	client := HttpClient2(p, network, maxHttpTimeout)
+	client := HttpClient2(p, network, shortHttpTimeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
