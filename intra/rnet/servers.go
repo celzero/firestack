@@ -11,11 +11,17 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	x "github.com/celzero/firestack/intra/backend"
+	"github.com/celzero/firestack/intra/core"
 	"github.com/celzero/firestack/intra/ipn"
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
+)
+
+const (
+	smmchSize = 256 // some comfortably high number
 )
 
 const (
@@ -66,6 +72,9 @@ type services struct {
 	proxies  ipn.Proxies
 	listener ServerListener
 	ctl      protect.Controller
+
+	ctx   context.Context
+	smmch chan *ServerSummary // channel for server summaries
 }
 
 func NewServices(pctx context.Context, proxies ipn.Proxies, ctl protect.Controller, listener ServerListener) *services {
@@ -73,25 +82,28 @@ func NewServices(pctx context.Context, proxies ipn.Proxies, ctl protect.Controll
 		return nil
 	}
 	svc := &services{
+		ctx:      pctx,
 		servers:  make(map[string]Server),
 		ctl:      ctl,
 		proxies:  proxies,
 		listener: listener,
+		smmch:    make(chan *ServerSummary, smmchSize),
 	}
 	context.AfterFunc(pctx, svc.stopServers)
+	core.Gx("svc.smm", svc.processSummaries)
 	return svc
 }
 
-func (s *services) AddServer(id, url string) (svc x.Server, err error) {
+func (s *services) AddServer(typ, id, url string) (svc x.Server, err error) {
 	s.RemoveServer(id)
 
-	switch id {
+	switch typ {
 	case SVCSOCKS5, PXSOCKS5:
-		svc, err = newSocks5Server(id, url, s.ctl, s.listener)
+		svc, err = newSocks5Server(id, url, s.ctl, s.listener, s.smmch)
 	case SVCHTTP, PXHTTP:
-		svc, err = newHttpServer(id, url, s.ctl, s.listener)
+		svc, err = newHttpServer(id, url, s.ctl, s.listener, s.smmch)
 	default:
-		return nil, errors.ErrUnsupported
+		err = errors.ErrUnsupported
 	}
 
 	if err != nil {
@@ -196,4 +208,56 @@ func (s *services) RemoveAll() {
 	s.Lock()
 	clear(s.servers)
 	s.Unlock()
+}
+
+// queueSummary queues a server summary to be sent to the listener; thread-safe.
+// non-blocking; drops the summary if the channel is full or the context is done.
+func (s *services) queueSummary(sum *ServerSummary) {
+	if sum == nil {
+		return
+	}
+	select {
+	case <-s.ctx.Done():
+		if log.Debug {
+			log.D("svc: queueSummary: end: %s", sum)
+		}
+	default:
+		select {
+		case <-s.ctx.Done():
+		case s.smmch <- sum:
+		default:
+			log.W("svc: queueSummary: dropped: %s", sum)
+		}
+	}
+}
+
+// processSummaries reads summaries from smmch and sends them to the listener.
+func (s *services) processSummaries() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case sum, ok := <-s.smmch:
+			if !ok {
+				return // channel closed
+			}
+			if sum != nil {
+				s.sendSummary(sum)
+			}
+		}
+	}
+}
+
+// sendSummary sends a summary to the listener; thread-safe.
+func (s *services) sendSummary(sum *ServerSummary) {
+	// sleep a bit to avoid scenario where kotlin-land
+	// hasn't yet had the chance to persist info about
+	// this conn (cid) to meaninfully process its summary
+	const after = 50 * time.Millisecond
+	time.Sleep(after)
+
+	if log.Verbose {
+		log.VV("svc: sendNotif: %s", sum)
+	}
+	s.listener.OnSvcComplete(sum.ServerSummary)
 }

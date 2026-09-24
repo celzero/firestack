@@ -51,7 +51,7 @@ type Server interface {
 
 type Services interface {
 	// Add adds a server.
-	AddServer(id, url string) (Server, error)
+	AddServer(typ, id, url string) (Server, error)
 	// Bridge bridges or unbridges server with proxy.
 	Bridge(serverid, proxyid string) error
 	// Remove removes a server.

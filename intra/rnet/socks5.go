@@ -35,6 +35,7 @@ type socks5 struct {
 	outbound *protect.RDial
 	hdl      *socks5handler
 	listener ServerListener
+	smmch    chan<- *ServerSummary // never closed
 
 	smu       sync.RWMutex // protects summaries
 	summaries map[*tx.UDPExchange]*ServerSummary
@@ -54,7 +55,7 @@ type socks5handler struct {
 
 // newSocks5Server creates a new socks5 server with the given id, url, controller, and listener.
 // It should not be used if ipn/socks5 is also active.
-func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener) (*socks5, error) {
+func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListener, smmch chan<- *ServerSummary) (*socks5, error) {
 	var host string
 	var usr string
 	var pwd string
@@ -93,6 +94,7 @@ func newSocks5Server(id, x string, ctl protect.Controller, listener ServerListen
 		outbound:  dialer,
 		hdl:       &socks5handler{},
 		listener:  listener,
+		smmch:     smmch,
 		summaries: make(map[*tx.UDPExchange]*ServerSummary),
 		done:      done,
 	}
@@ -311,7 +313,7 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 		ssu := serverSummary(h.Type(), h.ID(), h.pid(), cid)
 		defer func() {
 			ssu.done(err)
-			go h.listener.OnSvcComplete(ssu.ServerSummary)
+			h.queueSummary(ssu)
 		}()
 
 		log.D("svcsocks5: proxy-tcp: %s; socks5-connect %s", cid, r.Address())
@@ -413,7 +415,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 	ssu := serverSummary(h.Type(), h.ID(), h.pid(), cid)
 	defer func() {
 		ssu.done(err)
-		go h.listener.OnSvcComplete(ssu.ServerSummary)
+		h.queueSummary(ssu)
 	}()
 
 	log.D("svcsocks5: udp: %s; dst %s", cid, dst)
@@ -585,4 +587,11 @@ func (h *socks5) delSummary(c *tx.UDPExchange) {
 	defer h.smu.Unlock()
 
 	delete(h.summaries, c)
+}
+
+// queueSummary queues a summary to be sent to the listener via the services channel.
+func (h *socks5) queueSummary(ssu *ServerSummary) {
+	if h.smmch != nil {
+		h.smmch <- ssu
+	}
 }
