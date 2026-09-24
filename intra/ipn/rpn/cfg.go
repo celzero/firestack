@@ -34,6 +34,7 @@ import (
 const cfdns4 = "1.1.1.1"
 
 const gw4 = "0.0.0.0/0" // netip.ParsePrefix("0.0.0.0/0")
+const gw6 = "::/0"      // netip.ParsePrefix("::/0")
 
 // preset 6to4 NATs; from: nat64.xyz
 var Net6to4 = []netip.Prefix{

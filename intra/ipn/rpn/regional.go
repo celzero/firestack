@@ -11,11 +11,35 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/celzero/firestack/intra/log"
-	"github.com/celzero/firestack/intra/settings"
 )
+
+// hasDefaultRoutes reports which default routes the allowed ip prefixes carry:
+// ip4 is true if any entry is an IPv4 /0 (ex: gw4 "0.0.0.0/0"), and ip6 is true
+// if any entry is an IPv6 /0 (ex: gw6 "::/0"). Entries may be csvs of prefixes.
+func hasDefaultRoutes(allowed []string) (ip4, ip6 bool) {
+	for _, a := range allowed {
+		for pfx := range strings.SplitSeq(a, ",") {
+			p, err := netip.ParsePrefix(strings.TrimSpace(pfx))
+			if err != nil || p.Bits() != 0 {
+				continue
+			}
+			if p.Addr().Is4() {
+				ip4 = true
+			} else {
+				ip6 = true
+			}
+			if ip4 && ip6 {
+				return
+			}
+		}
+	}
+	return
+}
 
 type RegionalWgConf struct {
 	// WsServerList.CountryCode (uppercased)
@@ -129,8 +153,9 @@ func (rwg *RegionalWgConf) addrCsv() string {
 }
 
 // MakeUapiConfig builds an on-the-fly UAPI config string that overlays
-// the credentials from a permanent config (private key, address, DNS,
-// preshared key, allowed IPs) onto this regional config's server endpoints.
+// the credentials from a permanent config (private key, address v4/v6, DNS
+// v4/v6, preshared key, allowed IPs) onto this regional config's server
+// endpoints.
 // rwg.UapiWgConf is NOT modified; the generated string is returned directly.
 // Returns ("", false) when rwg/perma is nil or PrivateKey/Address is absent.
 func (rwg *RegionalWgConf) MakeUapiConfig(creds *WsWgCreds, port string) (string, bool) {
@@ -145,6 +170,14 @@ func (rwg *RegionalWgConf) MakeUapiConfig(creds *WsWgCreds, port string) (string
 	dns4 := rwg.ClientDNS4
 	if len(creds.DNS) > 0 {
 		dns4 = creds.DNS // perma dns
+	}
+	addr6 := rwg.ClientAddr6
+	if len(creds.AddressV6) > 0 {
+		addr6 = creds.AddressV6 // perma v6 address
+	}
+	dns6 := rwg.ClientDNS6
+	if len(creds.DNSV6) > 0 {
+		dns6 = creds.DNSV6 // perma v6 dns
 	}
 
 	clientpriv := creds.PrivateKey
@@ -170,13 +203,18 @@ func (rwg *RegionalWgConf) MakeUapiConfig(creds *WsWgCreds, port string) (string
 			}
 		}
 	}
+	// route v6 into the tunnel only when a v6 addr exists; the server's
+	// allowedips are just a hint (see convertToRegionalWgConfs)
+	if len(addr6) > 0 && !slices.Contains(allowedips, gw6) {
+		allowedips = append(allowedips, gw6)
+	}
 
 	// port may be empty
 	ipp4str := changeport(rwg.ServerIPPort4, port)
 	ipp6str := changeport(rwg.ServerIPPort6, port)
 	domstr := changeport(rwg.ServerDomainPort, port)
 
-	if settings.Debug {
+	if log.Verbose {
 		log.V("rpn: regconf: gen for %s/%s (port? %s); endpoint: %s %s %s; psk? %t; allowed: %v",
 			addr4, dns4, port, ipp4str, ipp6str, domstr, len(psk) > 0, allowedips)
 	}
@@ -205,6 +243,12 @@ public_key=%s`,
 	}
 	if len(psk) > 0 {
 		conf.WriteString("\npreshared_key=" + toHex(psk))
+	}
+	if len(addr6) > 0 {
+		conf.WriteString("\naddress=" + addr6)
+	}
+	if len(dns6) > 0 {
+		conf.WriteString("\ndns=" + dns6)
 	}
 	for _, ip := range allowedips {
 		conf.WriteString(fmt.Sprintf("\nallowed_ip=%s", ip))

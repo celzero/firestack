@@ -457,6 +457,10 @@ type RpnServer struct {
 	Addrs string
 	// CSV of IP subnets allowed to be used by this server.
 	Allowed string
+	// Gateway for IPv4
+	IP4 bool
+	// Gateway for IPv6
+	IP6 bool
 	// Public key pair for this peer (WireGuard).
 	PubPub string
 	// Country code of the location.
