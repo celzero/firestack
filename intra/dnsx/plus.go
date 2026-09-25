@@ -426,7 +426,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 
 		failed := xdns.IsServFailOrInvalid(ans)
 		noans := !failed && !xdns.HasAnyAnswer(ans)
-		ipblock := xdns.HasAQuadAQuestion(q) && xdns.AQuadAUnspecified(ans)
+		ipblock := xdns.HasAQuadAQuestion(q) && (xdns.AQuadAUnspecified(ans) || xdns.AQuadALoopback(ans))
 		// HTTPS/SVCB blocks have 0 answer records when blocked
 		svcbblock := (xdns.HasHTTPQuestion(q) || xdns.HasSVCBQuestion(q)) && noans
 

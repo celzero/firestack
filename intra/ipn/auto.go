@@ -23,6 +23,21 @@ const (
 	ttl30s                   = 30 * time.Second
 	shortdelay               = 100 * time.Millisecond
 	delayForUnhealthyProxies = 2 * time.Second
+
+	// STREAMSHIELD HOOK: short-interval TCP keepalive tuning for Exit-proxied
+	// connections. Some video-CDN/load-balancer stacks (observed: Zee5's
+	// Akamai-fronted CDN) close idle-but-alive connections at ~120s via a
+	// clean FIN, and the app's HTTP client fails to transparently retry on
+	// the dead pooled connection (permanent hang). sockopt.go's global
+	// defaults (600s idle) are far too slow to matter here. These constants
+	// are used only when the user enables the existing "TCP keep alive"
+	// toggle (settings.DialerOpts.LowerKeepAlive / PersistentState.tcpKeepAlive)
+	// -- best-effort experiment: only helps if the peer's idle-timeout tracks
+	// raw TCP socket activity (keepalive probes are pure ACKs) rather than
+	// HTTP-level request/response activity.
+	exitKeepAliveIdleSec     = 20 // secs of inactivity before first probe
+	exitKeepAliveIntervalSec = 5  // secs between probes
+	exitKeepAliveCount       = 4  // unacked probes before conn is declared dead
 )
 
 // auto is a proxy that dials multiple, preset outbounds.
@@ -624,8 +639,9 @@ func maybeKeepAlive2(c net.Conn) (keepingalive, ok bool) {
 	}
 
 	if opts := settings.GetDialerOpts(); opts.LowerKeepAlive {
-		// adjust socket's keepalive config
-		lowered := core.SetKeepAliveConfigSockOpt(c)
+		// STREAMSHIELD HOOK: use the short-interval tuning above instead of
+		// sockopt.go's slow global defaults (600s idle) -- see const block.
+		lowered := core.SetKeepAliveConfigSockOpt(c, exitKeepAliveIdleSec, exitKeepAliveIntervalSec, exitKeepAliveCount)
 		keepingalive = lowered
 		ok = lowered
 		return

@@ -9,6 +9,7 @@ package intra
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -312,12 +313,20 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *FlowSummary) {
 	isrwext := false
 	didSet := false
 	timeoutsecs := 0
-	// enable core.Pipe (sendfile/zero-copy) optimizations on TCP if
-	// read & write deadlines are not set (as in rwext is effectively
-	// a no-op) by unwrapping the underlying remote conn from rwext.
+	// enable core.Pipe (sendfile/zero-copy) optimizations on TCP only
+	// when no read/write deadline is actually configured (timeoutsecs
+	// <= 0), in which case rwext is a no-op wrapper and unwrapping is
+	// safe. Do NOT unwrap merely because didSet is true: SetTimeout
+	// (via core.SetTimeoutSockOpt) only sets TCP_USER_TIMEOUT, which
+	// bounds unacknowledged *writes*, not idle *reads*. If remote is
+	// unwrapped here while a positive timeoutsecs is configured, the
+	// only mechanism that can bound a stalled Read() (rwext's
+	// extendr/extendw, which set a real per-call deadline) is lost,
+	// and a peer that silently stops sending (no RST/FIN) causes
+	// Read() -- and thus this whole forward() -- to block forever.
 	if r, ok := remote.(rwext); ok {
 		isrwext = true
-		if timeoutsecs, didSet = r.SetTimeout(); didSet || timeoutsecs <= 0 {
+		if timeoutsecs, didSet = r.SetTimeout(); timeoutsecs <= 0 {
 			remote = r.Unwrap() // c may be *net.TCPConn or *demuxconn or *dialers.retrier|splitter
 		}
 	}
@@ -568,8 +577,41 @@ func (h *baseHandler) Reset() {
 	log.I("com: %s: handler reset", h.proto)
 }
 
+// aborter is implemented by conns (currently just *netstack.GTCPConn) that
+// can forcibly terminate with a TCP RST, as opposed to a graceful FIN.
+type aborter interface {
+	Abort()
+}
+
+// resetOrClose closes op on c, unless err is a genuine abnormal error (not a
+// plain io.EOF, which indicates the peer closed gracefully) and c supports
+// aborting -- in which case a TCP RST is sent instead of a graceful FIN.
+//
+// This addresses a previously-known gap (see the old "TODO: Propagate TCP
+// RST using local.Abort(), on appropriate errors" note this replaces):
+// download() closing the app-facing conn's write-half gracefully (FIN) even
+// when the actual cause was an abnormal upstream failure (eg: our own
+// idle-read timeout firing because the remote peer silently stopped
+// sending) meant the app could observe what looks like a clean, complete
+// close -- rather than an unambiguous connection-reset -- for a connection
+// that, in fact, terminated abnormally. Some HTTP clients treat a graceful
+// close of an in-flight response as ambiguous/retryable at best, or a
+// silently-truncated "complete" response at worst; a RST is unambiguous.
+func resetOrClose(c io.Closer, op core.CloserOp, err error) {
+	if err != nil && err != io.EOF {
+		if a, ok := c.(aborter); ok && a != nil && core.IsNotNil(a) {
+			// DEBUG-INSTRUMENTATION (temporary, remove once Zee5/PMTUD
+			// investigation is closed): confirms this RST-on-error path
+			// actually engages (vs falling through to a graceful close).
+			log.I("com: dbg: resetOrClose: aborting (RST) %T on err: %v", c, err)
+			a.Abort()
+			return
+		}
+	}
+	core.CloseOp(c, op)
+}
+
 // upload copies data from remote to local, and returns the number of bytes copied and error, if any.
-// TODO: Propagate TCP RST using local.Abort(), on appropriate errors.
 func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
 	defer core.Recover(core.Exit11, "c.upload."+id)
 	defer core.CloseOp(local, core.CopR)
@@ -587,7 +629,7 @@ func upload(id string, local, remote net.Conn, ioch chan<- ioinfo) {
 
 // download copies data from local to remote, and returns the number of bytes copied and error, if any.
 func download(id string, local, remote net.Conn) (n int64, err error) {
-	defer core.CloseOp(local, core.CopW)
+	defer func() { resetOrClose(local, core.CopW, err) }()
 	defer core.CloseOp(remote, core.CopR)
 
 	n, err = core.Pipe(local, remote)
