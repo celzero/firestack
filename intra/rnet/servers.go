@@ -100,9 +100,9 @@ func (s *services) AddServer(typ, id, url string) (svc x.Server, err error) {
 
 	switch typ {
 	case SVCSOCKS5, PXSOCKS5:
-		svc, err = newSocks5Server(id, url, s.ctl, s.listener, s.smmch)
+		svc, err = newSocks5Server(id, url, s.ctl, s.listener, s.queueSummary)
 	case SVCHTTP, PXHTTP:
-		svc, err = newHttpServer(id, url, s.ctl, s.listener, s.smmch)
+		svc, err = newHttpServer(id, url, s.ctl, s.listener, s.queueSummary)
 	default:
 		err = errors.ErrUnsupported
 	}

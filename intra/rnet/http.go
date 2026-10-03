@@ -33,7 +33,7 @@ type httpx struct {
 	svc      *http.Server
 	hdl      *httpxhandle
 	listener ServerListener
-	smmch    chan<- *ServerSummary // never closed
+	queue    queueFn
 	usetls   bool
 
 	// mutable fields below
@@ -48,7 +48,7 @@ type httpxhandle struct {
 	px core.MutexValue[ipn.Proxy]
 }
 
-func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener, smmch chan<- *ServerSummary) (*httpx, error) {
+func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener, q queueFn) (*httpx, error) {
 	var host string
 	var usr string
 	var pwd string
@@ -98,7 +98,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 		hdl:             &hdl,
 		svc:             svc,
 		listener:        listener,
-		smmch:           smmch,
+		queue:           q,
 	}
 	hx.status.Store(SOK)
 	hproxy.OnRequest().HandleConnectFunc(hx.routeConnect)
@@ -168,7 +168,9 @@ func (h *httpx) summarize(res *http.Response, ctx *tx.ProxyCtx) *http.Response {
 		ssu.Tx = req.ContentLength
 	}
 	ssu.done(errNop)
-	h.queueSummary(ssu)
+	if h.queue != nil {
+		h.queue(ssu)
+	}
 	return res
 }
 
@@ -226,15 +228,10 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 			wg.Wait()
 			clos(client, target)
 		}
-		h.queueSummary(ssu)
+		if h.queue != nil {
+			h.queue(ssu)
+		}
 	}()
-}
-
-// queueSummary queues a summary to be sent to the listener via the services channel.
-func (h *httpx) queueSummary(ssu *ServerSummary) {
-	if h.smmch != nil {
-		h.smmch <- ssu
-	}
 }
 
 func clos(cs ...io.Closer) {

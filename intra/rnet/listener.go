@@ -17,6 +17,9 @@ import (
 
 var errNop = errors.New("no error")
 
+// queueFn queues a summary for delivery to the listener.
+type queueFn func(sum *ServerSummary)
+
 type ServerSummary struct {
 	*x.ServerSummary
 	start time.Time // Tracks start time; unexported.
