@@ -68,7 +68,7 @@ const (
 	noaddr = ""
 
 	pingThresholdMillis          = 5 * 1000 // 5s
-	arbitraryWaitForViaHandshake = 5 * time.Second
+	arbitraryWaitForViaHandshake = 3 * time.Second
 	markTNTAfterMillis           = 20 * 1000 // TNT after 20s of no rcv after snd
 
 	removeViaOnErrors = false
@@ -313,6 +313,10 @@ func waitForDeviceUp() {
 	waitForViaHandshake()
 }
 
+func waitForMultihostRefresh() {
+	waitForViaHandshake()
+}
+
 // onNotOK implements Proxy.
 func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 	s := w.status.Load()
@@ -327,9 +331,10 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		return
 	}
 
-	var didPing, viaDidRefresh, viaOK bool
+	var didPing, hasVia, viaDidRefresh, viaOK bool
 
 	if via := w.getViaIfDialed(); via != nil {
+		hasVia = true
 		viaDidRefresh, viaOK = via.onNotOK()
 	}
 
@@ -356,8 +361,8 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		allok = w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
-	loged(err)("proxy: wg: %s; onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; status? %s; err? %v",
-		w.tag(), viaDidRefresh, didRefresh, didPing, viaOK, allok, pxstatus(s), err)
+	loged(err)("proxy: wg: %s; onNotOK: refresh? %t+%t; ping? %t; hasVia? %t; ok? %t+%t; status? %s; err? %v",
+		w.tag(), viaDidRefresh, didRefresh, didPing, hasVia, viaOK, allok, pxstatus(s), err)
 	return
 }
 
@@ -396,6 +401,8 @@ func (w *wgproxy) Refresh() (err error) {
 
 	n := w.dns.Load().Refresh()
 	nn := w.remote.Load().Refresh()
+
+	waitForMultihostRefresh()
 
 	via := w.getVia()
 	viaOK, didWait := false, false
