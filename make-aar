@@ -28,7 +28,7 @@ BOUTSYM="${BOUTSYM:-build/intra/tun2socks-debug-symbols.zip}"
 LATESTNDKHOME=${ANDROID_NDK_LATEST_HOME:-0}
 # default: stackoverflow.com/a/2013573
 NDKVER="${NDKVER:-0}"
-SDKVER="${SDKVER:-36}"
+SDKVER="${SDKVER:-37}"
 
 ARG1="${1:-go}"
 ARG2="${2:-debug}"
