@@ -8,8 +8,8 @@ env:
   SDKVER: "37"
 before_install:
 # docs.jitpack.io/building
-  - sdk install java 17.0.14-jbr
-  - sdk use java 17.0.14-jbr
+  - sdk install java 17.0.20-tem
+  - sdk use java 17.0.20-tem
 # developer.android.com/tools/releases/platform-tools
   - set -e
   - yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
