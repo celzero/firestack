@@ -57,7 +57,7 @@ func IPProtos(ippro string) (diff bool) {
 	case settings.IP6:
 		fallthrough
 	case settings.IP46:
-		doHappyEyeballs = true
+		doHappyEyeballs = settings.SupportHappyEyeballs
 		diff = ipProto.Swap(ippro) != ippro
 	default:
 		log.D("dialers: ips: invalid protos %s; use existing: %s", ippro, ipProto.Load())
