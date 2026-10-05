@@ -16,7 +16,7 @@ before_install:
 # gomobile: failed to find android SDK platform: open /opt/android-sdk-linux/platforms: no such file or directory
 # developer.android.com/tools/sdkmanager
 # default sdk is at 35
-  - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-${SDKVER}"
+  - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-${SDKVER}.0"
   - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;${SDKVER}.0.0"
 # default ndk is at v27; also: github.com/jitpack/jitpack.io/issues/4638
 # developer.android.com/ndk/downloads
