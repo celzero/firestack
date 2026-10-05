@@ -1,5 +1,5 @@
 jdk:
-  - openjdk14
+  - openjdk17
 env:
   PACK: "aar"
   FOUT: "firestack.aar"
@@ -7,16 +7,18 @@ env:
   NDKVER: "30.0.16248370"
   SDKVER: "37"
 before_install:
-# - sdk install java 17.0.8-jbr
-# - sdk use java 17.0.8-jbr
+# docs.jitpack.io/building
+  - sdk install java 17.0.14-jbr
+  - sdk use java 17.0.14-jbr
 # developer.android.com/tools/releases/platform-tools
   - set -e
   - yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
 # gomobile: failed to find android SDK platform: open /opt/android-sdk-linux/platforms: no such file or directory
 # developer.android.com/tools/sdkmanager
+# default sdk is at 35
   - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-${SDKVER}"
   - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;${SDKVER}.0.0"
-# ndk is at v30, for now: github.com/jitpack/jitpack.io/issues/4638
+# default ndk is at v27; also: github.com/jitpack/jitpack.io/issues/4638
 # developer.android.com/ndk/downloads
 # github.com/android/ndk-samples/wiki/Configure-NDK-Path#the-sdkmanager-command-line-tool
 # github.com/AgregoreWeb/gomobile-android-docker/blob/3720e727fa/Dockerfile
