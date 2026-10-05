@@ -11,35 +11,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"net/netip"
 	"slices"
 	"strings"
 
 	"github.com/celzero/firestack/intra/log"
 )
-
-// hasDefaultRoutes reports which default routes the allowed ip prefixes carry:
-// ip4 is true if any entry is an IPv4 /0 (ex: gw4 "0.0.0.0/0"), and ip6 is true
-// if any entry is an IPv6 /0 (ex: gw6 "::/0"). Entries may be csvs of prefixes.
-func hasDefaultRoutes(allowed []string) (ip4, ip6 bool) {
-	for _, a := range allowed {
-		for pfx := range strings.SplitSeq(a, ",") {
-			p, err := netip.ParsePrefix(strings.TrimSpace(pfx))
-			if err != nil || p.Bits() != 0 {
-				continue
-			}
-			if p.Addr().Is4() {
-				ip4 = true
-			} else {
-				ip6 = true
-			}
-			if ip4 && ip6 {
-				return
-			}
-		}
-	}
-	return
-}
 
 type RegionalWgConf struct {
 	// WsServerList.CountryCode (uppercased)
@@ -56,6 +32,8 @@ type RegionalWgConf struct {
 	Count int32 `json:"Count"`
 	// WsServerList.PremiumOnly == 1
 	Premium bool `json:"Premium"`
+	// WsServerList.P2P == 1 (0 means torrent trackers may be null routed)
+	P2P bool `json:"P2P"`
 
 	ClientAddr4   string `json:"ClientAddr4"`
 	ClientAddr6   string `json:"ClientAddr6"`

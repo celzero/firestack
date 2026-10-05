@@ -519,8 +519,8 @@ func (s *StdNetBind2) receiveIP(
 			log.E("wg: bind2: %s invalid addr type %T %v", s.id, msg.Addr, msg.Addr)
 			continue
 		}
-		ep := &StdNetEndpoint2{AddrPort: uaddr.AddrPort()} // TODO: remove allocation
-		getSrcFromControl(msg.OOB[:msg.NN], ep)            // no-op on Android
+		ep := &StdNetEndpoint2{AddrPort: normalizeAddrPort(uaddr.AddrPort())} // TODO: remove allocation
+		getSrcFromControl(msg.OOB[:msg.NN], ep)                               // no-op on Android
 		eps[i] = ep
 		anyProcessed = true
 	}
@@ -704,7 +704,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	c := s.ipv4
 	var br batchWriter = s.ipv4PC
 	is6 := false
-	if peer.DstIP().Is6() {
+	if isIPv6(ep.AddrPort) {
 		blackhole = s.blackhole6
 		offload = s.ipv6TxOffload
 		c = s.ipv6
@@ -713,25 +713,6 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 	}
 	s.mu.RUnlock()
 
-	if blackhole {
-		return nil
-	}
-	if c == nil {
-		// No socket for the endpoint's family (ex: v6 listener failed to open).
-		// Fall back to the other family's socket by unmapping/mapping the
-		// destination address (v6 => v4 only), instead of failing every send
-		// with EAFNOSUPPORT.
-		if is6 {
-			if a4 := ep.DstIP().Unmap(); addrok(a4) {
-				log.W("wg: bind2: %s no v6 socket for %v; falling back to v4 %v", s.id, ep.DstIP(), a4)
-				is6 = false
-				blackhole = s.blackhole4
-				offload = s.ipv4TxOffload
-				c = s.ipv4
-				br = s.ipv4PC
-			}
-		}
-	}
 	if blackhole {
 		return nil
 	}
@@ -747,7 +728,7 @@ func (s *StdNetBind2) Send(bufs [][]byte, peer conn.Endpoint) (err error) {
 		return syscall.ENOMEM
 	}
 
-	dst := addrport(peer, !is6)
+	dst := addrport(peer)
 	if !addrok(dst.Addr()) {
 		log.E("wg: bind2: %s invalid destination %v", s.id, dst)
 		return syscall.EINVAL
@@ -860,7 +841,7 @@ func (s *StdNetBind2) send(conn *net.UDPConn, pc batchWriter, msgs []ipv6.Messag
 // github.com/WireGuard/wireguard-go/commit/334b605e726
 func asEndpoint2(ap netip.AddrPort) *StdNetEndpoint2 {
 	return &StdNetEndpoint2{
-		AddrPort: ap,
+		AddrPort: normalizeAddrPort(ap),
 	}
 }
 
@@ -878,7 +859,7 @@ func coalesceMessages(addr *net.UDPAddr, ep *StdNetEndpoint2, bufs [][]byte, msg
 		endBatch bool // tracking flag to start a new batch on next iteration of bufs
 	)
 	maxPayloadLen := maxIPv4PayloadLen
-	if ep.DstIP().Is6() {
+	if isIPv6(ep.AddrPort) {
 		maxPayloadLen = maxIPv6PayloadLen
 	}
 	for i, buf := range bufs {
@@ -973,15 +954,9 @@ func msgAddr(msgs *[]ipv6.Message) net.Addr {
 	return (*msgs)[0].Addr
 }
 
-func addrport(ep conn.Endpoint, as4 bool) netip.AddrPort {
+func addrport(ep conn.Endpoint) netip.AddrPort {
 	if a, ok := ep.(*StdNetEndpoint2); ok {
-		if as4 {
-			addr4 := a.AddrPort.Addr().Unmap()
-			return netip.AddrPortFrom(addr4, a.Port())
-		} else {
-			addr6 := a.AddrPort.Addr()
-			return netip.AddrPortFrom(addr6, a.Port())
-		}
+		return a.AddrPort
 	}
 	return zeroaddrport
 }

@@ -457,7 +457,7 @@ type WsServerList struct {
 	Status      int    `json:"status"`
 	PremiumOnly int    `json:"premium_only"`
 	ShortName   string `json:"short_name"`
-	// p2p is 0 as a signal that common torrent trackers are null routed
+	// P2P is 0 as a signal that common torrent trackers are null routed
 	// on these machines and torrenting is discouraged. Nothing prevents
 	// users from still doing so, especially on private trackers.
 	// This flag has no impact on port forwarding.
@@ -505,7 +505,7 @@ type WsServerGroup struct {
 	WgEndpoint string `json:"wg_endpoint"`
 	OvpnX509   string `json:"ovpn_x509"`
 	PingIP     string `json:"ping_ip"`
-	// GET <ping-host>
+	// GET <ping-host>/latency
 	// {"rtt": "5775"}  = 5.7ms
 	PingHost string `json:"ping_host"`
 	// 100, 1000, 10000 (in mbps) etc;
@@ -1130,7 +1130,6 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 		}
 		if !visited[rc.Name] {
 			_, isExcluded := excl[rc.CC]
-			hasgw4, hasgw6 := hasDefaultRoutes(rc.AllowedIPs)
 			s = append(s, x.RpnServer{
 				CC:       rc.CC,
 				City:     rc.City,
@@ -1140,8 +1139,7 @@ func (a *WsClient) Locations() (x.RpnServers, error) {
 				Count:    rc.Count,
 				Premium:  rc.Premium,
 				Excluded: isExcluded,
-				IP4:      hasgw4, // gateway for ipv4 (0.0.0.0/0 in allowed)
-				IP6:      hasgw6, // gateway for ipv6 (::/0 in allowed)
+				P2P:      rc.P2P,
 				PubPub:   trunc8(rc.ServerPubKey) + "&" + trunc8(rc.ClientPubKey),
 				Allowed:  strings.Join(rc.AllowedIPs, ","),
 				// cc is always suffixed; see proxy.go:proxifier.postAddRpnProxy
@@ -1322,7 +1320,6 @@ reconf:
 			}
 			if confok {
 				// _, isExcluded := excl[rc.CC] assert false!
-				hasgw4, hasgw6 := hasDefaultRoutes(rc.AllowedIPs)
 				out = append(out, confstr)
 				srvs = append(srvs, x.RpnServer{
 					CC:       rc.CC,
@@ -1333,8 +1330,7 @@ reconf:
 					Count:    rc.Count,
 					Premium:  rc.Premium,
 					Excluded: false,
-					IP4:      hasgw4, // gateway for ipv4 (0.0.0.0/0 in allowed)
-					IP6:      hasgw6, // gateway for ipv6 (::/0 in allowed)
+					P2P:      rc.P2P,
 					PubPub:   trunc8(rc.ServerPubKey) + "&" + trunc8(rc.ClientPubKey),
 					Allowed:  strings.Join(rc.AllowedIPs, ","),
 					Key:      strings.Join([]string{rc.City, rc.CC}, confKeySep),
@@ -1727,6 +1723,7 @@ func convertToRegionalWgConfs(id *WsWgCreds, list []WsServerList, test bool, por
 				Link:             int32(linkspeed),
 				Count:            int32(len(group.Nodes)),
 				Premium:          server.PremiumOnly == 1,
+				P2P:              server.P2P == 1,
 				ClientAddr4:      id.Address,
 				ClientAddr6:      id.AddressV6,
 				ClientPrivKey:    id.PrivateKey,
