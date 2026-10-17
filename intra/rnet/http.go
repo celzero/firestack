@@ -33,6 +33,7 @@ type httpx struct {
 	svc      *http.Server
 	hdl      *httpxhandle
 	listener ServerListener
+	queue    queueFn
 	usetls   bool
 
 	// mutable fields below
@@ -47,7 +48,7 @@ type httpxhandle struct {
 	px core.MutexValue[ipn.Proxy]
 }
 
-func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener) (*httpx, error) {
+func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener, q queueFn) (*httpx, error) {
 	var host string
 	var usr string
 	var pwd string
@@ -97,6 +98,7 @@ func newHttpServer(id, x string, ctl protect.Controller, listener ServerListener
 		hdl:             &hdl,
 		svc:             svc,
 		listener:        listener,
+		queue:           q,
 	}
 	hx.status.Store(SOK)
 	hproxy.OnRequest().HandleConnectFunc(hx.routeConnect)
@@ -166,7 +168,9 @@ func (h *httpx) summarize(res *http.Response, ctx *tx.ProxyCtx) *http.Response {
 		ssu.Tx = req.ContentLength
 	}
 	ssu.done(errNop)
-	go h.listener.OnSvcComplete(ssu.ServerSummary)
+	if h.queue != nil {
+		h.queue(ssu)
+	}
 	return res
 }
 
@@ -224,7 +228,9 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 			wg.Wait()
 			clos(client, target)
 		}
-		h.listener.OnSvcComplete(ssu.ServerSummary)
+		if h.queue != nil {
+			h.queue(ssu)
+		}
 	}()
 }
 

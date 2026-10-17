@@ -225,6 +225,7 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 	}
 
 	ogep, _ := netip.ParseAddrPort(s)
+	ogep = normalizeAddrPort(ogep)
 
 	all := d.Addrs()
 	// do what tailscale does, and share a preferred endpoint regardless of "s"?
@@ -233,6 +234,14 @@ func (e *StdNetBind) ParseEndpoint(s string) (conn.Endpoint, error) {
 
 	// in cases where dialers.Use4() and dialers.Use6 return true, but only v6 route
 	// may in fact exist (v4 is over only DNS64 / NAT64), prefer v6 instead
+	ipp4 = normalizeAddrPort(ipp4)
+	ipp6 = normalizeAddrPort(ipp6)
+	if ipp6.Addr().Is4() {
+		if !ipp4.IsValid() {
+			ipp4 = ipp6
+		}
+		ipp6 = netip.AddrPort{}
+	}
 
 	if !ipok(ipp4) && !ipok(ipp6) {
 		log.E("wg: bind: parse: %s invalid endpoint; (chosen: %v / alt: %v) => in(%s) => out(%s, %s)", e.id, ipp4, ipp6, s, d.Names(), all)
@@ -439,7 +448,7 @@ func (s *StdNetBind) probe() (use6 bool) {
 		if s.ipv4 != nil && v4.IsValid() {
 			i++
 			_, err := s.ipv4.WriteTo([]byte{}, udpaddr(v4))
-			if err == nil || !isUnreachable(err) {
+			if err == nil || !isNetworkUnavailable(err) {
 				s.use6.Store(false)
 				log.I("wg: bind: %s probe: %d v4 reachable %v; err? %v", s.id, i, v4, err)
 				return false
@@ -449,7 +458,7 @@ func (s *StdNetBind) probe() (use6 bool) {
 		if s.ipv6 != nil && v6.IsValid() {
 			j++
 			_, err := s.ipv6.WriteTo([]byte{}, udpaddr(v6))
-			if err == nil || !isUnreachable(err) {
+			if err == nil || !isNetworkUnavailable(err) {
 				s.use6.Store(true)
 				log.I("wg: bind: %s probe: %d v6 reachable %v; err? %v", s.id, j, v6, err)
 				return true
@@ -465,14 +474,14 @@ func (s *StdNetBind) probe() (use6 bool) {
 }
 
 // getconn returns the UDP socket, fd, and blackhole state for the given address family.
-func (s *StdNetBind) getconn(ipp netip.AddrPort) (net.PacketConn, int, bool) {
+func (s *StdNetBind) getconn(ep netip.AddrPort) (net.PacketConn, int, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	blackhole := s.blackhole4
 	uc := s.ipv4
 	fd := s.fd4
-	if ipp.Addr().Is6() {
+	if isIPv6(ep) {
 		blackhole = s.blackhole6
 		uc = s.ipv6
 		fd = s.fd6
@@ -689,29 +698,36 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	dstIpp := ep.get()
 	uc, fd, blackhole := s.getconn(dstIpp)
+	switchFamily := func() bool {
+		var alt netip.AddrPort
+		if isIPv6(dstIpp) {
+			alt = ep.v4
+		} else {
+			alt = ep.v6
+		}
+		if !ipok(alt) || alt == dstIpp {
+			return false
+		}
+		altuc, altfd, altblackhole := s.getconn(alt)
+		if altuc == nil {
+			return false
+		}
+		log.W("wg: bind: send: %s (%d) switching from %v to %v", s.id, fd, dstIpp, alt)
+		dstIpp = alt
+		uc, fd, blackhole = altuc, altfd, altblackhole
+		s.use6.Store(isIPv6(alt))
+		return true
+	}
 
 	if blackhole {
 		return nil
 	}
 	if uc == nil {
-		dst6 := dstIpp.Addr().Is6()
 		// No socket for dstIpp's family (ex: v6 listener failed to open, or
 		// use6 went stale after a reopen). Fall back to the other family's
 		// socket and address, if the endpoint has one, instead of failing
 		// every send with EAFNOSUPPORT.
-		var alt netip.AddrPort
-		if dst6 {
-			alt = ep.v4
-		} else {
-			alt = ep.v6
-		}
-		if ipok(alt) {
-			log.W("wg: bind: send: %s (%d) no socket (v6? %t) for %v; falling back to %v",
-				s.id, fd, dst6, dstIpp, alt)
-			dstIpp = alt
-			s.use6.Store(dst6) // persist the working family
-			uc, fd, blackhole = s.getconn(dstIpp)
-		}
+		switchFamily()
 	}
 
 	if blackhole {
@@ -758,9 +774,15 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 			}
 		}
 
-		n, serr := uc.WriteTo(data, ep.get2())
+		n, serr := uc.WriteTo(data, udpaddr(dstIpp))
+		if isNetworkUnavailable(serr) && switchFamily() {
+			if blackhole {
+				return nil
+			}
+			n, serr = uc.WriteTo(data, udpaddr(dstIpp))
+		}
 
-		if isUnreachable(serr) {
+		if isNetworkUnavailable(serr) {
 			unreach = true
 			break
 		}
@@ -902,6 +924,7 @@ func (s *StdNetBind) asEndpoint(x net.Addr) (int, conn.Endpoint) {
 		}
 		key = ipp
 	}
+	key = normalizeAddrPort(key)
 
 	s.epmu.RLock()
 	ep, ok := s.eps[key]
@@ -963,6 +986,12 @@ func isUnreachable(err error) bool {
 		errors.Is(err, syscall.ENETUNREACH)
 }
 
+func isNetworkUnavailable(err error) bool {
+	return isUnreachable(err) ||
+		errors.Is(err, syscall.EADDRNOTAVAIL) ||
+		errors.Is(err, syscall.EAFNOSUPPORT)
+}
+
 func transportType(unobs []byte) (y bool) {
 	return messageType(unobs, device.MessageTransportType)
 }
@@ -992,4 +1021,15 @@ func messageType(unobs []byte, t uint32) (y bool) {
 
 func ipok(ipp netip.AddrPort) bool {
 	return ipp.IsValid() && !ipp.Addr().IsUnspecified() && !ipp.Addr().IsMulticast()
+}
+
+func isIPv6(ipp netip.AddrPort) bool {
+	return ipp.IsValid() && ipp.Addr().Is6() && !ipp.Addr().Is4In6()
+}
+
+func normalizeAddrPort(ipp netip.AddrPort) netip.AddrPort {
+	if ipp.IsValid() && ipp.Addr().Is4In6() {
+		return netip.AddrPortFrom(ipp.Addr().Unmap(), ipp.Port())
+	}
+	return ipp
 }

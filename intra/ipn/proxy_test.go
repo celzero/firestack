@@ -116,7 +116,7 @@ func TestDot(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", tm, dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3:53", tm, dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 	r4, _, err := resolv.Forward(b4)
 	r6, _, err6 := resolv.Forward(b6)
@@ -164,7 +164,7 @@ func TestProxyReaches(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 
 	var projson []byte
@@ -210,7 +210,7 @@ func TestWindscribeReaches(t *testing.T) {
 
 	natpt := x64.NewNatPt2(ctx)
 	natpt.Kickstart(netr)
-	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt)
+	resolv := dnsx.NewResolver(ctx, "10.111.222.3", tm, dtr, bdg, natpt, pxr)
 	resolv.Add(tr)
 
 	exit, _ := pxr.ProxyFor(Exit)

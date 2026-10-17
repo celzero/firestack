@@ -198,7 +198,7 @@ type Rpn interface {
 	x.Rpn
 	rpnProxyProvider
 	// addRpnProxy adds an RPN proxy to this multi-transport.
-	addRpnProxy(acc RpnAcc, cc string) (Proxy, *x.RpnServer, error)
+	addRpnProxy(acc RpnAcc, cc string, exclude ...string) (Proxy, *x.RpnServer, error)
 	// removeRpnProxy removes an RPN proxy from this multi-transport.
 	removeRpnProxy(acc RpnAcc, cc string) bool
 }

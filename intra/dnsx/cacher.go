@@ -668,6 +668,16 @@ func fillSummary(s *x.DNSSummary, out *x.DNSSummary) {
 	if len(out.Region) == 0 { // fill in region if empty
 		out.Region = s.Region
 	}
+	// ranks are determined once per query in forwardInner; never clobber
+	if out.Rank == 0 {
+		out.Rank = s.Rank
+	}
+	if out.RankBig == 0 {
+		out.RankBig = s.RankBig
+	}
+	if len(out.RankError) == 0 {
+		out.RankError = s.RankError
+	}
 
 	// prefer s
 

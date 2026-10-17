@@ -68,7 +68,7 @@ const (
 	noaddr = ""
 
 	pingThresholdMillis          = 5 * 1000 // 5s
-	arbitraryWaitForViaHandshake = 5 * time.Second
+	arbitraryWaitForViaHandshake = 3 * time.Second
 	markTNTAfterMillis           = 20 * 1000 // TNT after 20s of no rcv after snd
 
 	removeViaOnErrors = false
@@ -313,6 +313,10 @@ func waitForDeviceUp() {
 	waitForViaHandshake()
 }
 
+func waitForMultihostRefresh() {
+	waitForViaHandshake()
+}
+
 // onNotOK implements Proxy.
 func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 	s := w.status.Load()
@@ -327,9 +331,10 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		return
 	}
 
-	var didPing, viaDidRefresh, viaOK bool
+	var didPing, hasVia, viaDidRefresh, viaOK bool
 
 	if via := w.getViaIfDialed(); via != nil {
+		hasVia = true
 		viaDidRefresh, viaOK = via.onNotOK()
 	}
 
@@ -356,8 +361,8 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 		allok = w.Ping() // ping / sendkeepalive is async
 		didPing = true
 	}
-	loged(err)("proxy: wg: %s; onNotOK: refresh? %t+%t; ping? %t; ok? %t+%t; status? %s; err? %v",
-		w.tag(), viaDidRefresh, didRefresh, didPing, viaOK, allok, pxstatus(s), err)
+	loged(err)("proxy: wg: %s; onNotOK: refresh? %t+%t; ping? %t; hasVia? %t; ok? %t+%t; status? %s; err? %v",
+		w.tag(), viaDidRefresh, didRefresh, didPing, hasVia, viaOK, allok, pxstatus(s), err)
 	return
 }
 
@@ -397,6 +402,8 @@ func (w *wgproxy) Refresh() (err error) {
 	n := w.dns.Load().Refresh()
 	nn := w.remote.Load().Refresh()
 
+	waitForMultihostRefresh()
+
 	via := w.getVia()
 	viaOK, didWait := false, false
 	if via != nil {
@@ -407,34 +414,34 @@ func (w *wgproxy) Refresh() (err error) {
 		}
 	}
 
-	if err = w.resetMtu(via); err == nil {
-		// for now, never reset since resetDeviceOnTNT is false
-		resetDevice = resetDevice && w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
-		if resetDevice {
-			// Close the old device before creating the new one.
-			// w.Device.Down() already set bind.ipv4/ipv6 to nil, so Close() is a
-			// near no-op on the bind here. Doing it in the other order would have
-			// Close() re-enter Down() and close the bind that newdevice just opened.
-			w.Device.Close() // tun.Close() is ignored via ignoreTUNClose
-			w.events <- tun.EventUp
-			w.Device = newdevice(w.wgtun, w.wgep) // TODO: core.Volatile[device.Device]
-		} else {
-			// err = w.Device.Down()
-			// prefer sending commands over the events channel to prevent
-			// racing Up/Down calls via Refresh and other funcs that could
-			// be called concurrenctly by client code and/or internal code.
-			w.events <- tun.EventDown
-			// err = w.Device.Up()
-			w.events <- tun.EventUp
+	err = w.resetMtu(via)
+	// for now, never reset since resetDeviceOnTNT is false
+	resetDevice = resetDevice && w.wgtun.ignoreTUNClose.CompareAndSwap(false, true)
+	if resetDevice {
+		// Close the old device before creating the new one.
+		// w.Device.Down() already set bind.ipv4/ipv6 to nil, so Close() is a
+		// near no-op on the bind here. Doing it in the other order would have
+		// Close() re-enter Down() and close the bind that newdevice just opened.
+		w.Device.Close() // tun.Close() is ignored via ignoreTUNClose
+		w.events <- tun.EventUp
+		w.Device = newdevice(w.wgtun, w.wgep) // TODO: core.Volatile[device.Device]
+	} else {
+		// err = w.Device.Down()
+		// prefer sending commands over the events channel to prevent
+		// racing Up/Down calls via Refresh and other funcs that could
+		// be called concurrenctly by client code and/or internal code.
+		w.events <- tun.EventDown
+		// err = w.Device.Up()
+		w.events <- tun.EventUp
 
-			waitForDeviceUp() // arbitrary wait for device to be up before sending ipcset
+		waitForDeviceUp() // arbitrary wait for device to be up before sending ipcset
 
-			// Re-apply peer config so wireguard device uses freshly resolved endpoint IPs.
-			// remote.Refresh() above may have updated IPs; Device.Up() alone does not
-			// re-call ParseEndpoint, so peers would keep sending handshakes to stale IPs.
-			w.redoPeers()
-		}
+		// Re-apply peer config so wireguard device uses freshly resolved endpoint IPs.
+		// remote.Refresh() above may have updated IPs; Device.Up() alone does not
+		// re-call ParseEndpoint, so peers would keep sending handshakes to stale IPs.
+		w.redoPeers()
 	}
+
 	// not required since wgconn:NewBind() is namespace aware
 	// bindok := bindWgSockets(w.ID(), w.remote.AnyAddr(), w.wgdev, w.ctl)
 	logei(err)("proxy: wg: %s: refresh done; len(dns): %d, len(peer): %d; viaOK? %t, didWait? %t / reset? %t / status: %s => %s; elapsed: %s; err? %v",

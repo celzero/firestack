@@ -71,6 +71,45 @@ type DNSSummary struct {
 	Extra string
 	// Region of the Rethink DNS+ server (if used).
 	Region string
+	// Top 1M rank for QName; 0 if unknown/skipped, -ve if not ranked.
+	Rank int32
+	// Popular-domains rank for QName; 0 if unknown/skipped, -ve if not ranked.
+	RankBig int32
+	// CSV of rank lookup errors, if any.
+	RankError string
+}
+
+// DomainOpts carries domain reputation (rank) hints from client code.
+type DomainOpts struct {
+	// Top 1M rank; 0 if unknown, -ve if not ranked.
+	Rank int32
+	// Popular-domains rank; 0 if unknown, -ve if not ranked.
+	RankBig int32
+	// Unix epoch millis when Rank/RankBig were first cached. 0 if unknown.
+	RankDobUnixMs int64
+	// Block if Rank is unknown/not-ranked or exceeds this. <=0 disables.
+	RankThreshold int32
+	// Block if RankBig is unknown/not-ranked or exceeds this. <=0 disables.
+	RankBigThreshold int32
+	// Flow identity, diag only.
+	FID string
+	// App identity, diag only.
+	UID string
+}
+
+func (o *DomainOpts) Copy() *DomainOpts {
+	if o == nil {
+		return nil
+	}
+	return &DomainOpts{
+		Rank:             o.Rank,
+		RankBig:          o.RankBig,
+		RankDobUnixMs:    o.RankDobUnixMs,
+		RankThreshold:    o.RankThreshold,
+		RankBigThreshold: o.RankBigThreshold,
+		FID:              o.FID,
+		UID:              o.UID,
+	}
 }
 
 type DNSOpts struct {
@@ -122,6 +161,9 @@ func (s *DNSSummary) String() string {
 // DNSListener receives Summaries.
 type DNSListener interface {
 	ResolverListener
+	// OnPrequery is called before OnQuery with cached rank hints, if any.
+	// May return nil to skip rank gating for this query.
+	OnPrequery(who, uid, domain string, qtyp int) *DomainOpts
 	// OnQuery is called when a DNS query is received. The listener
 	// can return a DNSOpts to specify how the query should be handled.
 	OnQuery(who, uid, domain string, qtyp int) *DNSOpts

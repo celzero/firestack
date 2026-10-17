@@ -4,25 +4,23 @@ go 1.27
 
 require (
 	github.com/celzero/gotrie v0.0.0-20250314130138-a2756ab2f6bd
-	github.com/jedisct1/go-dnsstamps v0.0.0-20200621175006-302248eecc94
-	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
-	github.com/k-sone/critbitgo v1.4.0
-	github.com/miekg/dns v1.1.72
-	golang.org/x/crypto v0.53.0
-	golang.org/x/sys v0.46.0
-)
-
-require (
 	github.com/cloudflare/odoh-go v1.0.0
 	github.com/coder/websocket v1.8.14
 	github.com/crazy-max/xgo v0.31.0
 	github.com/elazarl/goproxy v0.0.0-20230808193330-2592e75ae04a
+	github.com/jedisct1/go-dnsstamps v0.0.0-20200621175006-302248eecc94
+	github.com/jedisct1/xsecretbox v0.0.0-20190909160646-b731c21297f9
+	github.com/k-sone/critbitgo v1.4.0
+	github.com/miekg/dns v1.1.72
 	github.com/showwin/speedtest-go v1.7.10
 	github.com/tailscale/depaware v0.0.0-20251001183927-9c2ad255ef3f
 	github.com/txthinking/socks5 v0.0.0-20260601051520-339b044ab0eb
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
+	golang.org/x/crypto v0.53.0
 	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
 	golang.org/x/net v0.56.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/time v0.12.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	gvisor.dev/gvisor v0.0.0-20260508212337-96dad6a2da94
 )
@@ -43,7 +41,6 @@ require (
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/text v0.39.0 // indirect
-	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )

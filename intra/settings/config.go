@@ -34,6 +34,8 @@ var PortForward = atomic.Bool{}
 // for dual-stack (IPv4+IPv6) connections.
 var HappyEyeballs = atomic.Bool{}
 
+var SupportHappyEyeballs = false
+
 // ExperimentalWireGuard is a global flag to enable experimental
 // settings for WireGuard.
 var ExperimentalWireGuard = core.NewForeverFlow(false)

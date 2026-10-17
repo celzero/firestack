@@ -38,6 +38,7 @@ const (
 	defaultMullvadV6URL = "https://ipv6.am.i.mullvad.net/json"
 	maxIPBodySize       = int64(128 * 1024)
 	maxHttpTimeout      = 10 * time.Second
+	shortHttpTimeout    = 4 * time.Second
 	httpResponseTimeout = 3 * time.Second
 )
 
@@ -237,7 +238,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 		return nil, errors.New("testing: windscribe skipped")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), maxHttpTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shortHttpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wsGeoURL, nil)
@@ -250,7 +251,7 @@ func fetchWindscribe(p Proxy, network string) (*wsGeoInner, error) {
 
 	log.VV("proxy: client: %s fetching windscribe via %s...", idstr(p), network)
 
-	client := httpClient(p, network, maxHttpTimeout)
+	client := HttpClient2(p, network, shortHttpTimeout)
 	resp, err := client.Do(req)
 	if resp == nil {
 		return nil, core.OneErr(err, errors.New("proxy: client: windscribe nil response"))
@@ -550,7 +551,7 @@ func applyMullvad(meta *x.IPMetadata, resp *mullvadResp) {
 }
 
 func fetch(p Proxy, network, rawurl string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), maxHttpTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shortHttpTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
@@ -561,7 +562,7 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 	log.VV("proxy: client: %s fetching %s via %s...", idstr(p), rawurl, network)
 
 	// TODO: pool clients
-	client := httpClient(p, network, maxHttpTimeout)
+	client := HttpClient2(p, network, shortHttpTimeout)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -586,11 +587,15 @@ func fetch(p Proxy, network, rawurl string) ([]byte, error) {
 }
 
 // Exported for testing only.
-func HttpClient(p Proxy, network string, timeout time.Duration) *http.Client {
-	return httpClient(p, network, timeout)
+func HttpClient2(p Proxy, network string, timeout time.Duration) *http.Client {
+	return httpClient(p, network, timeout, false)
 }
 
-func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client {
+func HttpClient(p Proxy, network string, timeout time.Duration, keepalive bool) *http.Client {
+	return httpClient(p, network, timeout, keepalive)
+}
+
+func httpClient(p Proxy, network string, httpTimeout time.Duration, keepalive bool) *http.Client {
 	return &http.Client{
 		Timeout: httpTimeout,
 		Transport: &http.Transport{
@@ -609,15 +614,22 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 					return nil, log.EE("proxy: client: invalid port %q in %q", port, addr)
 				}
 
+				pid := p.ID()
+				loopingback := settings.Loopingback.Load()
+				defaultfallback := settings.DefaultDNSAsFallback.Load()
 				// use preferred when proxy does not have dns
 				dnsid := x.Preferred
 				if hasDNS := len(p.DNS()) > 0; hasDNS {
-					dnsid = p.ID()
+					dnsid = pid
+				} else if p.Type() == INTERNET { // Exit or Exit64
+					dnsid = x.Default // TODO: should it be x.System for DNS64/NAT64?
+				} else if local(pid) && !loopingback { // Base
+					dnsid = x.Default
 				}
 
 				ips, err := dialers.Resolve(host, dnsid)
 				if err != nil {
-					if dnsid != x.Default && settings.DefaultDNSAsFallback.Load() {
+					if dnsid != x.Default && defaultfallback {
 						log.D("proxy: client: %s on %s resolve %s err %s: %v; using Default",
 							idstr(p), network, dnsid, host, err)
 						ips = dialers.For(host)
@@ -670,7 +682,7 @@ func httpClient(p Proxy, network string, httpTimeout time.Duration) *http.Client
 			},
 			TLSHandshakeTimeout:   httpTimeout / 2,
 			ResponseHeaderTimeout: httpTimeout - 2,
-			DisableKeepAlives:     true,
+			DisableKeepAlives:     !keepalive,
 			ForceAttemptHTTP2:     true,
 		},
 	}

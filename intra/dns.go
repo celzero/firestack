@@ -34,7 +34,18 @@ func MakeDoHTransport(t Tunnel, id, url, ipcsv string) (dnsx.Transport, error) {
 	if perr != nil || rerr != nil {
 		return nil, core.JoinErr(perr, rerr)
 	}
-	return doh.NewTransport(t.internalCtx(), id, url, csv2slice(ipcsv), px, r)
+	return doh.NewTransport(t.internalCtx(), id, url, "" /* ipurl */, csv2slice(ipcsv), px, r)
+}
+
+// MakeDoHTransport2 is like MakeDoHTransport, but it may connect over ipurl over url (host).
+// ipurl is a URL with IP address (or ip:port) instead of a host name.
+func MakeDoHTransport2(t Tunnel, id, url, ipurl, ipcsv string) (dnsx.Transport, error) {
+	px, perr := t.internalProxies()
+	r, rerr := t.internalResolver()
+	if perr != nil || rerr != nil {
+		return nil, core.JoinErr(perr, rerr)
+	}
+	return doh.NewTransport(t.internalCtx(), id, url, ipurl, csv2slice(ipcsv), px, r)
 }
 
 // MakeODoHTransport creates an Oblivious-DoH transport for id, dialing via the
@@ -238,6 +249,20 @@ func AddDoHTransport(t Tunnel, id, url, ipcsv string) error {
 		return rerr
 	}
 	dns, err := MakeDoHTransport(t, id, url, ipcsv)
+	if err != nil {
+		return err
+	}
+	return addDNSTransport(r, dns)
+}
+
+// AddDoHTransport2 is like AddDoHTransport, but it may connect over ipurl over url (host).
+// ipurl is a URL with IP address (or ip:port) instead of a host name.
+func AddDoHTransport2(t Tunnel, id, url, ipurl, ipcsv string) error {
+	r, rerr := t.internalResolver()
+	if rerr != nil {
+		return rerr
+	}
+	dns, err := MakeDoHTransport2(t, id, url, ipurl, ipcsv)
 	if err != nil {
 		return err
 	}

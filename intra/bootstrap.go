@@ -111,8 +111,11 @@ func NewBuiltinDefaultDNS() (DefaultDNS, error) {
 func (b *bootstrap) newDefaultDohTransportLocked() (dnsx.Transport, error) {
 	ips := strings.Split(b.ipports, ",")
 	if len(b.url) > 0 && len(ips) > 0 {
-		// the resolver is wired in via kickstart (b.mapper), never nil
-		return doh.NewTransport(b.ctx, bootid, b.url, ips, b.proxies, b.mapper)
+		// TODO: add support literal ip url for doh
+		nourlip := ""
+		// empty ipurl disables the IP path; the resolver is wired in via
+		// kickstart (b.mapper), never nil
+		return doh.NewTransport(b.ctx, bootid, b.url, nourlip, ips, b.proxies, b.mapper)
 	}
 	return nil, errCannotStart
 }

@@ -34,6 +34,7 @@ import (
 const cfdns4 = "1.1.1.1"
 
 const gw4 = "0.0.0.0/0" // netip.ParsePrefix("0.0.0.0/0")
+const gw6 = "::/0"      // netip.ParsePrefix("::/0")
 
 // preset 6to4 NATs; from: nat64.xyz
 var Net6to4 = []netip.Prefix{
@@ -57,7 +58,7 @@ type RpnAcc interface {
 	x.RpnAcc
 	ProviderID() string // x.RpnWg, x.RpnPro, x.RpnAmz, x.RpnWin
 	MultiCountry() bool
-	Conf(key string) (string, *x.RpnServer, error)
+	Conf(key string, ccs []string) (string, *x.RpnServer, error)
 }
 
 var _ RpnAcc = (*WsClient)(nil)
@@ -88,10 +89,12 @@ type RpnStateless struct {
 	RpnUpdateless
 }
 
-func (RpnStateless) Updated() int64                               { return neverEver.UnixMilli() }
-func (RpnStateless) State() ([]byte, error)                       { return nil, errRpnStateless }
-func (RpnStateless) Conf(cc string) (string, *x.RpnServer, error) { return "", nil, errRpnStateless }
-func (RpnStateless) Entitlement() (x.RpnEntitlement, error)       { return nil, errRpnStateless }
+func (RpnStateless) Updated() int64         { return neverEver.UnixMilli() }
+func (RpnStateless) State() ([]byte, error) { return nil, errRpnStateless }
+func (RpnStateless) Conf(cc string, ccs []string) (string, *x.RpnServer, error) {
+	return "", nil, errRpnStateless
+}
+func (RpnStateless) Entitlement() (x.RpnEntitlement, error) { return nil, errRpnStateless }
 
 type RpnUpdateless struct{}
 

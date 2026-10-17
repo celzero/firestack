@@ -88,7 +88,7 @@ func (pxr *proxifier) removeRpnProxy(acc RpnAcc, cc string) bool {
 }
 
 // cc may be a fully qualified ID in case when re-adding the main proxy.
-func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, *x.RpnServer, error) {
+func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string, exclude ...string) (Proxy, *x.RpnServer, error) {
 	if acc == nil || core.IsNil(acc) {
 		return nil, nil, errNotRpnAcc
 	}
@@ -109,7 +109,7 @@ func (pxr *proxifier) addRpnProxy(acc RpnAcc, cc string) (Proxy, *x.RpnServer, e
 	// but we need cc to be "city;cc"  (ref struct RpnServer.Key)
 	cc, _ = strings.CutPrefix(cc, typ)
 
-	txt, srv, err := acc.Conf(cc)
+	txt, srv, err := acc.Conf(cc, exclude)
 	if err != nil {
 		return nil, nil, err
 	}
