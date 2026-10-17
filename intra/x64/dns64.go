@@ -262,7 +262,7 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 	// hasaaaq(true) hasans(true) rgood(true) ans0000(false)
 	hasq6 := xdns.HasAAAAQuestion(ansin)
 	hasans6 := xdns.HasAAAAAnswer(ansin)
-	ans00006 := xdns.AQuadAUnspecified(ansin)
+	ans00006 := xdns.AQuadAUnspecified(ansin) || xdns.AQuadALoopback(ansin)
 	hasauth := xdns.IsDNSSECAnswerAuthenticated(ansin)
 	// treat as if v6 answer missing if enforcing 6to4
 	if !hasq6 || ((hasauth || hasans6) && !force64) || ans00006 {
@@ -289,7 +289,7 @@ func (d *dns64) eval(network string, force64 bool, ansin *dns.Msg, r, uid string
 	ans4, err := d.query64(network, ansin, r, uid)
 	rgood := xdns.HasRcodeSuccess(ans4)
 	hasans := xdns.HasAnyAnswer(ans4)
-	ans0000 := xdns.AQuadAUnspecified(ans4)
+	ans0000 := xdns.AQuadAUnspecified(ans4) || xdns.AQuadALoopback(ans4)
 	if err != nil || ans4 == nil || !hasans || ans0000 {
 		log.W("dns64: skip: for %s, query(n:%s / a? %t) on resolver(%s[%s]/%s), code(good? %t / blocked? %t), err(%v)",
 			uid, qname, hasans, r, id, network, rgood, ans0000, err)

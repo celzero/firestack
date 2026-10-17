@@ -1366,8 +1366,10 @@ func (t *dnsgateway) querySecondary(t2 Transport, uid, fid, network string, msg 
 			result.smm.Blocklists = blocklistnames
 			result.smm.BlockedTarget = blockedtarget
 		}
-		if xdns.AQuadAUnspecified(r) {
-			// A/AAAA must be 0.0.0.0/::, set UpstreamBlocks to true
+		if xdns.AQuadAUnspecified(r) || xdns.AQuadALoopback(r) {
+			// A/AAAA must be 0.0.0.0/:: (or, for some upstream resolvers,
+			// sinkholed to loopback 127.0.0.1/::1); either way, set
+			// UpstreamBlocks to true
 			result.smm.UpstreamBlocks = true
 			// discard all other answers
 			result.ips = append(result.ips, anyaddr4, anyaddr6)
@@ -1518,7 +1520,7 @@ func (t *dnsgateway) q(t1, t2 Transport, preset []netip.Addr, origin, network, s
 	// for t1, ansin's already evaluated for ans0000 in querySecondary
 	// (secans.pri is set to true). ansin may be from t2 (if t2 != nil),
 	// ans64, which is a modified ansin, depending on settings.PtMode
-	ans0000 := xdns.AQuadAUnspecified(ansin) // ansin is not nil; ans64 may be nil
+	ans0000 := xdns.AQuadAUnspecified(ansin) || xdns.AQuadALoopback(ansin) // ansin is not nil; ans64 may be nil
 
 	if ans0000 {
 		smm.BlockedTarget = qname

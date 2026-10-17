@@ -929,7 +929,26 @@ func (px *proxifier) proxyFor(id string) (Proxy, error) {
 		// Ingress (dummy): no fast path, fall through to general lookup
 	}
 
-	timeout := time.Duration(minWaitPeriodSec/2) * time.Second
+	// Regression fix: this used to be getproxytimeout (5s) and was
+	// inadvertently shortened to minWaitPeriodSec/2 (1s) in 8677a52c
+	// ("core/volatile: cr by muse spark" era commit chain). proxyFor is
+	// called for every proxy id, including non-wellknown, app-registered
+	// ids (see isWellknown/ProxyFor above) for which there is NO retry/
+	// wait fallback -- ProxyFor returns immediately with errProxyNotFound
+	// for those ids, so this is the *only* window a caller gets to find
+	// a just-registered proxy. The lookup itself is a cheap RLock'd map
+	// read (see below), but on loaded/low-RAM devices the paired Lock()
+	// in AddProxy/RemoveProxy can legitimately hold the mutex for longer
+	// than 1s during proxy setup/teardown, especially for proxies that do
+	// real I/O in their constructor. Shortening this guard to 1s turns a
+	// rare, recoverable stall into a hard, unretried lookup failure for
+	// any non-wellknown proxy id registered right around this window --
+	// observed in production as a permanently-failing custom local proxy
+	// route until the next reconnect. Restoring getproxytimeout (5s)
+	// keeps this a deadlock-recovery guard (its original documented
+	// purpose, see the ProxyFor doc-comment above) rather than a
+	// register-race timeout.
+	timeout := getproxytimeout
 	// go.dev/play/p/xCug1W3OcMH
 	p, completed := core.Grx("pxr.ProxyFor: "+id, func(_ context.Context) (Proxy, error) {
 		px.RLock()
