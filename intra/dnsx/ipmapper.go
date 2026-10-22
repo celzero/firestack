@@ -32,8 +32,8 @@ var (
 )
 
 type answer struct {
-	a        *dns.Msg
-	tid, uid string
+	a             *dns.Msg
+	tid, fid, uid string
 }
 
 var _ ipmap.IPMapper = (*resolver)(nil)
@@ -101,19 +101,31 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 
 	var val4, val6 *core.V[answer, string]
 	if len(tids) > 0 { // always choose one among these tids
-		val4, _ = m.ba.Do(bakey4(host, tids...), m.lookupon(q4, uid, tids...))
-		val6, _ = m.ba.Do(bakey6(host, tids...), m.lookupon(q6, uid, tids...))
+		if q4 != nil {
+			val4, _ = m.ba.Do(bakey4(host, tids...), m.lookupon(q4, uid, tids...))
+		}
+		if q6 != nil {
+			val6, _ = m.ba.Do(bakey6(host, tids...), m.lookupon(q6, uid, tids...))
+		}
 	} else if uid != core.UNKNOWN_UID_STR { // client code chooses a tid depending on uid & "origin"
-		val4, _ = m.ba.Do(bakey4(host, uid), m.lookupfor(q4, uid))
-		val6, _ = m.ba.Do(bakey6(host, uid), m.lookupfor(q6, uid))
+		if q4 != nil {
+			val4, _ = m.ba.Do(bakey4(host, uid), m.lookupfor(q4, uid))
+		}
+		if q6 != nil {
+			val6, _ = m.ba.Do(bakey6(host, uid), m.lookupfor(q6, uid))
+		}
 	} else { // either Default or System/Goos
-		val4, _ = m.ba.Do(bakey4(host, Default), m.locallookup(q4))
-		val6, _ = m.ba.Do(bakey6(host, Default), m.locallookup(q6))
+		if q4 != nil {
+			val4, _ = m.ba.Do(bakey4(host, Default), m.locallookup(q4))
+		}
+		if q6 != nil {
+			val6, _ = m.ba.Do(bakey6(host, Default), m.locallookup(q6))
+		}
 	}
 
 	var noval4, noval6 bool
 	var r4, r6 *dns.Msg
-	var tid4, tid6 string
+	var tid4, tid6, fid4, fid6 string
 	var lerr4, lerr6 error
 	if val4 == nil {
 		noval4 = true
@@ -122,6 +134,7 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 		r4 = val4.Val.a     // may be nil
 		lerr4 = val4.Err    // may be nil
 		tid4 = val4.Val.tid // may be empty
+		fid4 = val4.Val.fid // may be empty
 	}
 	if val6 == nil {
 		noval6 = true
@@ -130,18 +143,23 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 		r6 = val6.Val.a     // may be nil
 		lerr6 = val6.Err    // may be nil
 		tid6 = val6.Val.tid // may be empty
+		fid6 = val6.Val.fid // may be empty
+	}
+	fid0 := fid4 // expect fid4 to be the same as fid6
+	if len(fid0) == 0 {
+		fid0 = fid6
 	}
 
 	if lerr4 != nil && lerr6 != nil { // all errors
 		errs := core.JoinErr(lerr4, lerr6)
-		log.E("ipmapper: lookup: %s: err %v", host, errs)
+		log.E4(fid0, "ipmapper: lookup: %s: err %v", host, errs)
 		return nil, errs
 	} else if noval4 && noval6 { // typecast failed or no answer
-		log.E("ipmapper: lookup: no answers for %s; len(4)? %d len(6)? %d", host, xdns.Len(r4), xdns.Len(r6))
+		log.E4(fid0, "ipmapper: lookup: no answers for %s; len(4)? %d len(6)? %d", host, xdns.Len(r4), xdns.Len(r6))
 		return nil, ErrNoAns
 	} else if r4 == nil && r6 == nil { // empty answer
 		errs := core.JoinErr(ErrNoAns, lerr4, lerr6)
-		log.E("ipmapper: lookup: no answers for %s (by: %s+%s), err %v", host, tid4, tid6, errs)
+		log.E4(fid0, "ipmapper: lookup: no answers for %s (by: %s+%s), err %v", host, tid4, tid6, errs)
 		return nil, errs
 	}
 
@@ -152,8 +170,8 @@ func (m *resolver) queryIP(_ context.Context, network, host, uid string, tids ..
 	ips := append(ip4, ip6...)
 
 	if log.Debug {
-		log.D("ipmapper: lookup: host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
-			host, ips, xdns.Len(r4), xdns.Len(r6), uid, tid4, tid6, lerr4, lerr6)
+		log.D4(fid0, "ipmapper: lookup: 4: %s / 6: %s host %s => ips (out: %v / in: %d+%d); uid: %s, tids: %s+%s; err4: %v, err6: %v",
+			fid4, fid6, host, ips, xdns.Len(r4), xdns.Len(r6), uid, tid4, tid6, lerr4, lerr6)
 	}
 
 	return ips, nil
@@ -185,15 +203,18 @@ func (m *resolver) queryAny(q *dns.Msg, uid string, tids ...string) (*dns.Msg, e
 		v, _ = m.ba.Do(bakey(qname, qtypestr, Default), m.locallookup(q))
 	}
 
+	var fid, tid string
 	var verr error
 	if v != nil {
 		verr = v.Err
+		fid = v.Val.fid
+		tid = v.Val.tid
 	}
 
 	// TODO: regiser domain names with ipmap.go for PTR / dns bypass queries
 	if v == nil || v.Val.a == nil || verr != nil {
-		log.W("ipmapper: query: noans? %t [err %v] for %s / typ %d; for: %s [on %v]",
-			v == nil, verr, qname, qtype, uid, tids)
+		log.W4(fid, "ipmapper: query: %s / chosen: %s noans? %t [err %v] for %s / typ %d; for: %s [on %v]",
+			fid, tid, v == nil, verr, qname, qtype, uid, tids)
 		return nil, core.OneErr(verr, ErrNoAns)
 	}
 
@@ -207,8 +228,8 @@ func (m *resolver) queryAny(q *dns.Msg, uid string, tids ...string) (*dns.Msg, e
 // code is free to choose a transport as it sees fit.
 func (m *resolver) lookupfor(q *dns.Msg, uid string) func() (answer, error) {
 	return func() (answer, error) {
-		a, tid, err := m.lookup(q, uid)
-		return answer{a, tid, uid}, err
+		a, tid, fid, err := m.lookup(q, uid)
+		return answer{a, tid, fid, uid}, err
 	}
 }
 
@@ -218,8 +239,8 @@ func (m *resolver) lookupfor(q *dns.Msg, uid string) func() (answer, error) {
 // uid may be protect.MyUid or unknown
 func (m *resolver) lookupon(q *dns.Msg, uid string, tids ...string) func() (answer, error) {
 	return func() (answer, error) {
-		a, tid, err := m.lookup(q, uid, tids...)
-		return answer{a, tid, uid}, err
+		a, tid, fid, err := m.lookup(q, uid, tids...)
+		return answer{a, tid, fid, uid}, err
 	}
 }
 
@@ -227,8 +248,8 @@ func (m *resolver) lookupon(q *dns.Msg, uid string, tids ...string) func() (answ
 // if dnsx.Default fails.
 func (m *resolver) locallookup(q *dns.Msg) func() (answer, error) {
 	return func() (answer, error) {
-		a, tid, err := m.lookup(q, protect.MyUid)
-		return answer{a, tid, protect.MyUid}, err
+		a, tid, fid, err := m.lookup(q, protect.MyUid)
+		return answer{a, tid, fid, protect.MyUid}, err
 	}
 }
 

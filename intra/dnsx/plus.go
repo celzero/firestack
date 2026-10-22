@@ -392,11 +392,12 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 	tries := plusMaxTries
 	visited := make(map[string]struct{}, len(all))
 	finalsmm := copySummary(outSmm)
+	fid := outSmm.FID
 
 	defer func() {
 		fillSummary(finalsmm, outSmm)
 		if finalans != nil { // suppress errors
-			log.D("plus: suppressing errors for %s:%d[%s]: %v", qname, qtyp, outSmm.RData, errs)
+			log.D4(fid, "plus: suppressing errors for %s:%d[%s]: %v", qname, qtyp, outSmm.RData, errs)
 			errs = nil
 		}
 	}()
@@ -432,8 +433,8 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 
 		finalsmm = cursmm // overwritten each iteration; on exit, reflects the last queried transport
 
-		loged(err != nil || failed)("plus: queried %s for %s:%d (fid: %s); data: %s [noans? %t], code: %d, err? %v",
-			idstr(tr), qname, qtyp, outSmm.FID, finalsmm.RData, noans, finalsmm.RCode, err)
+		loged4(fid, err != nil || failed)("plus: queried %s for %s:%d (fid: %s); data: %s [noans? %t], code: %d, err? %v",
+			idstr(tr), qname, qtyp, fid, finalsmm.RData, noans, finalsmm.RCode, err)
 
 		if err != nil || ans == nil {
 			errs = core.JoinErr(errs, core.OneErr(err, errNoAnswer))
@@ -470,7 +471,7 @@ func (t *plus) forward(network string, q *dns.Msg, outSmm *x.DNSSummary, all ...
 		return // current finalans
 	}
 
-	log.W("plus: [exp: %d / tried: %d]: all transports failed: %v", len(all), len(visited), errs)
+	log.W4(fid, "plus: [exp: %d / tried: %d]: all transports failed: %v", len(all), len(visited), errs)
 	return // finalans probably nil
 }
 
@@ -650,4 +651,11 @@ func loged(cond bool) log.LogFn {
 		return log.E
 	}
 	return log.D
+}
+
+func loged4(key string, cond bool) log.LogFn {
+	if cond {
+		return func(msg string, args ...any) { log.E4(key, msg, args...) }
+	}
+	return func(msg string, args ...any) { log.D4(key, msg, args...) }
 }

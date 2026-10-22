@@ -141,7 +141,7 @@ func (h *httpx) route(req *http.Request, ctx *tx.ProxyCtx) (*http.Request, *http
 	sid := h.id
 	pid := h.pid()
 	tab := h.listener.SvcRoute(sid, pid, "tcp", src, req.Host)
-	log.D("svchttp: route: tab(%v) id(%s) p(%s) src(%s) dst(%s)", tab, h.id, pid, src, req.Host)
+	log.D4(tab.CID, "svchttp: route: tab(%v) id(%s) p(%s) src(%s) dst(%s)", tab, h.id, pid, src, req.Host)
 	if tab.Block {
 		return req, tx.NewResponse(req, tx.ContentTypeText, http.StatusForbidden, "Forbidden")
 	}
@@ -180,7 +180,7 @@ func (h *httpx) routeConnect(host string, ctx *tx.ProxyCtx) (*tx.ConnectAction, 
 	sid := h.id
 	pid := h.pid()
 	tab := h.listener.SvcRoute(sid, pid, "tcp", src, host)
-	log.D("svchttp: routeConnect: tab(%v) id(%s) p(%s) src(%s) dst(%s)", tab, h.id, pid, src, dst)
+	log.D4(tab.CID, "svchttp: routeConnect: tab(%v) id(%s) p(%s) src(%s) dst(%s)", tab, h.id, pid, src, dst)
 	if tab.Block {
 		return tx.RejectConnect, host
 	}
@@ -192,10 +192,11 @@ func (h *httpx) routeConnect(host string, ctx *tx.ProxyCtx) (*tx.ConnectAction, 
 // from: https://github.com/elazarl/goproxy/blob/2592e75ae0/https.go#L126-L154
 func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyCtx) {
 	ssu, _ := ctx.UserData.(*ServerSummary)
+	cid := svcid(ssu)
 	host := req.Host
 	addr, port, err := net.SplitHostPort(req.Host)
 	if err != nil {
-		log.W("svchttp: hijackConnect: host(%s) not valid addr/port err %v", host, err)
+		log.W4(cid, "svchttp: hijackConnect: host(%s) not valid addr/port err %v", host, err)
 	} else if len(port) <= 0 {
 		host = net.JoinHostPort(addr, "80")
 	}
@@ -204,10 +205,10 @@ func (h *httpx) hijackConnect(req *http.Request, client net.Conn, ctx *tx.ProxyC
 		http502(client, err, ssu)
 		return
 	}
-	log.D("Accepting CONNECT to %s; cid: %s", host, ssu.CID)
+	log.D4(cid, "Accepting CONNECT to %s; cid: %s", host, cid)
 	n, err := client.Write([]byte("HTTP/1.0 200 Connection established\r\n\r\n"))
 	if err != nil {
-		log.W("svchttp: hijackConnect: failed client write (%d); err %v", n, err)
+		log.W4(cid, "svchttp: hijackConnect: failed client write (%d); err %v", n, err)
 		http502(client, err, ssu)
 		return
 	}
@@ -244,7 +245,7 @@ func http502(w io.WriteCloser, err1 error, ssu *ServerSummary) {
 	if ssu != nil {
 		ssu.done(err1, err2, err3)
 	}
-	log.D("svchttp: http502: done http-connect; errs? %v", core.JoinErr(err1, err2, err3))
+	log.D4(svcid(ssu), "svchttp: http502: done http-connect; errs? %v", core.JoinErr(err1, err2, err3))
 }
 
 func pipeconn(dst net.Conn, src net.Conn, ssu *ServerSummary, wg *sync.WaitGroup) {
@@ -253,12 +254,12 @@ func pipeconn(dst net.Conn, src net.Conn, ssu *ServerSummary, wg *sync.WaitGroup
 	defer ssu.done(err) // done handles nil ssu
 
 	_, err = core.Pipe(dst, src)
-	log.D("svchttp: pipeconn: done; err src(%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err)
+	log.D4(svcid(ssu), "svchttp: pipeconn: done; err src(%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err)
 }
 
 func pipetcp(dst, src *net.TCPConn, ssu *ServerSummary, wg *sync.WaitGroup) {
 	_, err1 := core.Pipe(dst, src)
-	log.D("svchttp: pipetcp: done; src (%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err1)
+	log.D4(svcid(ssu), "svchttp: pipetcp: done; src (%s) -> dst(%s); err? %v", src.RemoteAddr(), dst.RemoteAddr(), err1)
 	err2 := dst.CloseWrite()
 	err3 := src.CloseRead()
 	if ssu != nil {

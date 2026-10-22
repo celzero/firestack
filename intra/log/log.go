@@ -48,6 +48,8 @@ const (
 	nextframe = 1
 	// see: pkg.go.dev/log#Output
 	callerat = 2
+
+	nokey = 0
 )
 
 type Logmsg = string
@@ -197,7 +199,7 @@ func EE(msg string, args ...any) (err error) {
 
 // P logs a private message.
 func P(msg string, args ...any) {
-	Glogger.Piif(callerat, msg, args...)
+	Glogger.Piif(0, callerat, msg, args...)
 }
 
 // Wtf logs a fatal message.
@@ -227,7 +229,7 @@ func R(c bool, msg string, args ...any) {
 
 // U logs a user message (notifies the user).
 func U(msg string) {
-	Glogger.Usr(msg)
+	Glogger.Usr(nokey, msg)
 }
 
 // T logs the stack trace of the current goroutine.
@@ -248,27 +250,27 @@ func TALL(msg string, atleast64k []byte) {
 }
 
 func VV2(at int, msg string, args ...any) {
-	Glogger.VeryVerbosef(at+nextframe, msg, args...)
+	Glogger.VeryVerbosef(nokey, at+nextframe, msg, args...)
 }
 
 func V2(at int, msg string, args ...any) {
-	Glogger.Verbosef(at+nextframe, msg, args...)
+	Glogger.Verbosef(nokey, at+nextframe, msg, args...)
 }
 
 func D2(at int, msg string, args ...any) {
-	Glogger.Debugf(at+nextframe, msg, args...)
+	Glogger.Debugf(nokey, at+nextframe, msg, args...)
 }
 
 func I2(at int, msg string, args ...any) {
-	Glogger.Infof(at+nextframe, msg, args...)
+	Glogger.Infof(nokey, at+nextframe, msg, args...)
 }
 
 func W2(at int, msg string, args ...any) {
-	Glogger.Warnf(at+nextframe, msg, args...)
+	Glogger.Warnf(nokey, at+nextframe, msg, args...)
 }
 
 func E2(at int, msg string, args ...any) {
-	Glogger.Errorf(at+nextframe, msg, args...)
+	Glogger.Errorf(nokey, at+nextframe, msg, args...)
 }
 
 func Metrics() string {

@@ -1047,7 +1047,7 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (r *dns
 		smm.Msg = err.Error()
 	}
 	if settings.Debug {
-		log.V("doh: (p/px/via %s/%s/%s, can? %t / ech? %t / fid: %s); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, px: %s, dur: %s, err? %v",
+		log.V4(smm.FID, "doh: (p/px/via %s/%s/%s, can? %t / ech? %t / fid: %s); a:%d/sz:%d/pad:%d, q: %s:%d, data: %s, code: %d, px: %s, dur: %s, err? %v",
 			network, pid, rpid, canproxy, ech, smm.FID, xdns.Len(r), xdns.Size(r), xdns.EDNS0PadLen(r), smm.QName, smm.QType, smm.RData, smm.RCode, smm.PID, core.FmtPeriod(elapsed), err)
 	}
 	return r, err

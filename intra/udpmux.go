@@ -91,7 +91,7 @@ type muxer struct {
 
 // demuxconn writes to raddr and reads from the muxer
 type demuxconn struct {
-	cid string // connection id
+	cid string // connection id (same as sender's)
 
 	out   sender         // promiscuous sender (remuxer)
 	key   netip.AddrPort // promiscuous factor (same as raddr)
@@ -149,7 +149,7 @@ func (x *muxer) awaiters() {
 		select {
 		case c := <-x.dxconns:
 			if log.Debug {
-				log.D("udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
+				log.D4(x.cid, "udp: mux: %s awaiter: watching %s => %s", c.cid, c.laddr, c.raddr)
 			}
 			x.dxconnWG.Add(1) // accept
 			core.Gx("udpmux.vend.close", func() {
@@ -158,7 +158,7 @@ func (x *muxer) awaiters() {
 				x.dxconnWG.Done() // unaccept
 			})
 		case <-x.doneCh:
-			log.I("udp: mux: %s awaiter: done", x.cid)
+			log.I4(x.cid, "udp: mux: %s awaiter: done", x.cid)
 			return
 		}
 	}
@@ -168,7 +168,7 @@ func (x *muxer) awaiters() {
 // closes muxconn, and waits for demuxed conns to close.
 func (x *muxer) stop() {
 	if log.Debug {
-		log.D("udp: mux: %s stop", x.cid)
+		log.D4(x.cid, "udp: mux: %s stop", x.cid)
 	}
 
 	x.once.Do(func() {
@@ -178,7 +178,7 @@ func (x *muxer) stop() {
 
 		x.dxconnWG.Wait()          // until all demuxconn closed / errored out
 		core.Go("udpmux.cb", x.cb) // dissociate
-		logei(err)("udp: mux: %s stopped; stats: %s; onclose: %v", x.cid, x.stats, err)
+		logei4(x.cid, err)("udp: mux: %s stopped; stats: %s; onclose: %v", x.cid, x.stats, err)
 	})
 }
 
@@ -188,7 +188,7 @@ func (x *muxer) drain() {
 
 	defer clear(x.routes)
 	if log.Debug {
-		log.D("udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
+		log.D4(x.cid, "udp: mux: %s drain: closing %d demuxed conns", x.cid, len(x.routes))
 	}
 	for _, c := range x.routes {
 		clos(c) // will unroute as well
@@ -225,14 +225,14 @@ func (x *muxer) readers() {
 				// extend by preset (min) udp timeout
 				x.extend(time.Now().Add(time.Second * udptimeout))
 				if log.Debug {
-					log.D("udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
+					log.D4(x.cid, "udp: mux: %s read timeout(%d): %v", x.cid, timeouterrors, err)
 				}
 				recycle()
 				continue
 			}
 		}
 		if err != nil {
-			log.I("udp: mux: %s read done n(%d): %v", x.cid, n, err)
+			log.I4(x.cid, "udp: mux: %s read done n(%d): %v", x.cid, n, err)
 			recycle()
 			return
 		}
@@ -240,7 +240,7 @@ func (x *muxer) readers() {
 		timeouterrors = 0 // reset on successful reads
 
 		if who == nil || n == 0 {
-			log.W("udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
+			log.W4(x.cid, "udp: mux: %s read done n(%d): nil remote addr; skip", x.cid, n)
 			recycle()
 			continue
 		}
@@ -258,7 +258,7 @@ func (x *muxer) readers() {
 				err = errUdpIncomingDrop
 				recycle()
 			}
-			logev(err)("udp: mux: %s read: n(%d) from %v <= %v; dropped? %v",
+			logev4(x.cid, err)("udp: mux: %s read: n(%d) from %v <= %v; dropped? %v",
 				dst.cid, n, dst.laddr, who, err)
 		} else { // dst may be nil when x.doneCh is closed by muxer.stop().
 			recycle()
@@ -274,7 +274,7 @@ func (x *muxer) findRoute(to netip.AddrPort) *demuxconn {
 
 func (x *muxer) route(cid string, to netip.AddrPort, flo flowkind) *demuxconn {
 	if !to.IsValid() {
-		log.W("udp: mux: %s route: %s invalid addr %s", cid, flo, to)
+		log.W4(x.cid, "udp: mux: %s route: %s invalid addr %s", cid, flo, to)
 		return nil
 	}
 
@@ -294,7 +294,7 @@ func (x *muxer) route(cid string, to netip.AddrPort, flo flowkind) *demuxconn {
 		select {
 		case <-x.doneCh:
 			clos(conn)
-			log.W("udp: mux: %s route: %s for %s; muxer closed", conn.cid, flo, to)
+			log.W4(x.cid, "udp: mux: %s route: %s for %s; muxer closed", conn.cid, flo, to)
 			return nil
 		case x.dxconns <- conn:
 			n := x.stats.dxcount.Add(1)
@@ -307,11 +307,11 @@ func (x *muxer) route(cid string, to netip.AddrPort, flo flowkind) *demuxconn {
 				core.Go("udpmux.vend", func() { // a fork in the road
 					if verr := x.vnd(conn, to); verr != nil {
 						clos(conn)
-						log.E("udp: mux: %s route: %s vend failure %s; err %v", conn.cid, flo, to, verr)
+						log.E4(x.cid, "udp: mux: %s route: %s vend failure %s; err %v", conn.cid, flo, to, verr)
 					}
 				})
 			}
-			log.I("udp: mux: %s route: %s #%d new for %s; stats: %s",
+			log.I4(x.cid, "udp: mux: %s route: %s #%d new for %s; stats: %s",
 				conn.cid, flo, n, to, x.stats)
 		}
 	}
@@ -323,7 +323,7 @@ func (x *muxer) unroute(c *demuxconn) {
 	x.rmu.Lock()
 	defer x.rmu.Unlock()
 
-	log.I("udp: mux: %s unrouting... %s => %s", x.cid, c.laddr, c.raddr)
+	log.I4(x.cid, "udp: mux: %s unrouting... %s => %s", x.cid, c.laddr, c.raddr)
 	delete(x.routes, c.key)
 }
 
@@ -357,7 +357,7 @@ func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
 		cid = x.cid + ":" + cid
 	}
 	return &demuxconn{
-		cid:        cid,
+		cid:        cid,                            // same as out.id()
 		out:        x,                              // muxer
 		laddr:      x.mxconn.LocalAddr(),           // listen addr
 		raddr:      net.UDPAddrFromAddrPort(r),     // remote addr
@@ -376,22 +376,22 @@ func (x *muxer) newLocked(cid string, r netip.AddrPort) *demuxconn {
 func (c *demuxconn) Read(p []byte) (int, error) {
 	sz := len(p)
 	if c.readClosed.Load() {
-		return 0, log.EE("udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
-			c.out.id(), c.laddr, c.raddr, sz)
+		return 0, log.EE4(c.cid, "udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
+			c.cid, c.laddr, c.raddr, sz)
 	}
 
 	defer c.rt.Reset(c.rto)
 	select {
 	case <-c.rt.C:
 		// TODO: close demuxconn?
-		log.W("udp: mux: %s demux: read: %v <= %v; timeout (sz: %d)",
-			c.out.id(), c.laddr, c.raddr, sz)
+		log.W4(c.cid, "udp: mux: %s demux: read: %v <= %v; timeout (sz: %d)",
+			c.cid, c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
 		// demuxconn may already be closed
 		defer core.Close(c)
-		log.W("udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
-			c.out.id(), c.laddr, c.raddr, sz)
+		log.W4(c.cid, "udp: mux: %s demux: read: %v <= %v; closed (sz: %d)",
+			c.cid, c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
 	case sx := <-c.overflowCh:
 		return c.io(&p, sx)
@@ -405,27 +405,27 @@ func (c *demuxconn) Write(p []byte) (n int, err error) {
 	sz := len(p)
 
 	if c.writeClosed.Load() {
-		return 0, log.EE("udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
-			c.out.id(), c.laddr, c.raddr, sz)
+		return 0, log.EE4(c.cid, "udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
+			c.cid, c.laddr, c.raddr, sz)
 	}
 
 	defer c.wt.Reset(c.wto)
 	select {
 	case <-c.wt.C:
 		// TODO: close demuxconn?
-		log.W("udp: mux: %s demux: write: %v => %v; timeout (sz: %d)",
-			c.out.id(), c.laddr, c.raddr, sz)
+		log.W4(c.cid, "udp: mux: %s demux: write: %v => %v; timeout (sz: %d)",
+			c.cid, c.laddr, c.raddr, sz)
 		return 0, os.ErrDeadlineExceeded
 	case <-c.closed:
 		// demuxconn may already be closed
 		defer core.Close(c)
-		log.W("udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
-			c.out.id(), c.laddr, c.raddr, sz)
+		log.W4(c.cid, "udp: mux: %s demux: write: %v => %v; closed (sz: %d)",
+			c.cid, c.laddr, c.raddr, sz)
 		return 0, net.ErrClosed
 	default:
 		n, err = c.out.sendto(p, c.raddr)
-		logev(err)("udp: mux: %s demux: write: %v => %v; done(sz: %d/%d); err? %v",
-			c.out.id(), c.laddr, c.raddr, n, sz, err)
+		logev4(c.cid, err)("udp: mux: %s demux: write: %v => %v; done(sz: %d/%d); err? %v",
+			c.cid, c.laddr, c.raddr, n, sz, err)
 		return n, err
 	}
 }
@@ -452,7 +452,7 @@ func (c *demuxconn) CloseRead() (err error) {
 		if closeall {
 			err = c.Close() // both sides closed
 		}
-		logev(err)("udp: mux: %s demux: %s => %s close read (and conn? %t), err: %v",
+		logev4(c.cid, err)("udp: mux: %s demux: %s => %s close read (and conn? %t), err: %v",
 			c.cid, c.laddr, c.raddr, closeall, err)
 		return
 	}
@@ -466,7 +466,7 @@ func (c *demuxconn) CloseWrite() (err error) {
 		if closeall {
 			err = c.Close() // both sides closed
 		}
-		logev(err)("udp: mux: %s demux: %s => %s close write (and conn? %t), err: %v",
+		logev4(c.cid, err)("udp: mux: %s demux: %s => %s close write (and conn? %t), err: %v",
 			c.cid, c.laddr, c.raddr, closeall, err)
 		return err
 	}
@@ -476,8 +476,8 @@ func (c *demuxconn) CloseWrite() (err error) {
 // Close implements core.UDPConn.Close
 func (c *demuxconn) Close() error {
 	if log.Debug {
-		log.D("udp: mux: %s demux %s => %s close, inC: %d, overC: %d",
-			c.out.id(), c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
+		log.D4(c.cid, "udp: mux: %s demux %s => %s close, inC: %d, overC: %d",
+			c.cid, c.laddr, c.raddr, len(c.inCh), len(c.overflowCh))
 	}
 	c.once.Do(func() {
 		defer c.wt.Stop()
@@ -506,7 +506,7 @@ func (c *demuxconn) Close() error {
 			case sx := <-c.overflowCh:
 				sx.fin()
 			default:
-				log.I("udp: mux: %s demux from %s => %s closed", c.out.id(), c.laddr, c.raddr)
+				log.I4(c.cid, "udp: mux: %s demux from %s => %s closed", c.cid, c.laddr, c.raddr)
 				return
 			}
 		}
@@ -560,25 +560,25 @@ func (c *demuxconn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *demuxconn) io(out *[]byte, in *slice) (int, error) {
-	id := c.out.id()
+	id := c.out.id() // same as c.cid
 	// todo: handle the case where len(b) > len(p)
 	n := copy(*out, in.v)
 	q := len(in.v) - n
 	if q > 0 {
 		select {
 		case <-c.closed:
-			log.W("udp: mux: %s demux: read: %v <= %v drop(sz: %d)", id, c.laddr, c.raddr, q)
+			log.W4(id, "udp: mux: %s demux: read: %v <= %v drop(sz: %d)", id, c.laddr, c.raddr, q)
 			in.fin()
 		case c.overflowCh <- &slice{v: in.v[n:], fin: in.fin}:
-			log.W("udp: mux: %s demux: read: %v <= %v overflow(sz: %d)", id, c.laddr, c.raddr, q)
+			log.W4(id, "udp: mux: %s demux: read: %v <= %v overflow(sz: %d)", id, c.laddr, c.raddr, q)
 		default:
-			log.E("udp: mux: %s demux: read: %v <= %v dropped(sz: %d)", id, c.laddr, c.raddr, q)
+			log.E4(id, "udp: mux: %s demux: read: %v <= %v dropped(sz: %d)", id, c.laddr, c.raddr, q)
 			in.fin()
 			return n, io.ErrShortWrite
 		}
 	} else {
 		if log.Verbose {
-			log.VV("udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
+			log.VV4(id, "udp: mux: %s demux: read: %v <= %v done(sz: %d)", id, c.laddr, c.raddr, n)
 		}
 		in.fin()
 	}
@@ -656,26 +656,26 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 		if existing := pxm[src]; existing != nil {
 			mxr = existing
 			core.Close(pc) // lost the race; drop our pc
-			log.I("udp: mux: %s use existing assoc for %s %s via %s; fwd? %t",
+			log.I4(cid, "udp: mux: %s use existing assoc for %s %s via %s; fwd? %t",
 				cid, pid, src, anyaddrport, portfwd)
 		} else {
 			mxr = newMuxer(cid, pid, uid, pc, v, func() {
 				e.dissociate(cid, pid, src)
 			})
 			pxm[src] = mxr
-			log.I("udp: mux: %s new assoc for %s %s via %s; fwd? %t",
+			log.I4(cid, "udp: mux: %s new assoc for %s %s via %s; fwd? %t",
 				cid, pid, src, anyaddrport, portfwd)
 		}
 	}
 
 	if mxr.pid != pid {
 		e.Unlock()
-		return nil, log.EE("udp: mux: %s assoc proxy mismatch: %s != %s or %s != %s",
+		return nil, log.EE4(cid, "udp: mux: %s assoc proxy mismatch: %s != %s or %s != %s",
 			cid, mxr.pid, pid, mxr.uid, uid)
 	} else if mxr.uid != uid &&
 		(uid != UNKNOWN_UID_STR || mxr.uid != UNKNOWN_UID_STR) {
 		e.Unlock()
-		return nil, log.EE("udp: mux: %s assoc uid mismatch: %s != %s or %s != %s",
+		return nil, log.EE4(cid, "udp: mux: %s assoc uid mismatch: %s != %s or %s != %s",
 			cid, mxr.pid, pid, mxr.uid, uid)
 	}
 
@@ -683,13 +683,13 @@ func (e *muxTable) associate(cid, pid, uid string, src, dst netip.AddrPort, mk a
 	// do not hold e.lock on calls into mxr
 	c := mxr.route(cid, dst, egress)
 	if c == nil {
-		return nil, log.EE("udp: mux: %s vend: no conn for %s", cid, dst)
+		return nil, log.EE4(cid, "udp: mux: %s vend: no conn for %s", cid, dst)
 	}
 	return c, nil
 }
 
 func (e *muxTable) dissociate(cid, pid string, src netip.AddrPort) {
-	log.I("udp: mux: %s (%s) dissoc for %s", cid, pid, src)
+	log.I4(cid, "udp: mux: %s (%s) dissoc for %s", cid, pid, src)
 
 	e.Lock()
 	defer e.Unlock()

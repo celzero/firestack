@@ -437,7 +437,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		})
 
 		if cc == nil { // may be nil for example when barrier times outs
-			log.E("cache: barrier: %s; nil return for %s; err? %v", idstr(t), key, err)
+			log.E4(smm2.FID, "cache: barrier: %s; nil return for %s; err? %v", idstr(t), key, err)
 			cc = ccx
 		}
 
@@ -451,7 +451,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		inhangover := t.hangover.Exceeds(httl)
 
 		// expect fresh values, except on verrs
-		logwif(cachehit && !fresh || err != nil)("cache: barrier: (k: %s) hit? %t / hitans? %t / stale? %t / sent? %t / hangover? %t, barrier: %s (cache: %s); qerr? %v",
+		logwif4(smm2.FID, cachehit && !fresh || err != nil)("cache: barrier: (k: %s) hit? %t / hitans? %t / stale? %t / sent? %t / hangover? %t, barrier: %s (cache: %s); qerr? %v",
 			key, cachehit, cachedans, !fresh, reqsent, inhangover, cc, cachedres, err)
 
 		if !cachehit || !cachedans { // cc.Val may be uncacheable (ex: rcode != 0)
@@ -460,7 +460,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 
 		if inhangover {
 			err = core.JoinErr(err, errHangover)
-			log.W("cache: barrier: hangover(k: %s); sent? %t, discard ans (has? %t)",
+			log.W4(smm2.FID, "cache: barrier: hangover(k: %s); sent? %t, discard ans (has? %t)",
 				key, reqsent, cachedans)
 			fillSummary(cachedres.s, smm2)
 			// mimic send fail
@@ -502,13 +502,13 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 		var cachedsmm *x.DNSSummary
 		hasans := v.ans != nil
 
-		log.D("cache: hit(k: %s / stale? %t / ans? %t): %s", key, !isfresh, hasans, v)
+		log.D4(smmout.FID, "cache: hit(k: %s / stale? %t / ans? %t): %s", key, !isfresh, hasans, v)
 		r, cachedsmm, err := asResponse(q, v, isfresh) // return cached response, may be stale
 		if err != nil {
 			nilOrMismatch := errors.Is(err, errNilCacheResponse) ||
 				errors.Is(err, errCacheResponseMismatch)
 
-			logeif(nilOrMismatch)("cache: hit(k: %s) %s, but err? %v", key, v, err)
+			logeif4(smmout.FID, nilOrMismatch)("cache: hit(k: %s) %s, but err? %v", key, v, err)
 
 			if nilOrMismatch {
 				// FIXME: this is a hack to fix an issue where the cache
@@ -532,7 +532,7 @@ func (t *ctransport) fetch(network string, q *dns.Msg, smmout *x.DNSSummary, cb 
 			return r, nil
 		} // else: fallthrough to sendRequest
 	} else {
-		log.D("cache: miss(k: %s): cached? %t, hangover? %t, stale? %t",
+		log.D4(smmout.FID, "cache: miss(k: %s): cached? %t, hangover? %t, stale? %t",
 			key, v != nil, !trok, !isfresh)
 	}
 

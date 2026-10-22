@@ -82,7 +82,7 @@ func NewTransportFromHostname(ctx context.Context, id, hostOrHostport string, ip
 	if err == nil && t != nil {
 		t.origaddr = hostOrHostport
 		if len(ipcsv) > 0 {
-			t.origaddr = hostOrHostport + "," + ipcsv
+			t.origaddr = ipcsv
 		}
 	}
 	return
@@ -324,11 +324,12 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 		ans = xdns.Servfail(q)
 	}
 
+	fid := smm.FID
 	status := dnsx.Complete
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: (%s) err(%v) / size(%d)", t.id, err, xdns.Len(ans))
+		log.W4(fid, "dns53: (%s) err(%v) / size(%d)", t.id, err, xdns.Len(ans))
 	}
 	// may store dnsx.Paused which is NOT a reflection of
 	// the correct state of this transport
@@ -348,8 +349,8 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 	t.est.Add(smm.Latency)
 
 	if log.Debug {
-		log.V("dns53: (%s) fid: %s; len(res): %d, data: %s, via: %s, err? %v",
-			t.id, smm.FID, xdns.Len(ans), smm.RData, smm.PID, err)
+		log.V4(fid, "dns53: (%s) fid: %s; len(res): %d, data: %s, via: %s, err? %v",
+			t.id, fid, xdns.Len(ans), smm.RData, smm.PID, err)
 	}
 
 	return ans, err

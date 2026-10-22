@@ -213,7 +213,7 @@ func (r *resolver) fetchRank(fid string, qname string) (int32, int32, []string) 
 	}
 
 	if log.Verbose {
-		log.V("rank: %s: %s => %d/%d", fid, qname, rr.Rank, rr.RankBig)
+		log.V4(fid, "rank: %s: %s => %d/%d", fid, qname, rr.Rank, rr.RankBig)
 	}
 	return rr.Rank, rr.RankBig, nil
 }

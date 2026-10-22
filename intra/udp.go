@@ -106,18 +106,18 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	smm := udpSummary(cid, uid, to.Addr(), from.Addr())
 
 	if log.Verbose {
-		log.V("udp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
+		log.V4(cid, "udp: %s [%s]: reverse: %s => %s; pids: %v", cid, uid, from, to, pids)
 	}
 
 	if isAnyBlockPid(pids) {
-		log.I("udp: %s [%s]: reverse: block %s => %s", cid, uid, from, to)
+		log.I4(cid, "udp: %s [%s]: reverse: block %s => %s", cid, uid, from, to)
 		clos(gconn, in) // blocked
 		h.queueSummary(smm.done(errUdpInFirewalled))
 		return true // ok
 	} // else: pid should only be ipn.Ingress
 
 	if err := gconn.Establish(); err != nil { // gconn.Establish() failed
-		err = log.EE("udp: %s [%s]: reverse: %s gconn.Est, err %s => %s: %v", cid, uid, to, from, err)
+		err = log.EE4(cid, "udp: %s [%s]: reverse: %s gconn.Est, err %s => %s: %v", cid, uid, to, from, err)
 		clos(gconn, in) // teardown
 		h.queueSummary(smm.done(err))
 		return false // not ok
@@ -158,7 +158,7 @@ func (h *udpHandler) Error(gconn *netstack.GUDPConn, src, target netip.AddrPort,
 		core.Go("udp.stall."+fid, func() {
 			defer h.queueSummary(smm.done(err))
 			secs := h.stall(fid)
-			log.I("udp: error: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
+			log.I4(cid, "udp: error: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
 				cid, uid, src, target, domains, realips, uid, secs)
 		})
 		clos(gconn) // close immediately while stall delays queuing summary
@@ -238,12 +238,12 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	smm = udpSummary(cid, uid, src.Addr(), actualTargets[0].Addr())
 
 	if h.status.Load() == HDLEND {
-		err = log.EE("udp: connect: %s [%s] %v => %v, end", cid, uid, src, target)
+		err = log.EE4(cid, "udp: connect: %s [%s] %v => %v, end", cid, uid, src, target)
 		return nil, smm, err // disconnect, no nat
 	}
 
 	if !target.IsValid() { // must call h.Bind?
-		log.E("udp: connect: %s [%s] %s => %s; invalid dst", cid, uid, src, target)
+		log.E4(cid, "udp: connect: %s [%s] %s => %s; invalid dst", cid, uid, src, target)
 		return nil, smm, errUdpUnconnected
 	}
 
@@ -258,7 +258,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			defer clos(gconn)
 			defer h.queueSummary(smm.done(err))
 			secs := h.stall(fid)
-			log.I("udp: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
+			log.I4(cid, "udp: %s [%s] firewalled from %s => %s (dom: %s / real: %s) for %s; stall? %ds",
 				cid, uid, src, target, domains, realips, uid, secs)
 		})
 		return nil, smm, nil // disconnect override, no dst
@@ -266,7 +266,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 	// connect gconn right away, since we assume a duplex-stream from here on
 	if err = gconn.Establish(); err != nil {
-		log.W("udp: connect: %s [%s] gconn.Est, mux? %t, %s => %s err: %v",
+		log.W4(cid, "udp: connect: %s [%s] gconn.Est, mux? %t, %s => %s err: %v",
 			cid, uid, mux, src, target, err)
 		return nil, smm, err // disconnect
 	}
@@ -306,7 +306,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	if mux {
 		if muxpid := h.mux.pid(src); len(muxpid) > 0 && containsPid(pids, muxpid) {
 			if log.Debug {
-				log.D("udp: connect: %s [%s] mux: %s => %s using muxed-pid %s; all pids %s",
+				log.D4(cid, "udp: connect: %s [%s] mux: %s => %s using muxed-pid %s; all pids %s",
 					cid, uid, src, target, muxpid, pids)
 			}
 			pids = []string{muxpid}
@@ -314,7 +314,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 
 	if log.Verbose {
-		log.V("udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t / excluded? %v",
+		log.V4(cid, "udp: connect: %s [%s] proxying %s => %s [%v]; pids: %s, mux? %t / fwd? %t / localnat64? %t / excluded? %v",
 			cid, uid, src, target, actualTargets, pids, mux, canportfwd, targetIsLocalNat64, excluded)
 	}
 
@@ -326,7 +326,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 
 		// TODO: wait to break circular route after going through all actualTargets?
 		if errors.Is(err, ipn.ErrCircularRoute) {
-			log.I("udp: dial: loop: break1 #%d: %s circular route; dst(%s) for %s; exiting...", i, cid, dstipp, uid)
+			log.I4(cid, "udp: dial: loop: break1 #%d: %s circular route; dst(%s) for %s; exiting...", i, cid, dstipp, uid)
 			// do not invoke ProxyTo (as it also pins dst to ipn.Exit)
 			// we only want to break "circular loop" just this one time.
 			px, err = h.prox.ProxyFor(ipn.Exit)
@@ -335,7 +335,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		selectedTarget = dstipp
 
 		if err != nil || px == nil {
-			log.W("udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, pxid, err)
+			log.W4(cid, "udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, pxid, err)
 			errs = err // disconnect if loop terminates
 			continue
 		}
@@ -345,14 +345,14 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		smm.Target = selectedTarget.Addr().String() // may be invalid
 
 		if h.loopDetected(smm) {
-			log.I("udp: dial: loop: break2 #%d %s: %s => %v via %s for %s; exiting...", i, cid, src, selectedTarget, smm.PID, uid)
+			log.I4(cid, "udp: dial: loop: break2 #%d %s: %s => %v via %s for %s; exiting...", i, cid, src, selectedTarget, smm.PID, uid)
 			px, err = h.prox.ProxyTo(cid+"/loop", dstipp, "udp", uid, onlyExitPid)
 			smm.PID = ipn.Exit // last chosen proxy may yet emayrror out
 			smm.RPID = ""
 		}
 
 		if px == nil || err != nil { // unlikely
-			log.E("udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, smm.PID, err)
+			log.E4(cid, "udp: connect: #%d: %s [%s] failed to get proxy from %s: %v", i, cid, uid, smm.PID, err)
 			errs = err
 			continue
 		}
@@ -364,7 +364,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 			pc, err = h.mux.associate(cid, pxid, uid, src, selectedTarget, px.Dialer().Announce, vendor(dmx), canportfwd)
 		} else {
 			if log.Verbose {
-				log.VV("udp: connect: #%d: attempt: %s [%s] proxy(%s) to dst(%s); mux? %t / fwd? %t",
+				log.VV4(cid, "udp: connect: #%d: attempt: %s [%s] proxy(%s) to dst(%s); mux? %t / fwd? %t",
 					i, cid, uid, pxid, selectedTarget, mux, canportfwd)
 			}
 
@@ -383,7 +383,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		errs = err // store just the last err; complicates logging
 		end := time.Since(smm.start)
 		smm.Rtt = time.Since(rttstart).Milliseconds()
-		log.W("udp: connect: #%d: %s [%s] failed; mux? %t / fwd? %t, addr(%s) / fallback? %t; (rtt:%dms, dur:%s) w err(%v)",
+		log.W4(cid, "udp: connect: #%d: %s [%s] failed; mux? %t / fwd? %t, addr(%s) / fallback? %t; (rtt:%dms, dur:%s) w err(%v)",
 			i, cid, uid, mux, canportfwd, dstipp, fallingback, smm.Rtt, core.FmtPeriod(end), err)
 		if end > retryTimeout {
 			break
@@ -391,7 +391,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	}
 
 	if !selectedTarget.IsValid() {
-		log.E("udp: connect: %s [%s] no target addr for %s from %v",
+		log.E4(cid, "udp: connect: %s [%s] no target addr for %s from %v",
 			cid, uid, target, actualTargets)
 		return nil, smm, errUdpNoTarget
 	}
@@ -403,7 +403,7 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 	if errs != nil {
 		return nil, smm, errs // disconnect
 	} else if px == nil || pc == nil || core.IsNil(pc) {
-		log.W("udp: connect: %s [%s] no proxy/egress-conn (mux? %t / fwd? %t) for addr(%s/%s)",
+		log.W4(cid, "udp: connect: %s [%s] no proxy/egress-conn (mux? %t / fwd? %t) for addr(%s/%s)",
 			cid, uid, mux, canportfwd, target, selectedTarget)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
@@ -418,12 +418,12 @@ func (h *udpHandler) Connect(gconn *netstack.GUDPConn, src, target netip.AddrPor
 		laddr = x.LocalAddr()
 	default:
 		clos(pc)
-		log.E("udp: connect: %s [%s] proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t",
-			cid, uid, pxid, target, selectedTarget, mux, canportfwd, uid)
+		log.E4(cid, "udp: connect: %s [%s] proxy(%s) does not impl core.UDPConn(%s/%s); mux? %t",
+			cid, uid, pxid, target, selectedTarget, mux, canportfwd)
 		return nil, smm, errUdpSetupConn // disconnect
 	}
 
-	log.I("udp: connect: %s [%s] (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t / fwd? %t",
+	log.I4(cid, "udp: connect: %s [%s] (proxy? %s@%s) %v => %s/%s; fallback? %t / mux? %t / fwd? %t",
 		cid, uid, pxid, px.GetAddr(), laddr, target, selectedTarget, fallingback, mux, canportfwd)
 
 	return pc, smm, nil // connect

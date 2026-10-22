@@ -113,8 +113,9 @@ type wgtun struct {
 	stack         *stack.Stack      // stack fakes tun device for wg
 	ep            *channel.Endpoint // reads and writes packets to/from stack
 	ingress       chan *buffer.View // pipes ep writes to wg
+	ingressMu     sync.Mutex        // serializes ingress sends with shutdown
 	events        chan tun.Event    // wg specific tun (interface) events
-	finalize      chan struct{}     // close signal for incomingPacket
+	finalize      chan struct{}     // close signal for incoming packets
 	once          sync.Once         // closer fn; exec exactly once
 	preferOffload bool              // UDP GRO/GSO offloads
 	since         atomic.Int64      // start time in unix millis
@@ -1188,25 +1189,30 @@ func (tun *wgtun) WriteNotify() {
 
 	sz := view.Size()
 
+	tun.ingressMu.Lock()
 	select {
 	case <-tun.finalize: // dave.cheney.net/2013/04/30/curious-channels
+		tun.ingressMu.Unlock()
+
 		view.Release()
 		log.I("wg: %s tun: write: finalize; dropped pkt; sz(%d)",
 			tun.tag(), sz)
+		return
 	default:
-		select {
-		case <-tun.finalize:
-			view.Release()
-		case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
-			if settings.Debug {
-				log.VV("wg: %s tun: write: notify sz(%d)",
-					tun.tag(), sz)
-			}
-		default: // ingress is full and finalize is blocked
-			view.Release()
-			log.W("wg: %s tun: write: closed? %s; dropped pkt; sz(%d)",
-				tun.tag(), pxstatus(tun.status.Load()), sz)
+	}
+
+	select {
+	case tun.ingress <- view: // closed chans panic on send: groups.google.com/g/golang-nuts/c/SDIBFSkDlK4
+		tun.ingressMu.Unlock()
+		if settings.Debug {
+			log.VV("wg: %s tun: write: notify sz(%d)",
+				tun.tag(), sz)
 		}
+	default: // ingress is full and finalize is blocked
+		tun.ingressMu.Unlock()
+		view.Release()
+		log.W("wg: %s tun: write: closed? %s; dropped pkt; sz(%d)",
+			tun.tag(), pxstatus(tun.status.Load()), sz)
 	}
 }
 
@@ -1228,12 +1234,16 @@ func (tun *wgtun) Close() error {
 		log.D("wg: %s tun: (prev status: %s) closing...", tun.tag(), pxstatus(prev))
 
 		tun.done() // unblock inject and dialers
+		tun.ingressMu.Lock()
+		close(tun.finalize)
+		tun.ingressMu.Unlock()
 
 		tun.stack.RemoveNIC(wgnic)
 		// if tun.events != nil {
 		// panics; is it closed by device.Device.Close()?
 		// close(tun.events) }
-		// drain any views remaining in ingress to release gvisor chunks
+		// Drain queued views and close ingress while excluding WriteNotify sends.
+		tun.ingressMu.Lock()
 		n := 0
 	drain:
 		for {
@@ -1246,6 +1256,7 @@ func (tun *wgtun) Close() error {
 			}
 		}
 		close(tun.ingress)
+		tun.ingressMu.Unlock()
 
 		tun.via.Store(nil) // via is nil
 		tun.viaUp.Store(false)

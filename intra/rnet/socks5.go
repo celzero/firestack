@@ -318,11 +318,11 @@ func (h *socks5) tcphandle(s *tx.Server, ingress *net.TCPConn, r *tx.Request) (e
 			}
 		}()
 
-		log.D("svcsocks5: proxy-tcp: %s; socks5-connect %s", cid, r.Address())
+		log.D4(cid, "svcsocks5: proxy-tcp: %s; socks5-connect %s", cid, r.Address())
 
 		if err != nil {
 			h.status.Store(SKO)
-			log.E("svcsocks5: proxy-tcp: %s; connect %s; err: %v", cid, r.Address(), err)
+			log.E4(cid, "svcsocks5: proxy-tcp: %s; connect %s; err: %v", cid, r.Address(), err)
 			return err
 		}
 		// c is closed by the caller
@@ -396,7 +396,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 			if ssu != nil {
 				ssu.Tx += int64(n)
 			}
-			log.D("svcsocks5: udp: %s; data sent; (err: %v / summary? %t)? client: %s server: %s remote: %s sz: %d", cid, werr, ssu != nil, uecaddr, ueladdr, ueraddr, n)
+			log.D4(cid, "svcsocks5: udp: %s; data sent; (err: %v / summary? %t)? client: %s server: %s remote: %s sz: %d", cid, werr, ssu != nil, uecaddr, ueladdr, ueraddr, n)
 			if werr != nil {
 				return werr
 			}
@@ -422,7 +422,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		}
 	}()
 
-	log.D("svcsocks5: udp: %s; dst %s", cid, dst)
+	log.D4(svcid(ssu), "svcsocks5: udp: %s; dst %s", cid, dst)
 	cid, uc, err := h.dial("udp", src, dst)
 	if err != nil {
 		return err
@@ -440,9 +440,9 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 
 	h.setSummary(egress, ssu)
 
-	log.D("svcsocks5: udp: %s; remote conn for client: %s server: %s remote: %s", cid, addr, egress.RemoteConn.LocalAddr(), pkt.Address())
+	log.D4(cid, "svcsocks5: udp: %s; remote conn for client: %s server: %s remote: %s", cid, addr, egress.RemoteConn.LocalAddr(), pkt.Address())
 	if err := send(egress, pkt.Data); err != nil {
-		log.E("svcsocks5: udp: %s; send pkt %d to remote: %s; err %v", cid, len(pkt.Data), egress.RemoteConn.RemoteAddr(), err)
+		log.E4(cid, "svcsocks5: udp: %s; send pkt %d to remote: %s; err %v", cid, len(pkt.Data), egress.RemoteConn.RemoteAddr(), err)
 
 		h.delSummary(egress)
 
@@ -471,7 +471,7 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 		for {
 			select {
 			case _, ok = <-ch:
-				log.D("svcsocks5: udp: %s; tcp to udp addr %s associated closed; ch ok? %t", cid, uecaddr, ok)
+				log.D4(cid, "svcsocks5: udp: %s; tcp to udp addr %s associated closed; ch ok? %t", cid, uecaddr, ok)
 				return
 			default:
 				if err := h.setDeadline(ue.RemoteConn, s.UDPTimeout); err != nil {
@@ -480,23 +480,23 @@ func (h *socks5) udphandle(s *tx.Server, addr *net.UDPAddr, pkt *tx.Datagram) (e
 				// reading from egress
 				n, err := ue.RemoteConn.Read(b[:])
 				if err != nil {
-					log.E("svcsocks5: udp: %s; read err: %v", cid, err)
+					log.E4(cid, "svcsocks5: udp: %s; read err: %v", cid, err)
 					return
 				}
 				ssu.Rx += int64(n)
-				log.D("svcsocks5: udp: %s; got data; client: %s server: %s remote: %s data: %d", cid, uecaddr, ueladdr, ueraddr, n)
+				log.D4(cid, "svcsocks5: udp: %s; got data; client: %s server: %s remote: %s data: %d", cid, uecaddr, ueladdr, ueraddr, n)
 				a, addr, port, err := tx.ParseAddress(dst)
 				if err != nil {
-					log.E("svcsocks5: udp: %s; parse-addr err? %v", cid, err)
+					log.E4(cid, "svcsocks5: udp: %s; parse-addr err? %v", cid, err)
 					return
 				}
 				d1 := tx.NewDatagram(a, addr, port, b[:n])
 				// writing to ingress
 				if _, err := s.UDPConn.WriteToUDP(d1.Bytes(), ue.ClientAddr); err != nil {
-					log.E("svcsocks5: udp: %s; write err: %v", cid, err)
+					log.E4(cid, "svcsocks5: udp: %s; write err: %v", cid, err)
 					return
 				}
-				log.V("svcsocks5: udp: %s; data sent; client: %s server: %s remote: %s data: %#v %#v %#v %#v %#v %#d datagram address: %s", cid, uecaddr, ueladdr, ueraddr, d1.Rsv, d1.Frag, d1.Atyp, d1.DstAddr, d1.DstPort, len(d1.Data), d1.Address())
+				log.V4(cid, "svcsocks5: udp: %s; data sent; client: %s server: %s remote: %s data: %#v %#v %#v %#v %#v %#d datagram address: %s", cid, uecaddr, ueladdr, ueraddr, d1.Rsv, d1.Frag, d1.Atyp, d1.DstAddr, d1.DstPort, len(d1.Data), d1.Address())
 			}
 		}
 	}(egress, dst)
@@ -507,7 +507,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	log.D("svcsocks5: tcp: %s; dial", h.ID(), r.Address())
 	raddr := w.RemoteAddr()
 	if raddr == nil {
-		log.W("svcsocks5: tcp: %s; err no remote addr", h.ID())
+		log.W4("svcsocks5: tcp: %s; err no remote addr", h.ID())
 		h.status.Store(SKO)
 		err = errNoAddr
 		return
@@ -518,7 +518,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	if err != nil {
 		h.status.Store(SKO)
 
-		log.W("svcsocks5: tcp: %s; dial remote %s; err: %v", cid, r.Address(), err)
+		log.W4(cid, "svcsocks5: tcp: %s; dial remote %s; err: %v", cid, r.Address(), err)
 		var p *tx.Reply
 		if r.Atyp == tx.ATYPIPv4 || r.Atyp == tx.ATYPDomain {
 			p = tx.NewReply(tx.RepHostUnreachable, tx.ATYPIPv4, []byte{0x00, 0x00, 0x00, 0x00}, []byte{0x00, 0x00})
@@ -526,7 +526,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 			p = tx.NewReply(tx.RepHostUnreachable, tx.ATYPIPv6, []byte(net.IPv6zero), []byte{0x00, 0x00})
 		}
 		if _, err = p.WriteTo(w); err != nil {
-			log.E("svcsocks5: tcp: %s; write-to remote %s; err: %v", cid, r.Address(), err)
+			log.E4(cid, "svcsocks5: tcp: %s; write-to remote %s; err: %v", cid, r.Address(), err)
 			return
 		}
 		return
@@ -541,7 +541,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 	}
 	laddr := rc.LocalAddr()
 	if laddr == nil {
-		log.W("svcsocks5: tcp: %s; err no local addr", cid, laddr)
+		log.W4(cid, "svcsocks5: tcp: %s; err no local addr", cid, laddr)
 		h.status.Store(SKO)
 		err = errNoAddr
 		return
@@ -549,7 +549,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 
 	a, addr, port, perr := tx.ParseAddress(laddr.String())
 	if perr != nil {
-		log.W("svcsocks5: tcp: %s; parse-addr err? %v", cid, err)
+		log.W4(cid, "svcsocks5: tcp: %s; parse-addr err? %v", cid, err)
 		var p *tx.Reply
 		if r.Atyp == tx.ATYPIPv4 || r.Atyp == tx.ATYPDomain {
 			p = tx.NewReply(tx.RepHostUnreachable, tx.ATYPIPv4, []byte{0x00, 0x00, 0x00, 0x00}, []byte{0x00, 0x00})
@@ -557,7 +557,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 			p = tx.NewReply(tx.RepHostUnreachable, tx.ATYPIPv6, []byte(net.IPv6zero), []byte{0x00, 0x00})
 		}
 		if _, err = p.WriteTo(w); err != nil {
-			log.E("svcsocks5: tcp: %s; write-to remote %s; err: %v", cid, r.Address(), err)
+			log.E4(cid, "svcsocks5: tcp: %s; write-to remote %s; err: %v", cid, r.Address(), err)
 			return
 		}
 		err = perr
@@ -566,7 +566,7 @@ func (h *socks5) Connect(r *tx.Request, w *net.TCPConn) (cid string, rc *net.TCP
 
 	p := tx.NewReply(tx.RepSuccess, a, addr, port)
 	if _, err = p.WriteTo(w); err != nil {
-		log.E("svcsocks5: tcp: %s; write-to remote %s; err: %v", cid, r.Address(), err)
+		log.E4(cid, "svcsocks5: tcp: %s; write-to remote %s; err: %v", cid, r.Address(), err)
 		return
 	}
 	return

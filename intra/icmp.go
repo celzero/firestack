@@ -94,7 +94,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	}()
 
 	if h.status.Load() == HDLEND {
-		err = log.EE("t.icmp: handler ended (%s => %s)", source, target)
+		err = log.EE4(cid, "t.icmp: handler ended (%s => %s)", source, target)
 		return false // not handled
 	}
 
@@ -105,7 +105,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 		} else {
 			err = errIcmpFirewalled
 		}
-		log.I("t.icmp: egress: firewalled %s => %s", source, target)
+		log.I4(cid, "t.icmp: egress: firewalled %s => %s", source, target)
 		// sleep for a while to avoid busy conns? will also block netstack
 		// see: netstack/dispatcher.go:newReadvDispatcher
 		// time.Sleep(blocktime)
@@ -114,12 +114,12 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 
 	// delay flooders; this fn is async, so stalling doesn't block dispatchers
 	if secs := h.maybeStall(source); secs > 0 {
-		log.I("t.icmp: flood: stalled %s => %s for %ds", source, target, secs)
+		log.I4(cid, "t.icmp: flood: stalled %s => %s for %ds", source, target, secs)
 		time.Sleep(time.Duration(secs) * time.Second)
 	}
 
 	if px, err = h.prox.ProxyTo(cid, dst, "icmp", uid, pids); err != nil || px == nil {
-		err = log.EE("t.icmp: egress: no proxy(%s); err %v", pids, err)
+		err = log.EE4(cid, "t.icmp: egress: no proxy(%s); err %v", pids, err)
 		return false // denied
 	}
 
@@ -128,7 +128,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	smm.Target = dst.Addr().String()
 
 	if h.loopDetected(smm) {
-		log.I("t.icmp: loop: break %s: %s => %s via %s for %s; exiting...", cid, source, dst, pidstr(px), uid)
+		log.I4(cid, "t.icmp: loop: break %s: %s => %s via %s for %s; exiting...", cid, source, dst, pidstr(px), uid)
 		px, err = h.prox.ProxyTo(cid, dst, "icmp", uid, onlyExitPid)
 		smm.PID = ipn.Exit
 		smm.RPID = ""
@@ -151,7 +151,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	// nilaway: tx.socks5 returns nil conn even if err == nil
 	if err != nil || ucnil {
 		err = core.OneErr(err, unix.ENETUNREACH)
-		err = log.EE("t.icmp: egress: dial(%s); hasConn? %s(%t); err %v",
+		err = log.EE4(cid, "t.icmp: egress: dial(%s); hasConn? %s(%t); err %v",
 			dst, pids, !ucnil, err)
 		return false // unhandled
 	}
@@ -169,7 +169,7 @@ func (h *icmpHandler) Ping(msg []byte, source, target netip.AddrPort) (echoed bo
 	rx = len(reply)
 	rtt = time.Since(rttstart)
 	// todo: ignore non-ICMP replies in b: github.com/prometheus-community/pro-bing/blob/0bacb2d5e7/ping.go#L630
-	logev(err)("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); postflow? %t; err? %v",
+	logev4(cid, err)("t.icmp: ingress: read(%v <= %v / %v) ping done (send: %d, recv: %d, rtt: %s); postflow? %t; err? %v",
 		source, from, dst, tx, rx, core.FmtPeriod(rtt), awaited, err)
 
 	// TODO: on timeout errs, return false?

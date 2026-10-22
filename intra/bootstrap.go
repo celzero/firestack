@@ -276,11 +276,12 @@ func (b *bootstrap) Query(network string, q *dns.Msg, smm *x.DNSSummary) (*dns.M
 	smm.ID = dnsx.Default
 	smm.Type = b.typ
 	smm.UID = protect.MyUid
+	fid := smm.FID
 
 	tr := b.get()
 	if tr != nil {
 		if settings.Debug {
-			log.V("dns: default: %s query? %t", network, q != nil)
+			log.V4(fid, "dns: default: %s fid: %s; hasquery? %t", network, fid, q != nil)
 		}
 		return dnsx.Req(tr, network, q, smm)
 	}

@@ -112,7 +112,7 @@ func (h *cm) Track(cid, uid, pid string, conns ...MinConn) (n int) {
 
 	n = h.addLocked(cid, uid, pid, conns)
 
-	log.D("connmap: track: %d/%d conns for %s+%s+%s", n, h.sz, cid, uid, pid)
+	log.D4(cid, "connmap: track: %d/%d conns for %s+%s+%s", n, h.sz, cid, uid, pid)
 	return
 }
 
@@ -122,7 +122,7 @@ func (h *cm) Untrack(cid string) (n int) {
 	defer h.Unlock()
 
 	n = h.delLocked(cid)
-	log.D("connmap: untrack: %d/%d conns for %s", n, h.sz, cid)
+	log.D4(cid, "connmap: untrack: %d/%d conns for %s", n, h.sz, cid)
 	return
 }
 

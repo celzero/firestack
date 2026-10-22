@@ -86,7 +86,7 @@ type ResolverSelf interface {
 	// If tids are provided, resolution uses those transports directly.
 	// If no tids are provided, resolution uses preferences (and may fall back
 	// through Preferred/Fixed for system UIDs).
-	lookup(q *dns.Msg, uid string, tids ...string) (a *dns.Msg, tid string, err error)
+	lookup(q *dns.Msg, uid string, tids ...string) (a *dns.Msg, tid string, fid string, err error)
 }
 
 type RDNS interface {

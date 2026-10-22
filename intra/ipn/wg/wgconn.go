@@ -698,6 +698,7 @@ func (s *StdNetBind) Send(buf [][]byte, peer conn.Endpoint) (err error) {
 	}
 	dstIpp := ep.get()
 	uc, fd, blackhole := s.getconn(dstIpp)
+
 	switchFamily := func() bool {
 		var alt netip.AddrPort
 		if isIPv6(dstIpp) {

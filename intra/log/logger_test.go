@@ -65,12 +65,12 @@ func BenchmarkLogCall(b *testing.B) {
 		call func(l *simpleLogger, at int, msg string)
 	}
 	levels := []levelTest{
-		{"VV", func(l *simpleLogger, at int, msg string) { l.VeryVerbosef(at, msg) }},
-		{"V", func(l *simpleLogger, at int, msg string) { l.Verbosef(at, msg) }},
-		{"D", func(l *simpleLogger, at int, msg string) { l.Debugf(at, msg) }},
-		{"I", func(l *simpleLogger, at int, msg string) { l.Infof(at, msg) }},
-		{"W", func(l *simpleLogger, at int, msg string) { l.Warnf(at, msg) }},
-		{"E", func(l *simpleLogger, at int, msg string) { l.Errorf(at, msg) }},
+		{"VV", func(l *simpleLogger, at int, msg string) { l.VeryVerbosef(nokey, at, msg) }},
+		{"V", func(l *simpleLogger, at int, msg string) { l.Verbosef(nokey, at, msg) }},
+		{"D", func(l *simpleLogger, at int, msg string) { l.Debugf(nokey, at, msg) }},
+		{"I", func(l *simpleLogger, at int, msg string) { l.Infof(nokey, at, msg) }},
+		{"W", func(l *simpleLogger, at int, msg string) { l.Warnf(nokey, at, msg) }},
+		{"E", func(l *simpleLogger, at int, msg string) { l.Errorf(nokey, at, msg) }},
 	}
 
 	// callerdepth values to benchmark

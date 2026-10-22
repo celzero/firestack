@@ -53,6 +53,13 @@ func (s *ServerSummary) String() string {
 		s.Type, s.SID, s.PID, s.CID, s.Tx, s.Rx, s.Duration, s.Msg)
 }
 
+func svcid(s *ServerSummary) string {
+	if s == nil || s.ServerSummary == nil {
+		return ""
+	}
+	return s.CID
+}
+
 func serverSummary(typ, sid, pid, cid string) *ServerSummary {
 	return &ServerSummary{
 		ServerSummary: &x.ServerSummary{

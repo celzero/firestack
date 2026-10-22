@@ -225,14 +225,14 @@ func (s *services) queueSummary(sum *ServerSummary) {
 	select {
 	case <-s.ctx.Done():
 		if log.Debug {
-			log.D("svc: queueSummary: end: %s", sum)
+			log.D4(svcid(sum), "svc: queueSummary: end: %s", sum)
 		}
 	default:
 		select {
 		case <-s.ctx.Done():
 		case s.smmch <- sum:
 		default:
-			log.W("svc: queueSummary: dropped: %s", sum)
+			log.W4(svcid(sum), "svc: queueSummary: dropped: %s", sum)
 		}
 	}
 }
@@ -263,7 +263,7 @@ func (s *services) sendSummary(sum *ServerSummary) {
 	time.Sleep(after)
 
 	if log.Verbose {
-		log.VV("svc: sendNotif: %s", sum)
+		log.VV4(svcid(sum), "svc: sendNotif: %s", sum)
 	}
 	s.listener.OnSvcComplete(sum.ServerSummary)
 }

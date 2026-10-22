@@ -71,11 +71,11 @@ type zeroListener struct{}
 
 var _ FlowListener = (*zeroListener)(nil)
 
-func (*zeroListener) Preflow(_, _ int32, _, _ string) *PreMark               { return nil }
-func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _ string, _ bool) *Mark { return nil }
-func (*zeroListener) Inflow(_, _ int32, _, _ string) *Mark                   { return nil }
-func (*zeroListener) Flowing(*Mark)                                          {}
-func (*zeroListener) Postflow(*FlowSummary)                                  {}
+func (*zeroListener) Preflow(_, _ int32, _, _, _ string) *PreMark               { return nil }
+func (*zeroListener) Flow(_, _ int32, _, _, _, _, _, _, _ string, _ bool) *Mark { return nil }
+func (*zeroListener) Inflow(_, _ int32, _, _, _ string) *Mark                   { return nil }
+func (*zeroListener) Flowing(*Mark)                                             {}
+func (*zeroListener) Postflow(*FlowSummary)                                     {}
 
 var nooplistener = new(zeroListener)
 
@@ -134,7 +134,7 @@ func (h *baseHandler) onInflow(to, from netip.AddrPort) (fm *Mark) {
 
 	// inflow does not go through nat/alg/dns/proxy
 	fm, ok := core.Grx(h.proto+".inflow", func(_ context.Context) (*Mark, error) {
-		return h.listener.Inflow(nn, int32(uid), to.String(), from.String()), nil
+		return h.listener.Inflow(nn, int32(uid), core.Rand64(), to.String(), from.String()), nil
 	}, onInFlowTimeout)
 
 	if !ok || fm == nil {
@@ -186,8 +186,9 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 
 	var pdoms, blocklists string
 
+	cid := core.Rand64()
 	pre, _ := core.Grx(h.proto+".preflow", func(_ context.Context) (*PreMark, error) {
-		return h.listener.Preflow(proto, int32(uid), src, dst), nil
+		return h.listener.Preflow(proto, int32(uid), cid, src, dst), nil
 	}, onPreFlowTimeout)
 
 	hasPre := pre != nil
@@ -202,17 +203,17 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 				preuid = pre.UID
 			}
 		} else {
-			log.E("com: %s: onFlow: preflow: uid %s is not a number; use %s; err? %v", h.proto, pre.UID, uid, cerr)
+			log.E4(cid, "com: %s: onFlow: %s preflow: uid %s is not a number; use %s; err? %v", h.proto, cid, pre.UID, uid, cerr)
 		}
 	}
 
 	if log.Verbose {
-		log.VV("com: %s: onFlow: preflow: has? %t, preuid: %s for %s => %s", h.proto, hasPre, preuid, src, dst)
+		log.VV4(cid, "com: %s: onFlow: %s preflow: has? %t, preuid: %s for %s => %s", h.proto, cid, hasPre, preuid, src, dst)
 	}
 
 	// alg happens after nat64, and so, alg knows nat-ed ips and un-nats them;
 	// that is, real ips ("ips") are already un-nated where applicable.
-	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr(), preuid)
+	undidAlg, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr(), cid, preuid)
 	hasOldIPs := len(ips) > 0
 	if undidAlg && !hasOldIPs {
 		hasNewIPs := false
@@ -221,15 +222,15 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 				nodomain := len(d) <= 0
 				if nodomain {
 					if log.Verbose {
-						logwif(len(d) <= 0)("com: %s: onFlow: preflow: %v from %v => %v for %s; nodomain? %t",
-							h.proto, doms, src, target, preuid, nodomain)
+						logwif4(cid, len(d) <= 0)("com: %s: onFlow: %s preflow: %v from %v => %v for %s; nodomain? %t",
+							h.proto, cid, doms, src, dst, preuid, nodomain)
 					}
 					continue
 				}
 				newips, err := dialers.ResolveFor(h.resolver, d, preuid)
 				hasNewIPs = err == nil && len(newips) > 0
-				logwif(!hasNewIPs)("com: %s: onFlow: preflow: resolved alg domain %s? %t; new ips %v for %s => %s; preuid: %s",
-					h.proto, d, hasNewIPs, newips, src, dst, preuid)
+				logwif4(cid, !hasNewIPs)("com: %s: onFlow: %s preflow: resolved alg domain %s? %t; new ips %v for %s => %s; preuid: %s",
+					h.proto, cid, d, hasNewIPs, newips, src, dst, preuid)
 				if hasNewIPs { // already unalg'd by ipmapper
 					// _, ips, doms, pdoms, blocklists = h.undoAlg(target.Addr())
 					ips = dnsx.Netip2Csv(newips)
@@ -239,32 +240,32 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		} // else: either no known transport or preflow failed
 
 		if !hasPre || !hasNewIPs {
-			log.E("com: %s: onFlow: alg, preflow? %t, ips? %t for %s; pre: %v; block!",
-				h.proto, hasPre, hasNewIPs, doms, pre)
+			log.E4(cid, "com: %s: onFlow: %s alg, preflow? %t, ips? %t for %s; pre: %v; block!",
+				h.proto, cid, hasPre, hasNewIPs, doms, pre)
 			// either optionsBase (BlockModeNone) or optionsBlock
 			return fm, undidAlg, "", ""
 		} // else: if we've got target and/or old ips, dial them
 	} else {
 		if log.Debug {
-			log.D("com: %s: onFlow: noalg? %t or hasips? %t for %s => %s; preuid %s",
-				h.proto, !undidAlg, hasOldIPs, src, dst, preuid)
+			log.D4(cid, "com: %s: onFlow: %s noalg? %t or hasips? %t for %s => %s; preuid %s",
+				h.proto, cid, !undidAlg, hasOldIPs, src, dst, preuid)
 		}
 	}
 
 	if log.Debug && (len(ips) <= 0 || len(doms) <= 0) {
-		log.D("com: %s: onFlow: no realips(%s) or domains(%s + %s), for src=%s dst=%s; preuid=%s; alg? %t",
-			h.proto, ips, doms, pdoms, localaddr, target, preuid, undidAlg)
+		log.D4(cid, "com: %s: onFlow: %s no realips(%s) or domains(%s + %s), for src=%s dst=%s; preuid=%s; alg? %t",
+			h.proto, cid, ips, doms, pdoms, localaddr, target, preuid, undidAlg)
 	}
 
 	// note the loopback status before listener.Flow.
 	loopback := settings.Loopingback.Load()
 
 	fm, ok := core.Grx(h.proto+".flow", func(_ context.Context) (*Mark, error) {
-		return h.listener.Flow(proto, int32(uid), src, dst, ips, doms, pdoms, blocklists, undidAlg), nil
+		return h.listener.Flow(proto, int32(uid), cid, src, dst, ips, doms, pdoms, blocklists, undidAlg), nil
 	}, onFlowTimeout)
 
 	if fm == nil || !ok { // zeroListener returns nil
-		log.W("com: %s: onFlow: empty res or on flow timeout %t; block!", h.proto, ok)
+		log.W4(cid, "com: %s: onFlow: %s empty res or on flow timeout %t; block!", h.proto, cid, ok)
 		fm = optionsBlock
 	} else if len(fm.PIDCSV) <= 0 {
 		fm.PIDCSV = ipn.Exit
@@ -275,8 +276,8 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 				fm.PIDCSV = ipn.Auto
 			}
 		}
-		log.E("com: %s: onFlow: missing proxyid for preuid %s (%s => %s) from kt (alg: %v + %v); %s!",
-			h.proto, preuid, src, dst, ips, doms, fm.PIDCSV)
+		log.E4(cid, "com: %s: onFlow: %s missing proxyid for preuid %s (%s => %s) from kt (alg: %v + %v); %s!",
+			h.proto, fm.CID, preuid, src, dst, ips, doms, fm.PIDCSV)
 	}
 	// in loopback mode, user may have setup SELF_UID to be routed out via remote proxies.
 	// in other cases, routing Rethink via remote proxies is probably a bug.
@@ -285,8 +286,8 @@ func (h *baseHandler) onFlow(localaddr, target netip.AddrPort) (fm *Mark, undidA
 		if h.resolver.IsDnsAddrPort(target) {
 			egress = ipn.Base // see: udp.go:dnsOverride
 		}
-		log.W("com: %s: onFlow: preflow: preuid %s (%s => %s) is rethink (loopback? %t)! override %s to %s!",
-			h.proto, preuid, src, dst, loopback, fm.PIDCSV, egress)
+		log.W4(cid, "com: %s: onFlow: %s preflow: preuid %s (%s => %s) is rethink (loopback? %t)! override %s to %s!",
+			h.proto, fm.CID, preuid, src, dst, loopback, fm.PIDCSV, egress)
 		fm.PIDCSV = egress
 	}
 
@@ -321,7 +322,7 @@ func (h *baseHandler) forward(local, remote net.Conn, smm *FlowSummary) {
 			remote = r.Unwrap() // c may be *net.TCPConn or *demuxconn or *dialers.retrier|splitter
 		}
 	}
-	log.I("com: %s: forward: new conn %s rwext? %t (%T), optset? %t (%ds); %s for %s",
+	log.I4(cid, "com: %s: forward: new conn %s rwext? %t (%T), optset? %t (%ds); %s for %s",
 		h.proto, via, isrwext, remote, didSet, timeoutsecs, tup, uid)
 
 	uploadch := make(chan ioinfo, 1)
@@ -354,14 +355,14 @@ func (h *baseHandler) queueSummary(s *FlowSummary) {
 	select {
 	case <-h.ctx.Done():
 		if log.Debug {
-			log.D("%s: queueSummary: end: %s", h.proto, s)
+			log.D4(s.ID, "%s: queueSummary: end: %s", h.proto, s)
 		}
 	default:
 		select {
 		case <-h.ctx.Done():
 		case h.smmch <- s:
 		default:
-			log.W("com: %s: sendSummary: dropped: %s", h.proto, s)
+			log.W4(s.ID, "com: %s: sendSummary: dropped: %s", h.proto, s)
 		}
 	}
 }
@@ -397,7 +398,7 @@ func (h *baseHandler) sendSummary(s *FlowSummary, after time.Duration) {
 	}
 
 	if log.Verbose {
-		log.VV("com: %s: end? sendNotif: %s", h.proto, s)
+		log.VV4(s.ID, "com: %s: end? sendNotif: %s", h.proto, s)
 	}
 	h.listener.Postflow(s) // s.Duration may be uninitialized (zero)
 }
@@ -419,18 +420,15 @@ func (h *baseHandler) CloseConns(cidsOrPidsOrUids []string) (closedCids []string
 	return closedCids
 }
 
+//share.google/aimode/0batTQzf4syXGLlQv
+
 // aux is usually dst domains, ip, ip:port
 func (h *baseHandler) flowID(uid string, aux ...string) (fid string) {
 	if len(uid) <= 0 { // uid may be empty
 		uid = UNKNOWN_UID_STR
 	} // or: uid may be unknown
-	fid = uid
-	for _, v := range aux {
-		if len(v) > 0 { // choose the first non-empty aux
-			return fid + v
-		}
-	}
-	return
+	aux = append(aux, uid)
+	return strings.Join(aux, "/")
 }
 
 func (h *baseHandler) stall(flowid string) (secs uint32) {
@@ -684,7 +682,7 @@ func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, mayb
 		s := core.ShuffleInPlace(out)
 		if willIncludeOrig {
 			if useOrig46 {
-				s = append([]netip.AddrPort{origipp46}, s...)
+				s = append([]netip.AddrPort{origipp46, origipp}, s...)
 			} else {
 				s = append([]netip.AddrPort{origipp}, s...)
 			}
@@ -693,7 +691,7 @@ func makeIPPorts(r dnsx.Resolver, ips []netip.Addr, origipp netip.AddrPort, mayb
 	}
 
 	if useOrig46 {
-		return []netip.AddrPort{origipp46}
+		return []netip.AddrPort{origipp46, origipp}
 	}
 	return []netip.AddrPort{origipp}
 }
@@ -705,7 +703,7 @@ func ipok(v netip.Addr) bool {
 // algip may or may not be an actual alg ip.
 // returned realips may be incoming algip itself or translated from algip,
 // depending on whether alg is enabled (ref: undidAlg).
-func (h *baseHandler) undoAlg(maybeAlg netip.Addr, uid string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
+func (h *baseHandler) undoAlg(maybeAlg netip.Addr, cid, uid string) (undidAlg bool, realips, domains, probableDomains, blocklists string) {
 	const forcePTR = true // force PTR (realip => algans) translation?
 	anyTransport := dnsx.NoDNS
 	r := h.resolver
@@ -715,13 +713,13 @@ func (h *baseHandler) undoAlg(maybeAlg netip.Addr, uid string) (undidAlg bool, r
 	didForce := false
 	hasreal := false
 	if ipok && gw != nil {
-		domains, didForce = gw.PTR(maybeAlg, uid, anyTransport, !forcePTR) // does NAT (algip => algans) translation
+		domains, didForce = gw.PTR(maybeAlg, cid, uid, anyTransport, !forcePTR) // does NAT (algip => algans) translation
 		if !didForce && len(domains) <= 0 {
-			probableDomains, _ = gw.PTR(maybeAlg, uid, anyTransport, forcePTR)
+			probableDomains, _ = gw.PTR(maybeAlg, cid, uid, anyTransport, forcePTR)
 		}
 		var ips []netip.Addr
 		// ips will contain the incoming "algip" arg, in cases where alg is NOT enabled.
-		ips, undidAlg = gw.X(maybeAlg, uid)
+		ips, undidAlg = gw.X(maybeAlg, cid, uid)
 		realips = dnsx.Netip2Csv(ips)
 		hasreal = len(realips) > 0
 		blocklists = gw.RDNSBL(maybeAlg)
@@ -737,7 +735,7 @@ func (h *baseHandler) undoAlg(maybeAlg netip.Addr, uid string) (undidAlg bool, r
 		}
 	}
 
-	logwif(!hasreal)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
+	logwif4(cid, !hasreal)("com: %s: alg: undoAlg: for [%s] (gw? %t ok? %t, force? %t, withForce? %t) %s => %v (for %s + %s / block: %s)",
 		h.proto, uid, gw != nil, undidAlg, didForce, forcePTR, maybeAlg, realips, domains, probableDomains, blocklists)
 	return
 }
@@ -856,7 +854,7 @@ func (h *baseHandler) maybeReplaceDest(res *Mark, target *netip.AddrPort) {
 	} else if resip, err := netip.ParseAddr(res.IP); resip.IsValid() && err == nil {
 		// if res.IP is set, then use it as the target
 		if log.Debug {
-			log.D("%s: proxy: %s %s target instead of %s",
+			log.D4(res.CID, "%s: proxy: %s %s target instead of %s",
 				h.proto, res.CID, resip, target)
 		}
 		*target = netip.AddrPortFrom(resip, target.Port())
@@ -967,12 +965,33 @@ func logev(err error) log.LogFn {
 	return f
 }
 
+func logev4(key string, err error) log.LogFn {
+	if err == nil {
+		return func(msg string, args ...any) { log.VV4(key, msg, args...) }
+	}
+	return func(msg string, args ...any) { log.E4(key, msg, args...) }
+}
+
 func logei(err error) log.LogFn {
 	f := log.E
 	if err == nil {
 		f = log.I
 	}
 	return f
+}
+
+func logei4(key string, err error) log.LogFn {
+	if err == nil {
+		return func(msg string, args ...any) { log.I4(key, msg, args...) }
+	}
+	return func(msg string, args ...any) { log.E4(key, msg, args...) }
+}
+
+func logwif4(key string, cond bool) log.LogFn {
+	if cond {
+		return func(msg string, args ...any) { log.W4(key, msg, args...) }
+	}
+	return func(msg string, args ...any) { log.VV4(key, msg, args...) }
 }
 
 func logwif(cond bool) log.LogFn {

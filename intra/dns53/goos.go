@@ -151,11 +151,12 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 		r = xdns.Servfail(q)
 	}
 
+	fid := smm.FID
 	status := dnsx.Complete
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dns53: goosr: err(%v) / size(%d)", qerr, xdns.Len(r))
+		log.W4(fid, "dns53: goosr: err(%v) / size(%d)", qerr, xdns.Len(r))
 	}
 	t.status.Store(status)
 
@@ -170,7 +171,7 @@ func (t *goosr) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (r *dns.Msg, err 
 		smm.Msg = err.Error()
 	}
 
-	log.V("dns53: goosr: len(res): %d, data: %s, err? %v",
+	log.V4(fid, "dns53: goosr: len(res): %d, data: %s, err? %v",
 		xdns.Len(r), smm.RData, err)
 
 	return r, err

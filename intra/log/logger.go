@@ -55,15 +55,15 @@ type Logger interface {
 	SetConsole(c Console)
 	SetCallerDepth(d uint8)
 	ConsoleReady(ctx context.Context)
-	Usr(msg string)
+	Usr(key uint64, msg string)
 	Printf(msg string, args ...any)
-	VeryVerbosef(at int, msg string, args ...any)
-	Verbosef(at int, msg string, args ...any)
-	Debugf(at int, msg string, args ...any)
-	Piif(at int, msg string, args ...any)
-	Infof(at int, msg string, args ...any)
-	Warnf(at int, msg string, args ...any)
-	Errorf(at int, msg string, args ...any)
+	VeryVerbosef(key uint64, at int, msg string, args ...any)
+	Verbosef(key uint64, at int, msg string, args ...any)
+	Debugf(key uint64, at int, msg string, args ...any)
+	Piif(key uint64, at int, msg string, args ...any)
+	Infof(key uint64, at int, msg string, args ...any)
+	Warnf(key uint64, at int, msg string, args ...any)
+	Errorf(key uint64, at int, msg string, args ...any)
 	Fatalf(at int, msg string, args ...any)
 	Trace(c bool, t string)
 	Stack(at int, msg string, scratch []byte)
@@ -425,7 +425,10 @@ func (l *simpleLogger) consoleQueue(m *conMsg) {
 	}
 }
 
-func (l *simpleLogger) Usr(msg string) {
+func (l *simpleLogger) Usr(key uint64, msg string) {
+	if key != nokey {
+		putmsg(key, msg) // capture is independent of level
+	}
 	if l.level <= USR {
 		if count := l.incrStCount(msg); count > similarUsrMsgThreshold {
 			return
@@ -436,37 +439,38 @@ func (l *simpleLogger) Usr(msg string) {
 
 // Printf exists to satisfy rnet/http's Logger interface
 func (l *simpleLogger) Printf(msg string, args ...any) {
-	l.Debugf(callerat, msg, args...)
+	l.Debugf(nokey, callerat, msg, args...)
 }
 
-func (l *simpleLogger) VeryVerbosef(at int, msg string, args ...any) {
-	l.writelog(VVERBOSE, at+nextframe, msg, args...)
+func (l *simpleLogger) VeryVerbosef(key uint64, at int, msg string, args ...any) {
+	l.writelog(VVERBOSE, key, at+nextframe, msg, args...)
 }
 
-func (l *simpleLogger) Verbosef(at int, msg string, args ...any) {
-	l.writelog(VERBOSE, at+nextframe, msg, args...)
+func (l *simpleLogger) Verbosef(key uint64, at int, msg string, args ...any) {
+	l.writelog(VERBOSE, key, at+nextframe, msg, args...)
 }
 
-func (l *simpleLogger) Debugf(at int, msg string, args ...any) {
-	l.writelog(DEBUG, at+nextframe, msg, args...)
+func (l *simpleLogger) Debugf(key uint64, at int, msg string, args ...any) {
+	l.writelog(DEBUG, key, at+nextframe, msg, args...)
 }
 
-func (l *simpleLogger) Piif(at int, msg string, args ...any) {
+func (l *simpleLogger) Piif(key uint64, at int, msg string, args ...any) {
 	if logPiif {
-		l.writelog(INFO, at+nextframe, msg, args...)
+		l.writelog(INFO, key, at+nextframe, msg, args...)
+		l.emitlog(INFO, key, at+nextframe, msg, args...)
 	}
 }
 
-func (l *simpleLogger) Infof(at int, msg string, args ...any) {
-	l.writelog(INFO, at+nextframe, msg, args...)
+func (l *simpleLogger) Infof(key uint64, at int, msg string, args ...any) {
+	l.writelog(INFO, key, at+nextframe, msg, args...)
 }
 
-func (l *simpleLogger) Warnf(at int, msg string, args ...any) {
-	l.writelog(WARN, at+nextframe, msg, args...)
+func (l *simpleLogger) Warnf(key uint64, at int, msg string, args ...any) {
+	l.writelog(WARN, key, at+nextframe, msg, args...)
 }
 
-func (l *simpleLogger) Errorf(at int, msg string, args ...any) {
-	l.writelog(ERROR, at+nextframe, msg, args...)
+func (l *simpleLogger) Errorf(key uint64, at int, msg string, args ...any) {
+	l.writelog(ERROR, key, at+nextframe, msg, args...)
 }
 
 func (l *simpleLogger) Fatalf(at int, msg string, args ...any) {
@@ -883,45 +887,57 @@ func shortfn(fn string) string {
 	return fn
 }
 
-func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
+func (l *simpleLogger) writelog(lvl LogLevel, key uint64, at int, msg string, args ...any) {
+	l.emitlog(lvl, key, at, msg, args...)
+}
+
+// emitlog formats msg and dispatches it: to the LogStore for key, if any
+// (regardless of level and spam filters), and to stdout or console iff
+// emit is true and the level (and spam) filters allow it.
+func (l *simpleLogger) emitlog(lvl LogLevel, key uint64, at int, msg string, args ...any) {
 	ll := l.level <= lvl
 	cc := l.clevel <= lvl
+	tr := key != 0 // capture to LogStore for key, if any
 
-	if ll || cc {
-		var pc uintptr
-		var file1 string
-		if l.callerdepth == maxCallerDepth {
-			pc, file1 = caller(at + nextframe)
-		} else {
-			// skip expensive runtime.Caller; fast-hash up to first 12 chars of msg
-			n := min(len(msg), 12)
-			file1 = msg[:n]
-			pc = uintptr(fhash(unsafe.Slice(unsafe.StringData(msg), n)))
-		}
-		var trace strings.Builder
+	if ll || cc || tr {
+		var isspam bool
+		if ll || cc {
+			var pc uintptr
+			var file1 string
+			if l.callerdepth == maxCallerDepth {
+				pc, file1 = caller(at + nextframe)
+			} else {
+				// skip expensive runtime.Caller; fast-hash up to first 12 chars of msg
+				n := min(len(msg), 12)
+				file1 = msg[:n]
+				pc = uintptr(fhash(unsafe.Slice(unsafe.StringData(msg), n)))
+			}
 
-		isspam := l.spammy(lvl, pc)
-		if isspam {
-			l.skips[lvl].Add(1)
-		}
+			isspam = l.spammy(lvl, pc)
+			if isspam {
+				l.skips[lvl].Add(1)
+			}
 
-		if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
-			swapped := l.skips[lvl].CompareAndSwap(n, 0)
-			if swapped && (cc || ll) {
-				spammsgs, spamslabs := l.fmtmsg(lvl, "spammy..."+file1+" %d msgs; dropped? %t", n, !spamConsole)
-				if ll {
-					for _, line := range spammsgs {
-						l.out(line)
+			if n := l.skips[lvl].Load(); n > spammsgThreshold[lvl] {
+				swapped := l.skips[lvl].CompareAndSwap(n, 0)
+				if swapped && (cc || ll) {
+					spammsgs, spamslabs := l.fmtmsg(lvl, "spammy..."+file1+" %d msgs; dropped? %t", n, !spamConsole)
+					if ll {
+						for _, line := range spammsgs {
+							l.out(line)
+						}
 					}
-				}
-				// print spammsg only if spamming is not allowed
-				if cc && !spamConsole {
-					l.consoleQueue(&conMsg{m: spammsgs, ml: spamslabs, t: lvl})
-				} else {
-					recycleAll(spamslabs)
+					// print spammsg only if spamming is not allowed
+					if cc && !spamConsole {
+						l.consoleQueue(&conMsg{m: spammsgs, ml: spamslabs, t: lvl})
+					} else {
+						recycleAll(spamslabs)
+					}
 				}
 			}
 		}
+
+		var trace strings.Builder
 
 		// ex: go_backendmain.go:6895@_cgoexp_d123334b966f_proxybackend_Rpn_RegisterWin
 		// > go_backendmain.go:7120@main.proxybackend_Rpn_RegisterWin
@@ -990,10 +1006,15 @@ func (l *simpleLogger) writelog(lvl LogLevel, at int, msg string, args ...any) {
 
 		msgs, slabs := l.fmtmsg2(lvl, trace.String(), msg, args...)
 
-		if ll {
+		if ll || tr {
 			// go's internal logger grabs mutex before every write
 			for _, line := range msgs {
-				l.out(line)
+				if ll {
+					l.out(line)
+				}
+				if tr {
+					putmsg(key, line) // capture is independent of level and spam
+				}
 			}
 		}
 		if cc && (!isspam || spamConsole) {

@@ -163,7 +163,7 @@ func (t *dnssd) Query(_ string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, er
 	smm.Server = t.ipport
 
 	defer func() {
-		log.D("mdns: err: %v; summary: %s", err, smm)
+		log.D4(smm.FID, "mdns: err: %v; summary: %s", err, smm)
 	}()
 
 	start := time.Now()

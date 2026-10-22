@@ -340,11 +340,12 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 
 	ans, rpid, ech, elapsed, qerr = t.doQuery(pid, q)
 
+	fid := smm.FID
 	status := dnsx.Complete
 	if qerr != nil {
 		err = qerr.Unwrap()
 		status = qerr.Status()
-		log.W("dot: ans? %v err(%v) / ans(%d)", ans, err, xdns.Len(ans))
+		log.W4(fid, "dot: ans? %v err(%v) / ans(%d)", ans, err, xdns.Len(ans))
 	}
 	t.status.Store(status)
 
@@ -363,8 +364,8 @@ func (t *dot) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg
 	t.est.Add(smm.Latency)
 
 	if settings.Debug {
-		log.V("dot: %s (fid: %s) ech? %t; len(res): fro %s:%d a:%d/sz:%d/pad:%d, data: %s / status: %d, via: %s, err? %v",
-			t.id, smm.FID, ech, smm.QName, smm.QType, xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.Status, smm.PID, err)
+		log.V4(fid, "dot: %s (fid: %s) ech? %t; len(res): fro %s:%d a:%d/sz:%d/pad:%d, data: %s / status: %d, via: %s, err? %v",
+			t.id, fid, ech, smm.QName, smm.QType, xdns.Len(ans), xdns.Size(ans), xdns.EDNS0PadLen(ans), smm.RData, smm.Status, smm.PID, err)
 	}
 
 	return

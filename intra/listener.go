@@ -49,7 +49,7 @@ type FlowSummary struct {
 type FlowListener interface {
 	// Preflow is called before a new connection is established; return owner "uid", which is
 	// later used by dnsx.Resolver to determine the DNS transport to use for that "uid".
-	Preflow(protocol, uid int32, src, dst string) *PreMark
+	Preflow(protocol, uid int32, cid, src, dst string) *PreMark
 	// Flow is called on a new connection; return Proxy IDs to forward the connection
 	// to a pre-registered proxy; "Base" or "Exit" to allow the connection; "Block" to block it.
 	// "connid" is used to uniquely identify a connection across all proxies, and a summary of the
@@ -65,11 +65,11 @@ type FlowListener interface {
 	// probableDomains is a comma-separated list of probable domain names associated with origdsts, if any.
 	// blocklists is a comma-separated list of rdns blocklist names that apply, if any.
 	// dstIsAlg is true if the destination is an alg'd IP (which is only valid within the tunnel & will not be used for dialing).
-	Flow(protocol, uid int32, src, dst, origdsts, domains, probableDomains, blocklists string, dstIsAlg bool) *Mark
+	Flow(protocol, uid int32, cid, src, dst, origdsts, domains, probableDomains, blocklists string, dstIsAlg bool) *Mark
 	// Inflow is called on a new incoming connection. Returned *Mark values have no discernable effect on these connections,
 	// except for the CID field, which is sent back via Postflow, and "Block" proxy which
 	// will drop this connection on the floor.
-	Inflow(protocol, uid int32, src, dst string) *Mark
+	Inflow(protocol, uid int32, cid, src, dst string) *Mark
 	// Flowing is called after a flow is marked by Flow or Inflow.
 	// It denotes the final Mark that was applied to the flow.
 	// The only major discernable effect is PIDCSV has a single PID.

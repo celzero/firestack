@@ -287,14 +287,14 @@ func (r *resolver) queueSummary(smm *x.DNSSummary) {
 	}
 	select {
 	case <-r.ctx.Done():
-		log.W("dns: fwd: smms closed; dropping %s", smm)
+		log.W4(smm.FID, "dns: fwd: smms closed; dropping %s", smm)
 	default:
 		select {
 		case <-r.ctx.Done(): // DEnd will be stored by StopAll
 		case r.smms <- smm:
 			r.laststatus.Store(smm.Status)
 		default:
-			log.W("dns: fwd: smms full; dropping %s", smm)
+			log.W4(smm.FID, "dns: fwd: smms full; dropping %s", smm)
 		}
 	}
 }
@@ -544,9 +544,11 @@ func (r *resolver) LocalDomains() x.RadixTree {
 }
 
 // lookup implements [ResolverSelf].
-func (r *resolver) lookup(q *dns.Msg, uid string, tids ...string) (*dns.Msg, string, error) {
+func (r *resolver) lookup(q *dns.Msg, uid string, tids ...string) (*dns.Msg, string, string, error) {
+	fid := core.Rand64()
+
 	if q == nil {
-		return nil, NoDNS, errNoQuestion
+		return nil, NoDNS, fid, errNoQuestion
 	}
 
 	if len(tids) > 0 {
@@ -554,16 +556,17 @@ func (r *resolver) lookup(q *dns.Msg, uid string, tids ...string) (*dns.Msg, str
 		// treat it as an internal lookup for protect.MyUid and
 		// ignore prechosen tids for Default instead
 		if uid == core.UNKNOWN_UID_STR {
-			return r.lookupinternal(q)
+			return r.lookupinternal(fid, q)
 		} else {
-			return r.forward(q, OriginInternal, core.Rand64(), uid, tids...)
+			a, tid, err := r.forward(q, OriginInternal, fid, uid, tids...)
+			return a, tid, fid, err
 		}
 	}
 
 	// TODO: handle cloned / private space MyUid?
 	// ignore tids provided; lookupinternal always uses Default
 	if uid == protect.MyUid {
-		return r.lookupinternal(q)
+		return r.lookupinternal(fid, q)
 	}
 
 	// prechose tids preferred & fixed when uid is set to 0, -1, or 1051 (common
@@ -571,16 +574,18 @@ func (r *resolver) lookup(q *dns.Msg, uid string, tids ...string) (*dns.Msg, str
 	// to use "fixed" transport to later uncover the actual requesting app/uid during
 	// tcp/udp flows (specifically, with preflow)
 	if (uid == core.UNKNOWN_UID_STR || uid == core.DNS_UID_STR || uid == core.ANDROID_UID_STR) && r.gateway.fixedTransport() {
-		return r.forward(q, OriginInternal, core.Rand64(), uid, Preferred, Fixed)
+		a, tid, err := r.forward(q, OriginInternal, fid, uid, Preferred, Fixed)
+		return a, tid, fid, err
 	}
 
-	return r.forward(q, OriginInternal, core.Rand64(), uid)
+	a, tid, err := r.forward(q, OriginInternal, fid, uid)
+	return a, tid, fid, err
 }
 
 // lookupinternal for [OriginInternal] queries on behalf of [protect.MyUid] over [Default].
-func (r *resolver) lookupinternal(q *dns.Msg) (*dns.Msg, string, error) {
+func (r *resolver) lookupinternal(fid string, q *dns.Msg) (*dns.Msg, string, string, error) {
 	if r.closed.Load() {
-		return nil, NoDNS, errResolverClosed
+		return nil, NoDNS, fid, errResolverClosed
 	}
 
 	// when loopingback, Goos queries will be sent right back to us
@@ -588,18 +593,18 @@ func (r *resolver) lookupinternal(q *dns.Msg) (*dns.Msg, string, error) {
 	defaultIsSystemDNS := r.isDefaultSystemDNS()
 
 	// including dns64 and/or alg
-	ans, tid, err := r.forward(q, OriginInternal, core.Rand64(), protect.MyUid, Default)
+	ans, tid, err := r.forward(q, OriginInternal, fid, protect.MyUid, Default)
 	if !defaultIsSystemDNS || goosWillLoopback {
-		return ans, tid, err
+		return ans, tid, fid, err
 	} // else: retry with Goos/System, if needed
 
 	// ans may be nil
 	if ans == nil || err != nil || xdns.IsNXDomain(ans) || !xdns.HasRcodeSuccess(ans) {
-		log.I("dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(ans))
-		ans, tid, err = r.forward(q, OriginInternal, core.Rand64(), protect.MyUid, Goos) // Goos is System; see: determineTransport
+		log.I4(fid, "dns: nxdomain via Default (err? %v); attempting Goos for %s", err, xdns.QName(ans))
+		ans, tid, err = r.forward(q, OriginInternal, fid, protect.MyUid, Goos) // Goos is System; see: determineTransport
 	} // else: rcode success and nil err; do not fallback on Goos/System
 
-	return ans, tid, err
+	return ans, tid, fid, err
 }
 
 func (r *resolver) forward(q *dns.Msg, who, fid, uid string, chosenids ...string) (res0 *dns.Msg, tid0 string, err0 error) {
@@ -621,7 +626,7 @@ func (r *resolver) forward(q *dns.Msg, who, fid, uid string, chosenids ...string
 
 	if q == nil {
 		err := errNoQuestion
-		log.W("dns: fwd: for %s; nil dns packet", uid)
+		log.W4(fid, "dns: fwd: for %s; nil dns packet", uid)
 		ogsmm.Latency = time.Since(starttime).Seconds()
 		ogsmm.Status = BadQuery
 		ogsmm.Msg = err.Error()
@@ -655,19 +660,20 @@ func (r *resolver) forward(q *dns.Msg, who, fid, uid string, chosenids ...string
 		fid6 := core.Rand64()
 
 		if log.Verbose {
-			log.V("dns: fwd: for %s; force6 for %s:%s:%d; ptmode=%s", uid, fid6, qname, qtyp, pt)
+			log.V4(fid6, "dns: fwd: for %s; force6 for %s:%s:%d; ptmode=%s", uid, fid6, qname, qtyp, pt)
 		}
 
 		// TODO: take in to consideration that in non-Loopback mode, PtMode translations won't work for UidSelf.
 		core.Gx("r.fwd.aaaa."+fid6+"."+qname, func() {
-			_, _, _ = r.forwardInner(msg6, smm6, who, fid6, uid, chosenids...)
+			_, _, _ = r.forwardInner(msg6, smm6, who, uid, chosenids...)
 		})
 	}
 
-	return r.forwardInner(q, ogsmm, who, fid, uid, chosenids...)
+	return r.forwardInner(q, ogsmm, who, uid, chosenids...)
 }
 
-func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid string, chosenids ...string) (*dns.Msg, string, error) {
+// ogsmm carries the query's FID; no separate fid arg (see DNSSummary.FID).
+func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, uid string, chosenids ...string) (*dns.Msg, string, error) {
 	var onQueryDone, onUpstreamAnswerDone float64
 
 	starttime := time.Now()
@@ -675,12 +681,12 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid
 	qname := ogsmm.QName
 	qtyp := ogsmm.QType
 
-	domopts, opqcompleted := core.Grx("r.onPrequery."+fid+"."+qname, func(_ context.Context) (*x.DomainOpts, error) {
+	domopts, opqcompleted := core.Grx("r.onPrequery."+ogsmm.FID+"."+qname, func(_ context.Context) (*x.DomainOpts, error) {
 		return r.listener.OnPrequery(who, uid, qname, qtyp), nil
 	}, listenerTimeout)
 
 	if !opqcompleted {
-		log.W("dns: fwd: %s for %s; no prequery for %s:%d", fid, uid, qname, qtyp)
+		log.W4(ogsmm.FID, "dns: fwd: %s for %s; no prequery for %s:%d", ogsmm.FID, uid, qname, qtyp)
 		ogsmm.Latency = time.Since(starttime).Seconds()
 		ogsmm.Status = ClientError
 		ogsmm.Msg = errOnPrequeryTimeout.Error()
@@ -688,14 +694,14 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, fid, uid
 		return nil, NoDNS, errOnPrequeryTimeout
 	}
 
-	pref, oqcompleted := core.Grx("r.onQuery."+fid+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
+	pref, oqcompleted := core.Grx("r.onQuery."+ogsmm.FID+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 		return r.listener.OnQuery(who, uid, qname, qtyp), nil
 	}, listenerTimeout)
 
 	onQueryDone = time.Since(starttime).Seconds()
 
 	if !oqcompleted || pref == nil {
-		log.W("dns: fwd: %s for %s; no preferences (%t) for %s:%d", fid, uid, pref == nil, qname, qtyp)
+		log.W4(ogsmm.FID, "dns: fwd: %s for %s; no preferences (%t) for %s:%d", ogsmm.FID, uid, pref == nil, qname, qtyp)
 		ogsmm.Latency = onQueryDone
 		ogsmm.Status = ClientError
 		ogsmm.Msg = errOnQueryTimeout.Error()
@@ -731,9 +737,9 @@ runagain:
 	run++
 	*smm = *copySummary(ogsmm)
 
-	log.V("dns: fwd: 1 for %s (fid: %s / %s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, fid, who, qname, qtyp, run, pref, chosenids)
+	log.V4(smm.FID, "dns: fwd: 1 for %s (fid: %s / %s); query %s:%d, r%d; [prefs:%v; chosen:%v]", uid, smm.FID, who, qname, qtyp, run, pref, chosenids)
 
-	id, sid, pids, spids, diag, presetIPs := r.preferencesFrom(fid, qname, uint16(qtyp), pref, chosenids...)
+	id, sid, pids, spids, diag, presetIPs := r.preferencesFrom(smm.FID, qname, uint16(qtyp), pref, chosenids...)
 
 	t := r.determineTransport(id)         // id may be empty if pref is nil
 	t2 := r.determineTransport(sid)       // sid may be empty
@@ -744,8 +750,8 @@ runagain:
 	diffT2 := hasT2 && sid != idstr(t2)
 
 	if log.Verbose {
-		log.V("dns: fwd: 2 for %s (fid: %s); query %s:%d, r%d; onQueryTime: %s; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s/%s, ips? %v",
-			uid, fid, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), pref, chosenids, id, hasT1, sid, hasT2, pids, spids, presetIPs)
+		log.V4(smm.FID, "dns: fwd: 2 for %s (fid: %s); query %s:%d, r%d; onQueryTime: %s; [prefs:%v; chosen:%v]; id? %s (%t), sid? %s (%t), pid? %s/%s, ips? %v",
+			uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), pref, chosenids, id, hasT1, sid, hasT2, pids, spids, presetIPs)
 	}
 
 	if settings.Debug || (!hasPre && (diffT1 || diffT2)) || !hasT1 {
@@ -779,13 +785,13 @@ runagain:
 			smm.RData = xdns.GetInterestingRData(ans)
 			smm.Msg = rankreason
 			if log.Verbose {
-				log.V("dns: fwd: 2r %s for %s (fid: %s); r%d, rank blocked %s:%d (%d/%d)",
+				log.V4(smm.FID, "dns: fwd: 2r %s for %s (fid: %s); r%d, rank blocked %s:%d (%d/%d)",
 					smm.ID, uid, smm.FID, run, qname, qtyp, rank, rankbig)
 			}
 			return ans, smm.ID, nil
 		}
 		if log.Verbose {
-			log.V("dns: fwd: 2r %s for %s (fid: %s); r%d, rank block skipped %s:%d: %v",
+			log.V4(smm.FID, "dns: fwd: 2r %s for %s (fid: %s); r%d, rank block skipped %s:%d: %v",
 				smm.ID, uid, smm.FID, run, qname, qtyp, qerr)
 		}
 	}
@@ -802,13 +808,13 @@ runagain:
 			smm.RData = xdns.GetInterestingRData(res1)
 			smm.Msg = errNop.Error()
 			if log.Verbose {
-				log.V("dns: fwd: 3 %s for %s (fid: %s); r%d, query blocked %s:%d by %s",
+				log.V4(smm.FID, "dns: fwd: 3 %s for %s (fid: %s); r%d, query blocked %s:%d by %s",
 					smm.ID, uid, smm.FID, run, qname, qtyp, blocklists)
 			}
 			return res1, smm.ID, nil
 		}
 	} else if log.Verbose {
-		log.V("dns: fwd: 4 %s for %s (fid: %s); r%d, query NOT blocked %s:%d; why? %v", smm.ID, uid, smm.FID, run, qname, qtyp, err)
+		log.V4(smm.FID, "dns: fwd: 4 %s for %s (fid: %s); r%d, query NOT blocked %s:%d; why? %v", smm.ID, uid, smm.FID, run, qname, qtyp, err)
 	}
 
 	var res2 *dns.Msg
@@ -830,7 +836,7 @@ runagain:
 
 	if nonalg == nil || err != nil { // TODO: servfail?
 		if isAlgErr(err) { // alg errs not set when gw.translate is off
-			log.W("dns: fwd: 5 %s for %s (fid: %s); r%d, alg error %s for %s:%d", smm.ID, uid, smm.FID, run, err, qname, qtyp)
+			log.W4(smm.FID, "dns: fwd: 5 %s for %s (fid: %s); r%d, alg error %s for %s:%d", smm.ID, uid, smm.FID, run, err, qname, qtyp)
 			smm.Status = NoResponse
 		} else if smm.Status == Start {
 			smm.Status = InternalError
@@ -876,7 +882,7 @@ runagain:
 		res2 = ans2
 
 		if log.Verbose {
-			log.V("dns: fwd: 6 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, smm[data: %s, status: %d] blocked",
+			log.V4(smm.FID, "dns: fwd: 6 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, smm[data: %s, status: %d] blocked",
 				smm.ID, uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), smm.RData, smm.Status)
 		}
 		return res2, smm.ID, err
@@ -887,21 +893,21 @@ runagain:
 	ansblocked := xdns.AQuadAUnspecified(ans1)
 
 	if log.Verbose {
-		log.V("dns: fwd: 7 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
+		log.V4(smm.FID, "dns: fwd: 7 for %s[%s] (fid: %s); query %s:%d, r%d, onQueryTime: %s / onAnswerTime: %s, ips: %s; smm[data: %s, status: %d]; new-ans? %t, blocklists? %t, blocked? %t",
 			smm.ID, uid, smm.FID, qname, qtyp, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), realips, smm.RData, smm.Status, hasblockedans, hasblocklists, ansblocked)
 	}
 
 	if run == 1 {
 		onUpstreamAnswerStart := time.Now()
 
-		pref2, ouacompleted := core.Grx("r.onUA."+fid+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
+		pref2, ouacompleted := core.Grx("r.onUA."+smm.FID+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
 			return r.listener.OnUpstreamAnswer(who, smm, pref.Copy(), realips), nil
 		}, answerTimeout)
 
 		onUpstreamAnswerDone = time.Since(onUpstreamAnswerStart).Seconds()
 
 		if !ouacompleted {
-			log.W("dns: fwd: 8 for %s[%s] (fid: %s); onQueryTime: %s, onAnswerTime: %s; preferences2 missing for %s:%d; ips? %s",
+			log.W4(smm.FID, "dns: fwd: 8 for %s[%s] (fid: %s); onQueryTime: %s, onAnswerTime: %s; preferences2 missing for %s:%d; ips? %s",
 				smm.ID, uid, smm.FID, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), qname, qtyp, realips)
 			smm.Status = ClientError
 			smm.Msg = errOnUpstreamAnsTimeout.Error()
@@ -912,14 +918,14 @@ runagain:
 		if pref2 != nil && len(pref2.TIDCSV) > 0 && pref2.TIDCSV != pref.TIDCSV {
 			pref = pref2
 			if log.Verbose {
-				log.V("dns: fwd: 9 for %s[%s] (fid: %s); onQueryTime: %s / onAnswerTime: %s; preferences2 changed for %s:%d; ips? %s; new prefs: %v",
+				log.V4(smm.FID, "dns: fwd: 9 for %s[%s] (fid: %s); onQueryTime: %s / onAnswerTime: %s; preferences2 changed for %s:%d; ips? %s; new prefs: %v",
 					smm.ID, uid, smm.FID, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), qname, qtyp, realips, pref2)
 			}
 			goto runagain // re-run with new pids
 		}
 
 		if log.Verbose {
-			log.V("dns: fwd: 10 for %s[%s] (fid: %s), r%d; onQueryTime: %s / onAnswerTime: %s; preferences2 skipped for %s:%d [ips? %s]: %v",
+			log.V4(smm.FID, "dns: fwd: 10 for %s[%s] (fid: %s), r%d; onQueryTime: %s / onAnswerTime: %s; preferences2 skipped for %s:%d [ips? %s]: %v",
 				smm.ID, uid, smm.FID, run, core.FmtSecsFloat(onQueryDone), core.FmtSecsFloat(onUpstreamAnswerDone), qname, qtyp, realips, pref2)
 		}
 	}
@@ -932,7 +938,7 @@ runagain:
 // Serve implements Resolver.
 func (r *resolver) Serve(proto string, c protect.Conn, uid, fid string) (rx, tx int64, errs []error) {
 	if r.closed.Load() {
-		err := log.EE("dns: serve: closed for business")
+		err := log.EE4(fid, "dns: serve: closed for business")
 		errs = append(errs, err)
 		return
 	}
@@ -950,7 +956,7 @@ func (r *resolver) Serve(proto string, c protect.Conn, uid, fid string) (rx, tx 
 	case NetTypeUDP:
 		rx, tx, errs = r.reply(c, uid, fid)
 	default:
-		err := log.EE("dns: %s unknown proto: %s", fid, proto)
+		err := log.EE4(fid, "dns: %s unknown proto: %s", fid, proto)
 		errs = append(errs, err)
 	}
 	return
@@ -1044,7 +1050,7 @@ func (r *resolver) determineTransport(id string) Transport {
 func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid, fid string) (written int, err error) {
 	msg, uerr := unpack(q)
 	if uerr != nil {
-		log.W("dns: tcp: for %s (fid: %s) not a dns packet: %v", uid, fid, uerr)
+		log.W4(fid, "dns: tcp: for %s (fid: %s) not a dns packet: %v", uid, fid, uerr)
 		clos(w) // close on client err
 		return 0, uerr
 	}
@@ -1076,7 +1082,7 @@ func (r *resolver) dnstcp(q []byte, w io.WriteCloser, uid, fid string) (written 
 func (r *resolver) dnsudp(q []byte, w io.Writer, uid, fid string) (written int, err error) {
 	msg, uerr := unpack(q)
 	if uerr != nil {
-		log.W("dns: udp: for %s (fid: %s) not a dns packet: %v", uid, fid, uerr)
+		log.W4(fid, "dns: udp: for %s (fid: %s) not a dns packet: %v", uid, fid, uerr)
 		return 0, uerr
 	}
 
@@ -1127,7 +1133,7 @@ func (r *resolver) reply(c protect.Conn, uid, fid string) (rx, tx int64, errs []
 		_ = c.SetDeadline(tm)
 
 		if n, err := c.Read(q); err != nil {
-			log.VV("dns: udp: for %s (fid: %s) done; tot: %d, t: %s, err: %v",
+			log.VV4(fid, "dns: udp: for %s (fid: %s) done; tot: %d, t: %s, err: %v",
 				uid, fid, cnt, core.FmtTimeAsPeriod(start), err)
 			free()
 			break
@@ -1142,7 +1148,7 @@ func (r *resolver) reply(c protect.Conn, uid, fid string) (rx, tx int64, errs []
 				defer wg.Done()
 				defer frees()
 				m, err := r.dnsudp(qs, c, uid, fid)
-				logeif(err != nil)("dns: udp: for %s (fid: %s) err! tot: %d, t: %s, %v",
+				logeif4(fid, err != nil)("dns: udp: for %s (fid: %s) err! tot: %d, t: %s, %v",
 					uid, fid, cnts, core.FmtTimeAsPeriod(start), err)
 				rxv.Add(int64(m))
 				txv.Add(int64(n))
@@ -1158,7 +1164,7 @@ func (r *resolver) reply(c protect.Conn, uid, fid string) (rx, tx int64, errs []
 	wg.Wait() // wait to acc rx, tx, errs
 	rx = rxv.Load()
 	tx = txv.Load()
-	log.VV("dns: udp: for %s done; tot: %d (rx: %d, tx: %d), t: %s", uid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
+	log.VV4(fid, "dns: udp: for %s done; tot: %d (rx: %d, tx: %d), t: %s", uid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
 	return
 }
 
@@ -1177,16 +1183,16 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid, fid string) (rx, tx int64, 
 	for {
 		n, err := c.Read(qlbuf)
 		if n == 0 {
-			log.D("dns: tcp: for %s (fid: %s) query socket shutdown", uid, fid)
+			log.D4(fid, "dns: tcp: for %s (fid: %s) query socket shutdown", uid, fid)
 			break
 		}
 		if err != nil {
-			log.W("dns: tcp: for %s (fid: %s) err reading from socket: %v", uid, fid, err)
+			log.W4(fid, "dns: tcp: for %s (fid: %s) err reading from socket: %v", uid, fid, err)
 			break // close on read errs
 		}
 		// TODO: inform the listener?
 		if n < 2 {
-			log.W("dns: tcp: for %s (fid: %s) incomplete query length", uid, fid)
+			log.W4(fid, "dns: tcp: for %s (fid: %s) incomplete query length", uid, fid)
 			break // close on incorrect lengths
 		}
 		qlen := binary.BigEndian.Uint16(qlbuf)
@@ -1201,13 +1207,13 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid, fid string) (rx, tx int64, 
 
 		n, err = c.Read(q)
 		if err != nil {
-			log.D("dns: tcp: for %s (fid: %s) done; err: %v", uid, fid, err)
+			log.D4(fid, "dns: tcp: for %s (fid: %s) done; err: %v", uid, fid, err)
 			free()
 			break // close on read errs
 		}
 		if n != int(qlen) {
 			free()
-			log.W("dns: tcp: for %s (fid: %s) incomplete query: %d < %d; tot: %d, t: %s",
+			log.W4(fid, "dns: tcp: for %s (fid: %s) incomplete query: %d < %d; tot: %d, t: %s",
 				uid, fid, n, qlen, cnt, core.FmtTimeAsPeriod(start))
 			break // close on incomplete reads
 		}
@@ -1221,7 +1227,7 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid, fid string) (rx, tx int64, 
 			defer wg.Done()
 			defer frees()
 			m, err := r.dnstcp(qs, c, uid, fid)
-			logeif(err != nil)("dns: tcp: for %s (fid: %s) err! tot: %d, t: %s, %v",
+			logeif4(fid, err != nil)("dns: tcp: for %s (fid: %s) err! tot: %d, t: %s, %v",
 				uid, fid, cnts, core.FmtTimeAsPeriod(start), err)
 			if err != nil {
 				errsMu.Lock()
@@ -1236,7 +1242,7 @@ func (r *resolver) accept(c io.ReadWriteCloser, uid, fid string) (rx, tx int64, 
 	wg.Wait()
 	rx = rxv.Load()
 	tx = txv.Load()
-	log.VV("dns: tcp: for %s (fid: %s) done; tot: %d (rx: %d, tx: %d), t: %s",
+	log.VV4(fid, "dns: tcp: for %s (fid: %s) done; tot: %d (rx: %d, tx: %d), t: %s",
 		uid, fid, cnt, rx, tx, core.FmtTimeAsPeriod(start))
 	// TODO: Cancel outstanding queries.
 	return
@@ -1423,7 +1429,7 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 
 	if s == nil { // should never happen; but it has during testing (on End())
 		diags = append(diags, "nil prefs")
-		log.W("dns: pref: %s no ns opts for %s", fid, qname)
+		log.W4(fid, "dns: pref: %s no ns opts for %s", fid, qname)
 		return // no-op
 	} else {
 		x, t1pids = parseAllTidOpts(s.TIDCSV)
@@ -1434,21 +1440,21 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 			diags = append(diags, fmt.Sprintf("%d invalid ips / %d invalid fam", badips, badfam))
 		}
 		if log.Verbose {
-			log.VV("dns: pref: %s tids for %s: p=%v s=%v", fid, qname, x, xx)
+			log.VV4(fid, "dns: pref: %s tids for %s: p=%v s=%v", fid, qname, x, xx)
 		}
 	}
 
 	// TODO: ok if len(ips) > 0?
 	if len(x) <= 0 { // x may be nil
-		log.W("dns: pref: %s no tids for %s (sec? %v)", fid, qname, xx)
+		log.W4(fid, "dns: pref: %s no tids for %s (sec? %v)", fid, qname, xx)
 		diags = append(diags, "no tids")
 		// no-op
 	} else {
 		// TODO: fallback on all id1s
-		id1 = r.chooseOne(qname+fid, true /*at random*/, x...)
-		id2 = r.chooseOne(qname+fid, true /*at random*/, xx...) // mostly, just 0 or 1 secondary
+		id1 = r.chooseOne(qname+fid, fid, true /*at random*/, x...)
+		id2 = r.chooseOne(qname+fid, fid, true /*at random*/, xx...) // mostly, just 0 or 1 secondary
 		if log.Verbose {
-			log.VV("dns: pref: %s chosen tids for %s: p=%s s=%s / chosen=%v", fid, qname, id1, id2, chosenids)
+			log.VV4(fid, "dns: pref: %s chosen tids for %s: p=%s s=%s / chosen=%v", fid, qname, id1, id2, chosenids)
 			diags = append(diags, fmt.Sprintf("selected(%s,%s)", id1, id2))
 		}
 	}
@@ -1462,7 +1468,7 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 			id2 = ""
 			diags = append(diags, "plus over default")
 			if log.Debug {
-				log.D("dns: pref: %s use Plus instead of Default for %s", fid, qname)
+				log.D4(fid, "dns: pref: %s use Plus instead of Default for %s", fid, qname)
 			}
 		} else {
 			id1 = chosenids[0] // never empty
@@ -1472,12 +1478,12 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 			}
 			diags = append(diags, fmt.Sprintf("chosen(%s,%s)", id1, id2))
 			if log.Debug {
-				log.D("dns: pref: %s use chosen tr(%s, %s) for %s", fid, id1, id2, qname)
+				log.D4(fid, "dns: pref: %s use chosen tr(%s, %s) for %s", fid, id1, id2, qname)
 			}
 		}
 	} else if reqid := r.requiresGoosOrLocal(qname); len(reqid) > 0 {
 		// use approp transport given a qname
-		log.D("dns: pref: %s use suggested tr(%s) for %s", fid, reqid, qname)
+		log.D4(fid, "dns: pref: %s use suggested tr(%s) for %s", fid, reqid, qname)
 		id1 = reqid
 		id2 = ""
 		diags = append(diags, fmt.Sprintf("local(%s)", qname))
@@ -1493,13 +1499,13 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 			id2 = Preferred
 		}
 		if log.Verbose {
-			log.VV("dns: pref: %s use fixed tr(%s, %s) for %s", fid, id1, id2, qname)
+			log.VV4(fid, "dns: pref: %s use fixed tr(%s, %s) for %s", fid, id1, id2, qname)
 		}
 		// s.NOBLOCK must be respected
 		// as must be the pids
 	}
 	if len(ips) > 0 {
-		log.D("dns: pref: preset ips (no block) %v for %s", ips, qname)
+		log.D4(fid, "dns: pref: preset ips (no block) %v for %s", ips, qname)
 		s.NOBLOCK = true // skip blocks if ips are set (even if unspecified ips)
 		id2 = ""         // no secondary transport
 	}
@@ -1512,12 +1518,12 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 	reqblock := isAnyBlockAll(x...) || isAnyBlockAll(xx...)
 	if isAnyBlockFree(id1, id2) {
 		if !s.NOBLOCK {
-			log.W("dns: pref: %s tr for %s over %s+%s; override NOBLOCK", fid, qname, id1, id2)
+			log.W4(fid, "dns: pref: %s tr for %s over %s+%s; override NOBLOCK", fid, qname, id1, id2)
 			s.NOBLOCK = true
 		}
 	} else if ipblock || trblock || reqblock {
 		diags = append(diags, fmt.Sprintf("block(ip?%t, tr?%t, req?%t)", ipblock, trblock, reqblock))
-		log.D("dns: pref: %s tr for %s over %s+%s; block ip? %t, pref? %t, chose? %t",
+		log.D4(fid, "dns: pref: %s tr for %s over %s+%s; block ip? %t, pref? %t, chose? %t",
 			fid, qname, id1, id2, ipblock, trblock, reqblock)
 		// BlockAll must appear in primary TIDCSV
 		id1 = BlockAll // just one transport, BlockAll, if set
@@ -1534,7 +1540,7 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 		if pidcsv != pid {
 			diags = append(diags, fmt.Sprintf("pid %s <> %s", pidcsv, pid))
 			if log.Debug {
-				log.D("dns: pref: %s override pidcsv to %s for %s; tr(%s, %s)", fid, pidcsv, qname, id1, id2)
+				log.D4(fid, "dns: pref: %s override pidcsv to %s for %s; tr(%s, %s)", fid, pidcsv, qname, id1, id2)
 			}
 		}
 	} else {
@@ -1545,7 +1551,7 @@ func (r *resolver) preferencesFrom(fid, qname string, qtyp uint16, s *x.DNSOpts,
 		if spidcsv != pid {
 			diags = append(diags, fmt.Sprintf("pid %s <> %s", spidcsv, pid))
 			if log.Debug {
-				log.D("dns: pref: %s override spid to %s for %s; tr(%s, %s)", fid, spidcsv, qname, id1, id2)
+				log.D4(fid, "dns: pref: %s override spid to %s for %s; tr(%s, %s)", fid, spidcsv, qname, id1, id2)
 			}
 		}
 	} else {
@@ -1567,7 +1573,7 @@ func (r *resolver) requiresGoosOrLocal(qname string) (id string) {
 	return
 }
 
-func (r *resolver) chooseOne(who string, random bool, ids ...string) (theone string) {
+func (r *resolver) chooseOne(who, fid string, random bool, ids ...string) (theone string) {
 	if len(ids) <= 0 {
 		return ""
 	}
@@ -1596,7 +1602,7 @@ func (r *resolver) chooseOne(who string, random bool, ids ...string) (theone str
 	remote, rerecov, best, preferred, recoverables, errored, ended := Categorize(trs)
 	if log.Debug {
 		defer func() {
-			loged(len(theone) <= 0)("dns: pref: %s chose: %s from remote(%v) remoterecov(%v) best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
+			logeif4(fid, len(theone) <= 0)("dns: pref: %s chose: %s from remote(%v) remoterecov(%v) best(%v) prefer(%v) recov(%v) err(%v) dead(%v) miss(%v)",
 				who, theone, tr2csv2(remote), tr2csv2(rerecov), tr2csv2(best), tr2csv2(preferred), tr2csv2(recoverables), tr2csv2(errored), tr2csv2(ended), strings.Join(miss, ","))
 		}()
 	}
@@ -1639,7 +1645,7 @@ func (r *resolver) chooseOne(who string, random bool, ids ...string) (theone str
 		}
 		return idstr(errored[0])
 	}
-	log.E("dns: pref: %s no transports for %v (%d) [missed? %v / ended? %v]", who, ids, len(ids), miss, ended)
+	log.E4(fid, "dns: pref: %s no transports for %v (%d) [missed? %v / ended? %v]", who, ids, len(ids), miss, ended)
 	return ""
 }
 
