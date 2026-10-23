@@ -99,18 +99,24 @@ func init() {
 }
 
 // slabfor returns a sync.Pool that byte b can be recycled into.
-func slabfor(b *[]byte) *sync.Pool {
+func slabfor(b *[]byte) (p *sync.Pool) {
 	sz := cap(*b)
-	if sz != B2048 &&
-		sz != B4096 &&
-		sz != B8192 &&
-		sz != B16384 &&
-		sz != B32768 &&
-		sz != B65536 &&
-		sz != B524288 {
-		return nil
+	if sz >= B2048 && sz < B4096 { // min 2k
+		p = slabs[k(B2048)]
+	} else if sz >= B4096 && sz < B8192 { // min 4k
+		p = slabs[k(B4096)]
+	} else if sz >= B8192 && sz < B16384 { // min 8k
+		p = slabs[k(B8192)]
+	} else if sz >= B16384 && sz < B32768 { // min 16k
+		p = slabs[k(B16384)]
+	} else if sz >= B32768 && sz < B65536 { // min 32k
+		p = slabs[k(B32768)]
+	} else if sz >= B65536 && sz < B524288 { // min 64k
+		p = slabs[k(B65536)]
+	} else if sz == B524288 { // exactly 512k
+		p = slabs[k(B524288)]
 	}
-	return slabof(sz)
+	return
 }
 
 // slabof returns a sync.Pool that vends byte slices with capacity at least sz.
