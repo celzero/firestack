@@ -56,6 +56,7 @@ const (
 	MaxDNSPacketSize        = 4096
 	MaxDNSUDPPacketSize     = 4096
 	MaxDNSUDPSafePacketSize = 1252
+	MaxDNSTCPPacketSize     = 65535
 
 	// 0 TTL means no caching:
 	// cs.android.com/android/platform/superproject/main/+/main:packages/modules/DnsResolver/res_cache.cpp;l=770;drc=5483e926ea7753866350b1681fef8f3214708261

@@ -1692,10 +1692,18 @@ func (r *resolver) loadaddrs(csvaddr string) {
 
 func writePrefixed(w io.Writer, b []byte, l int) (int, error) {
 	const pre = 2
+	if l < 0 || l > len(b) || l+pre > xdns.MaxDNSTCPPacketSize {
+		return 0, fmt.Errorf("dns: request %d out of range of %d bytes", l, len(b))
+	}
+
 	sz := l + pre
 	bptr := core.AllocRegion(sz)
 	buf := *bptr
 	buf = buf[:cap(buf)]
+
+	if sz > len(buf) {
+		return 0, fmt.Errorf("dns: out of available bytes %d/%d", sz, len(buf))
+	}
 
 	defer func() {
 		*bptr = buf
@@ -1705,7 +1713,7 @@ func writePrefixed(w io.Writer, b []byte, l int) (int, error) {
 	binary.BigEndian.PutUint16(buf, uint16(l))
 	// Use a combined write (pre+b) to ensure atomicity.
 	// Otherwise, writes from two responses could be interleaved.
-	copy(buf[pre:], b)
+	copy(buf[pre:], b[:l])
 	n, err := w.Write(buf[:sz])
 	return max(0, n-pre), err
 }

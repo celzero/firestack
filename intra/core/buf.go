@@ -33,6 +33,8 @@ const (
 	B4096 = 4 * 1024
 	// B2048 is slab of size 2k; also the min
 	B2048 = 2 * 1024
+	// BMIN is the smallest pooled slab size
+	BMIN = B2048
 	// BMAX is the largest pooled slab size
 	BMAX = B524288
 )
@@ -96,30 +98,37 @@ func init() {
 	slabs[k(B524288)] = newpool(B524288)
 }
 
-// slabfor returns a sync.Pool that byte b can be recycled to.
+// slabfor returns a sync.Pool that byte b can be recycled into.
 func slabfor(b *[]byte) *sync.Pool {
 	sz := cap(*b)
+	if sz != B2048 &&
+		sz != B4096 &&
+		sz != B8192 &&
+		sz != B16384 &&
+		sz != B32768 &&
+		sz != B65536 &&
+		sz != B524288 {
+		return nil
+	}
 	return slabof(sz)
 }
 
-// slabof returns the sync.Pool that vends byte slices of size sz.
+// slabof returns a sync.Pool that vends byte slices with capacity at least sz.
 func slabof(sz int) (p *sync.Pool) {
-	if sz > BMAX {
-		// do not store larger regions
-	} else if sz >= B524288 { // min 512k
-		p = slabs[k(B524288)]
-	} else if sz >= B65536 { // min 64k
-		p = slabs[k(B65536)]
-	} else if sz >= B32768 { // min 32k
-		p = slabs[k(B32768)]
-	} else if sz >= B16384 { // min 16k
-		p = slabs[k(B16384)]
-	} else if sz >= B8192 { // min 8k
-		p = slabs[k(B8192)]
-	} else if sz >= B4096 { // min 4k
-		p = slabs[k(B4096)]
-	} else { // min 2k
+	if sz <= B2048 { // max 2k
 		p = slabs[k(B2048)]
+	} else if sz <= B4096 { // max 4k
+		p = slabs[k(B4096)]
+	} else if sz <= B8192 { // max 8k
+		p = slabs[k(B8192)]
+	} else if sz <= B16384 { // max 16k
+		p = slabs[k(B16384)]
+	} else if sz <= B32768 { // max 32k
+		p = slabs[k(B32768)]
+	} else if sz <= B65536 { // max 64k
+		p = slabs[k(B65536)]
+	} else if sz <= B524288 { // max 512k
+		p = slabs[k(B524288)]
 	}
 	return
 }
