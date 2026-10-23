@@ -123,7 +123,7 @@ func (s *logstore) Put(b *[]byte) {
 
 // release marks this store consumed or recycled and returns its pooled
 // slabs to the pool (logpool.go).
-func (s *logstore) release() {
+func (s *logstore) release() (released bool) {
 	if s == nil {
 		return
 	}
@@ -136,12 +136,14 @@ func (s *logstore) release() {
 	s.dead = true
 	for i := range s.b {
 		if p := s.b[i]; p != nil {
+			released = true
 			recycle(p)
 			s.b[i] = nil
 		}
 	}
 	s.n = 0
 	s.head = 0
+	return
 }
 
 // setCap resizes the ring to n lines, evicting (and recycling) the
@@ -226,9 +228,15 @@ func GetAll(key uint64) LogStore {
 	return logstoremap[key]
 }
 
+// GetAll returns the LogStore trace for key, if any.
+// Returns nil if no [LogStore] exists for key.
+func GetAllStr(key string) LogStore {
+	return GetAll(hex2uint64(key))
+}
+
 // Release removes the LogStore for key, if any, from the global map and
 // recycles its pooled byte slices.
-func Release(key uint64) {
+func Release(key uint64) bool {
 	logstoremu.Lock()
 	ls := logstoremap[key]
 	delete(logstoremap, key)
@@ -238,9 +246,16 @@ func Release(key uint64) {
 	}
 	logstoremu.Unlock()
 
-	if s, ok := ls.(*logstore); ok {
-		s.release()
+	if ls != nil {
+		if s, ok := ls.(*logstore); ok {
+			return s.release()
+		}
 	}
+	return false
+}
+
+func ReleaseStr(key string) {
+	Release(hex2uint64(key))
 }
 
 // SetTraceCap sets the max number of lines each LogStore accumulates,

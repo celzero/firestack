@@ -254,6 +254,36 @@ func LowMem(limitBytes int64) {
 	log.I("tun: lowmem; limits => new: %d, prev: %d", limitBytes, prevLimit)
 }
 
+// PeekLogs returns the logs for key, if any, as a byte slice.
+func PeekLogs(id string) []byte {
+	s := log.GetAllStr(id)
+	if s == nil {
+		return nil
+	}
+
+	l := s.Get()
+	if l == nil {
+		return nil
+	}
+
+	var out []byte
+	for _, line := range *l {
+		if line == nil {
+			out = append(out, []byte("<nil>\n")...)
+		} else {
+			out = append(out, line...)
+			out = append(out, '\n')
+		}
+	}
+	return out
+}
+
+// Release removes the LogStore for key, if any, from the global map and
+func ExtractLogs(id string) []byte {
+	defer log.ReleaseStr(id)
+	return PeekLogs(id)
+}
+
 // Slowdown sets the TUN forwarder in single-threaded mode.
 func Slowdown(y bool) {
 	ok := settings.SingleThreaded.CompareAndSwap(!y, y)
