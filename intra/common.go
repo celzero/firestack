@@ -957,14 +957,6 @@ func anyaddrFor(ipp netip.AddrPort) (proto, anyaddr string) {
 	return ipn.AnyAddrForUDP(ipp)
 }
 
-func logev(err error) log.LogFn {
-	f := log.E
-	if err == nil {
-		f = log.VV
-	}
-	return f
-}
-
 func logev4(key string, err error) log.LogFn {
 	if err == nil {
 		return func(msg string, args ...any) { log.VV4(key, msg, args...) }
