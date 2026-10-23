@@ -1138,6 +1138,7 @@ func (l *simpleLogger) logstat() LogStat {
 	}
 
 	s.PoolGets, s.PoolNews, s.PoolPuts, s.PoolDrops = logpoolStats()
+	s.TrMapSize, s.TrOrdSize, s.TrIdxSize, s.TrMapCap = logstoreStats()
 
 	return s
 }

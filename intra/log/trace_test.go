@@ -152,6 +152,28 @@ func TestTraceMapCapFIFO(t *testing.T) {
 	}
 }
 
+func TestLogStatTraceStoreStats(t *testing.T) {
+	const key = uint64(0xBADC1000)
+	defer Release(key)
+
+	storefor(key)
+	stat := defaultLogger().logstat()
+	if stat.TrMapSize < 1 {
+		t.Fatalf("trace map size does not include the new store: %d", stat.TrMapSize)
+	}
+	if stat.TrMapSize != stat.TrOrdSize || stat.TrMapSize != stat.TrIdxSize {
+		t.Fatalf("trace-store indexes disagree: map=%d order=%d index=%d",
+			stat.TrMapSize, stat.TrOrdSize, stat.TrIdxSize)
+	}
+	if stat.TrMapCap != logmapcap {
+		t.Fatalf("trace map capacity: %d != %d", stat.TrMapCap, logmapcap)
+	}
+
+	if got, want := stat.String(), "trace: map="; !strings.Contains(got, want) {
+		t.Fatalf("metrics string omits trace-store stats %q: %q", want, got)
+	}
+}
+
 func TestTraceRelease(t *testing.T) {
 	const key = uint64(0xDEAD02)
 

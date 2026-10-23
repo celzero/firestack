@@ -284,6 +284,14 @@ func TraceCap() int {
 	return logstorecap
 }
 
+// logstoreStats returns a consistent snapshot of the global trace-store indexes.
+func logstoreStats() (mapSize, orderSize, indexSize, mapCap int) {
+	logstoremu.Lock()
+	defer logstoremu.Unlock()
+
+	return len(logstoremap), logstoreord.Len(), len(logstoreidx), logmapcap
+}
+
 // VV3 logs a very verbose message, traced to the LogStore for key (if any).
 func VV3(key uint64, msg string, args ...any) {
 	Glogger.VeryVerbosef(key, callerat, msg, args...)

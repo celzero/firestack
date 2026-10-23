@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// LogStat holds a snapshot of logger and pool statistics.
+// LogStat holds a snapshot of logger, pool, and trace-store statistics.
 type LogStat struct {
 	// Logger identity
 	Tag string
@@ -35,6 +35,11 @@ type LogStat struct {
 	PoolDrops uint64
 	// Ring buffer size
 	RingSize int
+	// Per-key trace-store indexes and capacity
+	TrMapSize int
+	TrMapCap  int
+	TrOrdSize int
+	TrIdxSize int
 	// Spam clock: per-level ticks
 	ClockL1 [NONE + 1]uint8
 }
@@ -93,7 +98,11 @@ func (s LogStat) String() string {
 	sb.WriteByte('\n')
 
 	// ring buffer
-	fmt.Fprintf(&sb, "ring: size=%d", s.RingSize)
+	fmt.Fprintf(&sb, "ring: size=%d\n", s.RingSize)
+
+	// per-key trace stores
+	fmt.Fprintf(&sb, "trace: map=%d/%d order=%d index=%d",
+		s.TrMapSize, s.TrMapCap, s.TrOrdSize, s.TrIdxSize)
 
 	return sb.String()
 }
