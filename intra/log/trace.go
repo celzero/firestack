@@ -46,7 +46,7 @@ type LogStore interface {
 const defaultTraceCap = 256
 
 // logmapcap is the maximum number of live trace keys.
-const logmapcap = defaultTraceCap
+const logmapcap = 1024
 
 var (
 	logstoremu  sync.Mutex                       // guards the store map, FIFO, and logstorecap

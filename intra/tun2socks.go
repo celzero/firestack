@@ -254,8 +254,8 @@ func LowMem(limitBytes int64) {
 	log.I("tun: lowmem; limits => new: %d, prev: %d", limitBytes, prevLimit)
 }
 
-// PeekLogs returns the logs for key, if any, as a byte slice.
-func PeekLogs(id string) []byte {
+// PeekTrace returns a log trace for key, if any, as a byte slice.
+func PeekTrace(id string) []byte {
 	s := log.GetAllStr(id)
 	if s == nil {
 		return nil
@@ -278,10 +278,11 @@ func PeekLogs(id string) []byte {
 	return out
 }
 
-// Release removes the LogStore for key, if any, from the global map and
-func ExtractLogs(id string) []byte {
+// ExtractTrace is like [PeekTrace] but in addition also frees up the memory backing
+// the log trace, if any.
+func ExtractTrace(id string) []byte {
 	defer log.ReleaseStr(id)
-	return PeekLogs(id)
+	return PeekTrace(id)
 }
 
 // Slowdown sets the TUN forwarder in single-threaded mode.
