@@ -1,6 +1,6 @@
 module github.com/celzero/firestack
 
-go 1.27
+go 1.27.3
 
 require (
 	github.com/celzero/gotrie v0.0.0-20250314130138-a2756ab2f6bd
@@ -20,9 +20,9 @@ require (
 	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
 	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
-	golang.org/x/time v0.12.0
+	golang.org/x/time v0.15.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
-	gvisor.dev/gvisor v0.0.0-20260508212337-96dad6a2da94
+	gvisor.dev/gvisor v0.0.0-20261024195952-2b8fa30fdc5c
 )
 
 require (
@@ -37,11 +37,11 @@ require (
 	github.com/pkg/diff v0.0.0-20200914180035-5b29258ca4f7 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/txthinking/runnergroup v0.0.0-20210608031112-152c7c4432bf // indirect
-	golang.org/x/exp v0.0.0-20241004190924-225e2abe05e6 // indirect
+	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )
 
