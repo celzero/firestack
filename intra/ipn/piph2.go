@@ -29,7 +29,6 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
-	"golang.org/x/net/http2"
 )
 
 type piph2 struct {
@@ -111,43 +110,6 @@ func (c *pipconn) RemoteAddr() net.Addr               { return c.raddr }
 func (c *pipconn) SetDeadline(t time.Time) error      { return nil }
 func (c *pipconn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *pipconn) SetWriteDeadline(t time.Time) error { return nil }
-
-func (t *piph2) dialtlsctx(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-	rawConn, err := t.dial(network, addr)
-	if err != nil || rawConn == nil || core.IsNil(rawConn) {
-		return nil, core.JoinErr(err, errNoProxyConn)
-	}
-
-	colonPos := strings.LastIndex(addr, ":")
-	if colonPos == -1 {
-		colonPos = len(addr)
-	}
-	hostname := addr[:colonPos]
-
-	if cfg == nil {
-		cfg = &tls.Config{
-			ServerName:             hostname,
-			MinVersion:             tls.VersionTLS12,
-			SessionTicketsDisabled: false,
-			ClientSessionCache:     core.TlsSessionCache(),
-		}
-	} else if cfg.ServerName == "" {
-		if cfg = cfg.Clone(); cfg != nil {
-			cfg.ServerName = hostname
-			if cfg.ClientSessionCache == nil && !cfg.SessionTicketsDisabled {
-				cfg.ClientSessionCache = core.TlsSessionCache()
-			}
-		}
-	}
-
-	conn := tls.Client(rawConn, cfg)
-	if err := conn.HandshakeContext(ctx); err != nil {
-		log.D("piph2: dialtls(%s) handshake error: %v", addr, err)
-		core.CloseConn(rawConn)
-		return nil, err
-	}
-	return conn, nil
-}
 
 // dial dials proxy addr using the proxydialer via dialers.SplitDial,
 // which is aware of proto changes.
@@ -252,21 +214,15 @@ func NewPipProxy(ctx context.Context, ctl protect.Controller, px ProxyProvider, 
 		// 	github.com/quic-go/quic-go v0.36.1
 		// t.client.Transport = &http3.RoundTripper{}
 		log.W("piph2: h3 not supported yet")
-		t.client.Transport = &http2.Transport{
-			DialTLSContext: t.dialtlsctx,
-		}
 	} else if trType == "h2" {
 		// h2 is duplex: github.com/golang/go/issues/19653#issuecomment-341539160
-		t.client.Transport = &http2.Transport{
-			DialTLSContext: t.dialtlsctx,
-		}
-	} else {
-		t.client.Transport = &http.Transport{
-			DialContext:           t.dialctx,
-			ForceAttemptHTTP2:     true,
-			TLSHandshakeTimeout:   tlsHandshakeTimeout,
-			ResponseHeaderTimeout: responseHeaderTimeout,
-		}
+	}
+	t.client.Transport = &http.Transport{
+		DialContext:           t.dialctx,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   tlsHandshakeTimeout,
+		ResponseHeaderTimeout: responseHeaderTimeout,
+		// TODO: TLS Session Cache
 	}
 
 	return t, nil

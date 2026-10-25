@@ -117,9 +117,9 @@ var (
 	autoNsOpts = &x.DNSOpts{IPCSV: "", TIDCSV: x.CT + "test0:" + x.RpnWin}
 )
 
-func (*fakeBdg) OnPrequery(_, _, _ string, _ int) *x.DomainOpts { return nil }
-func (*fakeBdg) OnQuery(_, _, _ string, _ int) *x.DNSOpts       { return autoNsOpts }
-func (*fakeBdg) OnUpstreamAnswer(_ string, _ *x.DNSSummary, _ *x.DNSOpts, _ string) *x.DNSOpts {
+func (*fakeBdg) OnPrequery(_, _, _, _ string, _ int) *x.DomainOpts { return nil }
+func (*fakeBdg) OnQuery(_, _, _, _ string, _ int) *x.DNSOpts       { return autoNsOpts }
+func (*fakeBdg) OnUpstreamAnswer(_, _ string, _ *x.DNSSummary, _ *x.DNSOpts, _ string) *x.DNSOpts {
 	return nil
 }
 func (*fakeBdg) OnResponse(*x.DNSSummary) {}
