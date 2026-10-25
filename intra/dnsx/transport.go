@@ -678,11 +678,12 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, uid stri
 
 	starttime := time.Now()
 
+	fid := ogsmm.FID
 	qname := ogsmm.QName
 	qtyp := ogsmm.QType
 
 	domopts, opqcompleted := core.Grx("r.onPrequery."+ogsmm.FID+"."+qname, func(_ context.Context) (*x.DomainOpts, error) {
-		return r.listener.OnPrequery(who, uid, qname, qtyp), nil
+		return r.listener.OnPrequery(who, fid, uid, qname, qtyp), nil
 	}, listenerTimeout)
 
 	if !opqcompleted {
@@ -695,7 +696,7 @@ func (r *resolver) forwardInner(msg *dns.Msg, ogsmm *x.DNSSummary, who, uid stri
 	}
 
 	pref, oqcompleted := core.Grx("r.onQuery."+ogsmm.FID+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
-		return r.listener.OnQuery(who, uid, qname, qtyp), nil
+		return r.listener.OnQuery(who, fid, uid, qname, qtyp), nil
 	}, listenerTimeout)
 
 	onQueryDone = time.Since(starttime).Seconds()
@@ -901,7 +902,7 @@ runagain:
 		onUpstreamAnswerStart := time.Now()
 
 		pref2, ouacompleted := core.Grx("r.onUA."+smm.FID+"."+qname, func(_ context.Context) (*x.DNSOpts, error) {
-			return r.listener.OnUpstreamAnswer(who, smm, pref.Copy(), realips), nil
+			return r.listener.OnUpstreamAnswer(who, fid, smm, pref.Copy(), realips), nil
 		}, answerTimeout)
 
 		onUpstreamAnswerDone = time.Since(onUpstreamAnswerStart).Seconds()

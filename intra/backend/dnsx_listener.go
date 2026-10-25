@@ -163,15 +163,15 @@ type DNSListener interface {
 	ResolverListener
 	// OnPrequery is called before OnQuery with cached rank hints, if any.
 	// May return nil to skip rank gating for this query.
-	OnPrequery(who, uid, domain string, qtyp int) *DomainOpts
+	OnPrequery(who, fid, uid, domain string, qtyp int) *DomainOpts
 	// OnQuery is called when a DNS query is received. The listener
 	// can return a DNSOpts to specify how the query should be handled.
-	OnQuery(who, uid, domain string, qtyp int) *DNSOpts
+	OnQuery(who, fid, uid, domain string, qtyp int) *DNSOpts
 	// OnUpstreamAnswer is called before an upstream DNS answer (not blocked by firestack) is sent to the OS.
 	// The listener may return DNSOpts to specify if another upstream should override that answer.
 	// Another round of OnQuery is NOT called in this case, and OnResponse is called once after processing
 	// DNSOpts returned by OnUpstreamAnswer if it has a non-empty TIDCSV (overriding the original TIDCSV).
-	OnUpstreamAnswer(who string, smm *DNSSummary, forPref *DNSOpts, unmodifiedipcsv string) *DNSOpts
+	OnUpstreamAnswer(who, fid string, smm *DNSSummary, forPref *DNSOpts, unmodifiedipcsv string) *DNSOpts
 	// OnResponse is called when a DNS response is received. May be called twice for the same query,
 	// for instance, when different options are requested through OnUpstreamAnswer.
 	OnResponse(*DNSSummary)
