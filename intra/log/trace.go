@@ -83,12 +83,22 @@ func (s *logstore) Get() *[][]byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.dead {
+	out := s.getLocked()
+	if out == nil {
 		return nil // no-op on consumed or recycled store
+	}
+	return &out
+}
+
+// getLocked returns the live lines in oldest-first order. The caller must
+// hold s.mu; returned slices alias the store's pooled slabs.
+func (s *logstore) getLocked() [][]byte {
+	if s.dead {
+		return nil
 	}
 	out := make([][]byte, 0, s.n)
 	if s.n <= 0 {
-		return &out
+		return out
 	}
 	start := (s.head - s.n + len(s.b)) % len(s.b) // oldest
 	for i := range s.n {
@@ -96,7 +106,7 @@ func (s *logstore) Get() *[][]byte {
 			out = append(out, *p) // zero-copy peek into pooled slab
 		}
 	}
-	return &out
+	return out
 }
 
 // Put implements [LogStore].
@@ -232,6 +242,48 @@ func GetAll(key uint64) LogStore {
 // Returns nil if no [LogStore] exists for key.
 func GetAllStr(key string) LogStore {
 	return GetAll(hex2uint64(key))
+}
+
+// PeekAllTraces returns the lines from all live trace stores, with stores in
+// creation order and lines oldest first. Each line is followed by a newline.
+// The returned bytes are a snapshot and do not alias the pooled slabs.
+func PeekAllTraces() []byte {
+	logstoremu.Lock()
+	defer logstoremu.Unlock()
+
+	var out []byte
+	for x := logstoreord.Front(); x != nil; x = x.Next() {
+		key, ok := x.Value.(uint64)
+		if !ok {
+			continue
+		}
+		s, ok := logstoremap[key].(*logstore)
+		if !ok || s == nil {
+			continue
+		}
+
+		// Get returns aliases to pooled slabs after releasing s.mu. Keep the
+		// lock through the copy so a concurrent Put cannot recycle a line.
+		s.mu.Lock()
+		for _, line := range s.getLocked() {
+			if line == nil {
+				out = append(out, "<nil>\n"...)
+			} else {
+				out = append(out, line...)
+				out = append(out, '\n')
+			}
+		}
+		s.mu.Unlock()
+	}
+	return out
+}
+
+// TraceCount returns the current number of live trace stores.
+func TraceCount() int {
+	logstoremu.Lock()
+	defer logstoremu.Unlock()
+
+	return len(logstoremap)
 }
 
 // Release removes the LogStore for key, if any, from the global map and

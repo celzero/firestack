@@ -278,6 +278,17 @@ func PeekTrace(id string) []byte {
 	return out
 }
 
+// Traces returns all live log traces, with stores in creation order and
+// lines oldest first. Each recorded line is followed by a newline.
+func Traces() []byte {
+	return log.PeekAllTraces()
+}
+
+// TraceCount returns the current number of live per-key log traces.
+func TraceCount() int {
+	return log.TraceCount()
+}
+
 // ExtractTrace is like [PeekTrace] but in addition also frees up the memory backing
 // the log trace, if any.
 func ExtractTrace(id string) []byte {

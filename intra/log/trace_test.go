@@ -72,6 +72,37 @@ func TestTraceCaptureStringKey(t *testing.T) {
 	}
 }
 
+func TestTraceAggregateAndCount(t *testing.T) {
+	const firstKey = uint64(0xC0FFEE101)
+	const secondKey = uint64(0xC0FFEE102)
+	defer Release(firstKey)
+	defer Release(secondKey)
+
+	before := TraceCount()
+	D3(firstKey, "aggregate-first")
+	D3(secondKey, "aggregate-second")
+
+	if got, want := TraceCount(), before+2; got != want {
+		t.Fatalf("TraceCount: %d != %d", got, want)
+	}
+
+	all := PeekAllTraces()
+	first := strings.Index(string(all), "aggregate-first")
+	second := strings.Index(string(all), "aggregate-second")
+	if first < 0 || second < 0 {
+		t.Fatalf("aggregate is missing trace lines: %q", all)
+	}
+	if first >= second {
+		t.Fatalf("aggregate did not preserve store creation order: %q", all)
+	}
+
+	// The aggregate is detached from the stores' pooled slabs.
+	all[first] = 'X'
+	if !strings.Contains(string(PeekAllTraces()), "aggregate-first") {
+		t.Fatal("mutating aggregate changed a stored trace")
+	}
+}
+
 func TestTraceRingCap(t *testing.T) {
 	const key = uint64(0xDEAD01)
 	defer Release(key)
