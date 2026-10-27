@@ -329,7 +329,6 @@ func (w *wgproxy) onNotOK() (didRefresh, allok bool) {
 	// TODO: skip on s == TUP?
 	if w.tooyoung() {
 		log.VV("proxy: wg: %s onNotOK: too young; status %s", w.tag(), pxstatus(s))
-		return
 	}
 
 	var didPing, hasVia, viaDidRefresh, viaOK bool
@@ -383,8 +382,7 @@ func (w *wgproxy) Refresh() (err error) {
 
 	// TODO: skip on s == TUP?
 	if w.tooyoung() {
-		log.VV("proxy: wg: %s refresh skipped; too young; status(%s)", w.tag(), pxstatus(status))
-		return // TODO: err?
+		log.VV("proxy: wg: %s refreshing... too young; status(%s)", w.tag(), pxstatus(status))
 	}
 
 	now := now()
@@ -1961,7 +1959,7 @@ func (w *wgtun) maybeResetMtu(via Proxy, dryrun bool) error {
 	} // else: mtu needed is well within the hop's / network's capacity
 
 	if mtuAvailable < minmtu {
-		return log.EE("wg: (4? %t / 6? %t) %s proxy: hopping? %t %s; needs1 %d; avail(%d) < min(%d); %v",
+		return log.EE("wg:  %s (4? %t / 6? %t) proxy: hopping? %t %s; needs1 %d; avail(%d) < min(%d); %v",
 			w.tag(), has4, has6, hopping, viaid, mtuNeededByUs, mtuAvailable, minmtu, errHopMtuInsufficient)
 	}
 

@@ -87,6 +87,9 @@ func TestTraceAggregateAndCount(t *testing.T) {
 	}
 
 	all := PeekAllTraces()
+	if len(all) <= 0 {
+		t.Fatalf("PeekAllTraces returned empty: %q", all)
+	}
 	first := strings.Index(string(all), "aggregate-first")
 	second := strings.Index(string(all), "aggregate-second")
 	if first < 0 || second < 0 {
