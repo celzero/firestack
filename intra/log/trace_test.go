@@ -101,7 +101,11 @@ func TestTraceAggregateAndCount(t *testing.T) {
 
 	// The aggregate is detached from the stores' pooled slabs.
 	all[first] = 'X'
-	if !strings.Contains(string(PeekAllTraces()), "aggregate-first") {
+	all2 := PeekAllTraces()
+	if len(all2) <= 0 {
+		t.Fatalf("PeekAllTraces returned empty after mutation: %q", all2)
+	}
+	if !strings.Contains(string(all2), "aggregate-first") {
 		t.Fatal("mutating aggregate changed a stored trace")
 	}
 }
