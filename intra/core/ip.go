@@ -23,17 +23,25 @@ import (
 	"time"
 )
 
+var (
+	errMappedIPv4Unsupported = errors.New("mapped v4 addresses not supported")
+	errInvalidCIDR           = errors.New("invalid cidr")
+	errRandomIPGeneration    = errors.New("failed to generate random IP from CIDR")
+	errIP2Cidr               = errors.New("ip2cidr: errs")
+	errIP2Cidr2              = errors.New("ip2cidr2: errs")
+)
+
 // RandomIPFromPrefix returns a random IP from the provided CIDR prefix.
 // Supports IPv4 and IPv6. Does not support mapped inputs.
 func RandomIPFromPrefix(cidr netip.Prefix) (netip.Addr, error) {
 	startingAddress := cidr.Masked().Addr()
 	if startingAddress.Is4In6() {
-		return netip.Addr{}, errors.New("mapped v4 addresses not supported")
+		return netip.Addr{}, errMappedIPv4Unsupported
 	}
 
 	prefixLen := cidr.Bits()
 	if prefixLen == -1 {
-		return netip.Addr{}, fmt.Errorf("invalid cidr: %s", cidr)
+		return netip.Addr{}, fmt.Errorf("%w: %s", errInvalidCIDR, cidr)
 	}
 
 	// Initialise rand number generator
@@ -62,7 +70,7 @@ func RandomIPFromPrefix(cidr netip.Prefix) (netip.Addr, error) {
 	// Convert the random address from decimal form back into netip.Addr
 	randomAddress, ok := netip.AddrFromSlice(randomAddressInt.FillBytes(make([]byte, 16)))
 	if !ok {
-		return netip.Addr{}, fmt.Errorf("failed to generate random IP from CIDR: %s", cidr)
+		return netip.Addr{}, fmt.Errorf("%w: %s", errRandomIPGeneration, cidr)
 	}
 
 	// Unmap any mapped v4 addresses before return
@@ -79,7 +87,7 @@ func IP2Cidr(ippOrCidr string) (*net.IPNet, error) {
 		} else if ip, err2 := netip.ParseAddr(ippOrCidr); err2 == nil {
 			ipaddr = ip
 		} else {
-			return nil, fmt.Errorf("ip2cidr: errs: cidr %v / ipp %v / ip %v", err, err1, err2)
+			return nil, fmt.Errorf("%w: cidr %w / ipp %w / ip %w", errIP2Cidr, err, err1, err2)
 		}
 		ip := ipaddr.AsSlice()
 		prefixLen := ipaddr.BitLen()
@@ -101,7 +109,7 @@ func IP2Cidr2(ippOrCidr string) (zz netip.Prefix, err error) {
 		} else if ip, err2 := netip.ParseAddr(ippOrCidr); err2 == nil {
 			ipaddr = ip
 		} else {
-			return zz, fmt.Errorf("ip2cidr2: errs: cidr %v / ipp %v / ip %v", err, err1, err2)
+			return zz, fmt.Errorf("%w: cidr %w / ipp %w / ip %w", errIP2Cidr2, err, err1, err2)
 		}
 		return netip.PrefixFrom(ipaddr, ipaddr.BitLen()), nil
 	}

@@ -28,6 +28,8 @@ var (
 	errPacketConnNotNetConn = errors.New("net.PacketConn is neither net.Conn nor syscall.Conn")
 	errNotTcpNotUdp         = errors.New("neither net.TCPConn nor net.UDPConn")
 	errBufferSmall          = errors.New("buffer size too small")
+	errICMPInsufficientData = errors.New("icmp: insufficient reply data")
+	errICMPUnexpectedBody   = errors.New("icmp: err reply type")
 )
 
 const (
@@ -102,7 +104,7 @@ func Ping(pc net.PacketConn, ipp netip.AddrPort) (ok bool, rtt time.Duration, er
 		// }
 
 		if len(reply.Data) < len(data) {
-			err = fmt.Errorf("icmp: insufficient reply data; %d != %d", len(reply.Data), len(data))
+			err = fmt.Errorf("%w; %d != %d", errICMPInsufficientData, len(reply.Data), len(data))
 			return
 		}
 
@@ -112,7 +114,7 @@ func Ping(pc net.PacketConn, ipp netip.AddrPort) (ok bool, rtt time.Duration, er
 		rtt = end.Sub(start)
 		ok = true
 	default:
-		err = fmt.Errorf("icmp: err reply type: '%T' '%v'", pkt, pkt)
+		err = fmt.Errorf("%w: '%T' '%v'", errICMPUnexpectedBody, pkt, pkt)
 	}
 	return
 }

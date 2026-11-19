@@ -43,6 +43,8 @@ var (
 	errUnexpectedRead   = errors.New("pool: unexpected read")
 	errNotSyscallConn   = errors.New("core: not a syscall.Conn")
 	errAttemptsExceeded = errors.New("pool: max attempts exceeded")
+	errPoolPollFailed   = errors.New("pool: poll: err")
+	errPoolPollResult   = errors.New("pool: poll: sz")
 )
 
 type superpool[T comparable] struct {
@@ -462,7 +464,7 @@ func (a agingconn) canread() error {
 			case n > 0:
 				// conn is supposed to be idle
 				checkErr = errUnexpectedRead
-			case err == syscall.EAGAIN || err == syscall.EWOULDBLOCK:
+			case errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK):
 				checkErr = nil
 			default:
 				checkErr = err
@@ -476,11 +478,11 @@ func (a agingconn) canread() error {
 			}
 			n, err := unix.Poll(fds, 0)
 			if err != nil {
-				checkErr = fmt.Errorf("pool: poll: err: %v", err)
+				checkErr = fmt.Errorf("%w: %w", errPoolPollFailed, err)
 			}
 			if n > 0 {
-				checkErr = fmt.Errorf("pool: poll: sz: %d (must be 0), errno: %v",
-					n, fds[0].Revents)
+				checkErr = fmt.Errorf("%w: %d (must be 0), errno: %v",
+					errPoolPollResult, n, fds[0].Revents)
 			}
 		})
 	}

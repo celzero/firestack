@@ -749,16 +749,11 @@ func nextRoute(r x.Router, who, ipp string) (netip.Prefix, bool) {
 	return route, true
 }
 
-func routeFor(p Proxy, who, ipp string) (netip.Prefix, bool) {
+func routeFor(p Proxy, who, ipp string) (routethrough netip.Prefix, hasroute bool) {
 	if p == nil || core.IsNil(p) {
 		return netip.Prefix{}, false
 	}
 	return nextRoute(p.Router(), who, ipp)
-}
-
-func hasroute(p Proxy, who, ipp string) bool {
-	_, ok := routeFor(p, who, ipp)
-	return ok
 }
 
 func iscircular(p Proxy, ip string) bool {
