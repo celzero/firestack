@@ -529,7 +529,25 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 	stalledSec := uint32(0)
 	var circular []string
 	var lopinned string
-	var notok, noh3 []Proxy
+	type routeCandidate struct {
+		pid            string
+		proxy          Proxy
+		route          netip.Prefix
+		alreadyHealthy bool
+	}
+	var notok []routeCandidate
+	var noh3 []Proxy
+	var routeNotes []string
+	noteRoute := func(pid string, route netip.Prefix) {
+		if !route.IsValid() {
+			return
+		}
+		note := pid + "@" + route.String()
+		if !slices.Contains(routeNotes, note) {
+			routeNotes = append(routeNotes, note)
+		}
+	}
+	var pinnedRouteCandidate *routeCandidate
 	notokproxies := make([]string, 0)
 	endproxies := make([]string, 0)
 	pausedproxies := make([]string, 0)
@@ -539,8 +557,8 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 	loproxies := make([]string, 0)
 
 	defer func() {
-		logev(err)("proxy: pin: outcome: %s: %s: %s+%s; chosen? %s; stalled? %ds; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v; noh3: %v; circular: %v",
-			who, proto, uid, ippstr, idstr(theone), totalStalledSec, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies, circular)
+		logev(err)("proxy: pin: outcome: %s: %s: %s+%s; chosen? %s; stalled? %ds; routes: %v; local: %v; miss: %v; notok: %v; noroute: %v; paused %v; ended %v; noh3: %v; circular: %v",
+			who, proto, uid, ippstr, idstr(theone), totalStalledSec, routeNotes, loproxies, missproxies, notokproxies, norouteproxies, pausedproxies, endproxies, noh3proxies, circular)
 	}()
 
 	if len(pids) == 1 { // there's no other pid to choose from
@@ -564,7 +582,9 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 		if p != nil {
 			pid0 := p.ID()
 			iscircle := iscircular(p, ippstr)
-			noroute := !hasroute(p, who, ippstr)
+			route, routeok := routeFor(p, who, ippstr)
+			noroute := !routeok
+			noteRoute(pid0, route)
 			canth3 := uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(p.ID())
 			pxnotok := p.Status() == TNT
 
@@ -627,9 +647,13 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 		hasp := core.IsNotNil(p)
 		pxnoroute := true
 		iscircle := false
+		var pinnedRoute netip.Prefix
+		var pinnedRouteOK bool
 		if hasp && err == nil {
 			iscircle = iscircular(p, ippstr)
-			pxnoroute = !hasroute(p, who, ippstr)
+			pinnedRoute, pinnedRouteOK = routeFor(p, who, ippstr)
+			pxnoroute = !pinnedRouteOK
+			noteRoute(pinnedpid, pinnedRoute)
 			canth3 := uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pidc)
 
 			if log.Verbose {
@@ -640,35 +664,35 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 			if iscircle {
 				circular = append(circular, pinnedpid)
 				px.delpin(uid, ipp)
-			} else if canth3 {
-				noh3 = append(noh3, p)
-				noh3proxies = append(noh3proxies, pinnedpid)
-				// allow h3 like egress from myuid, which could actually be rpn/wg on 443
-				err = core.JoinErr(err, errProxyProtoH3)
-				px.delpin(uid, ipp)
-			} else if !pxnoroute { // hasroute
-				return p, nil
-			} else {
+			} else if !pinnedRouteOK {
 				norouteproxies = append(norouteproxies, pinnedpid)
-				px.delpin(uid, ipp) // del pin if no route
+				px.delpin(uid, ipp)
+			} else {
+				// Keep the pin as a candidate, but let a more-specific route win.
+				pinnedRouteCandidate = &routeCandidate{
+					pid:            pinnedpid,
+					proxy:          p,
+					route:          pinnedRoute,
+					alreadyHealthy: true,
+				}
 			}
-		} else if err != nil { // pinnedpid found but unhealthy; keep as notok fallback
-			notokproxies = append(notokproxies, pinnedpid)
-			notok = append(notok, p)
 		} else if !hasp {
 			missproxies = append(missproxies, pinnedpid)
+		} else if err != nil { // pinnedpid found but unhealthy; keep as notok fallback
+			route, routeOK := routeFor(p, who, ippstr)
+			if routeOK {
+				noteRoute(pinnedpid, route)
+				notokproxies = append(notokproxies, pinnedpid)
+				notok = append(notok, routeCandidate{pid: pinnedpid, proxy: p, route: route})
+			} else {
+				norouteproxies = append(norouteproxies, pinnedpid)
+				px.delpin(uid, ipp)
+			}
 		} // else: pinnedpid not ok (ex: END/TPU/TNT)
 
 		logev(err)("proxy: pin: %s: %s: %s+%s; chosen and pinned: 2 %s <> %s (but err? %v); hasproxy? %t (or noroute? %t)",
 			who, proto, uid, ippstr, pinnedpid, pidc, err, hasp, pxnoroute)
 
-		if !iscircle && !pxnoroute {
-			// wipe out pinned pid so it is re-considered below; and is chosen
-			// over local proxies, if required
-			pinnedpid = ""
-			pinok = false
-			chosen = false
-		}
 	} else if pinok && !chosen {
 		px.delpin(uid, ipp)
 	}
@@ -678,8 +702,12 @@ func (px *proxifier) ProxyTo(who string, ipp netip.AddrPort, proto, uid string, 
 	}
 
 retrySearch:
+	routeMatches := make([]routeCandidate, 0, len(pids))
 	for _, pid := range pids {
-		if pinok && pid == pinnedpid { // already tried above
+		if pinok && pid == pinnedpid { // already checked above
+			if pinnedRouteCandidate != nil {
+				routeMatches = append(routeMatches, *pinnedRouteCandidate)
+			}
 			continue
 		}
 		if local(pid) { // skip local; prefer remote
@@ -711,30 +739,57 @@ retrySearch:
 			continue
 		}
 
+		route, routeOK := routeFor(p, who, ippstr)
+		noteRoute(pid, route)
 		if iscircular(p, ippstr) {
 			circular = append(circular, pid)
 			continue
 		}
-		if hasroute(p, who, ippstr) {
-			// TODO: myuid check only required for loopback mode?
-			// allow h3 like egress from myuid, which could actually be rpn/wg on 443
-			if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pid) {
-				noh3proxies = append(noh3proxies, pid)
-				noh3 = append(noh3, p)
-				continue
-			}
-
-			err := px.pin(uid, ipp, p) // repin & ping if needed
-			if err == nil {
-				log.VV("proxy: pin: %s: %s: %s+%s; pinned: %s; from pids: %v", who, proto, uid, ippstr, pid, pids)
-				return p, nil
-			} // else: proxy not ok
-			notokproxies = append(notokproxies, pid)
-			notok = append(notok, p)
-			continue
+		if routeOK {
+			routeMatches = append(routeMatches, routeCandidate{pid: pid, proxy: p, route: route})
 		} else { // else: proxy cannot route; split-tunnel
 			norouteproxies = append(norouteproxies, pid)
 		}
+	}
+	slices.SortStableFunc(routeMatches, func(a, b routeCandidate) int {
+		if a.route.Bits() > b.route.Bits() {
+			return -1
+		} else if a.route.Bits() < b.route.Bits() {
+			return 1
+		}
+		if a.pid == pinnedpid && b.pid != pinnedpid {
+			return -1
+		} else if b.pid == pinnedpid && a.pid != pinnedpid {
+			return 1
+		}
+		return 0 // keep original pids order for ties
+	})
+	for _, candidate := range routeMatches {
+		noteRoute(candidate.pid, candidate.route)
+	}
+	for _, candidate := range routeMatches {
+		pid, p := candidate.pid, candidate.proxy
+		// TODO: myuid check only required for loopback mode?
+		// allow h3 like egress from myuid, which could actually be rpn/wg on 443
+		if uid != protect.MyUid && maybeH3(proto, ipp) && cantProxyH3(pid) {
+			if candidate.alreadyHealthy {
+				px.delpin(uid, ipp)
+			}
+			noh3proxies = append(noh3proxies, pid)
+			noh3 = append(noh3, p)
+			continue
+		}
+
+		if !candidate.alreadyHealthy {
+			err := px.pin(uid, ipp, p) // repin & ping if needed
+			if err != nil {
+				notokproxies = append(notokproxies, pid)
+				notok = append(notok, candidate)
+				continue
+			}
+		}
+		log.VV("proxy: pin: %s: %s: %s+%s; pinned: %s; from pids: %v", who, proto, uid, ippstr, pid, pids)
+		return p, nil
 	}
 
 	// can route but not healthy; choose any one on random
@@ -744,7 +799,19 @@ retrySearch:
 			stalledSec = px.stall(uid + ippstr)
 			totalStalledSec += stalledSec
 		}
-		if one := core.ChooseOne(notok); one != nil {
+		bestBits := -1
+		for _, candidate := range notok {
+			if candidate.route.IsValid() && candidate.route.Bits() > bestBits {
+				bestBits = candidate.route.Bits()
+			}
+		}
+		preferred := make([]Proxy, 0, len(notok))
+		for _, candidate := range notok {
+			if candidate.route.IsValid() && candidate.route.Bits() == bestBits {
+				preferred = append(preferred, candidate.proxy)
+			}
+		}
+		if one := core.ChooseOne(preferred); one != nil {
 			if log.Verbose {
 				log.V("proxy: pin: %s: %s: %s+%s; pinned: %s; from notok: %v",
 					who, proto, uid, ippstr, idstr(one), notokproxies)
@@ -1468,6 +1535,33 @@ func (px *proxifier) Contains(who, ipprefix string) bool {
 		}
 	}
 	return false
+}
+
+// Next implements x.Router.
+func (px *proxifier) Next(who, ipprefix string) (string, error) {
+	if _, err := core.IP2Cidr2(ipprefix); err != nil {
+		return "", err
+	}
+	px.RLock()
+	defer px.RUnlock()
+
+	var best netip.Prefix
+	for _, p := range px.p {
+		if p == nil || core.IsNil(p) {
+			continue
+		}
+		if local(idstr(p)) || noop(typstr(p)) {
+			continue
+		}
+		if route, ok := nextRoute(p.Router(), who, ipprefix); ok &&
+			(!best.IsValid() || route.Bits() > best.Bits()) {
+			best = route
+		}
+	}
+	if !best.IsValid() {
+		return "", errProxyRoute
+	}
+	return best.String(), nil
 }
 
 // Reaches implements x.Router.

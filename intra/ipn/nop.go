@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"slices"
 	"sync/atomic"
+	"syscall"
 
 	x "github.com/celzero/firestack/intra/backend"
 	"github.com/celzero/firestack/intra/core"
@@ -86,6 +87,22 @@ func (w *GW) Contains(who, ippOrCidr string) bool {
 		return false
 	}
 	return w.ok(prefix.Addr())
+}
+
+// Next implements x.Router.
+func (w *GW) Next(who, ippOrCidr string) (string, error) {
+	prefix, err := core.IP2Cidr2(ippOrCidr)
+	if err != nil {
+		return "", err
+	}
+	ip := prefix.Addr()
+	if !w.ok(ip) {
+		return "", syscall.EHOSTUNREACH
+	}
+	if ip.Is4() {
+		return "0.0.0.0/0", nil
+	}
+	return "::/0", nil
 }
 
 func (w *GW) ok(ip netip.Addr) bool  { return w.ok4(ip) || w.ok6(ip) }

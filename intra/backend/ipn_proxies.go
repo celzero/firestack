@@ -364,6 +364,9 @@ type Router interface {
 	// Contains returns true if this router can route ipprefix.
 	// who is a free-form identifier for the caller, useful for logging.
 	Contains(who, ipprefix string) (y bool)
+	// Next returns the route cidr for the given ipprefix, if any.
+	// who is a free-form identifier for the caller, useful for logging.
+	Next(who, ipprefix string) (gwcidr string, err error)
 	// Self returns true if the given ip is one of this router's own exit IPs.
 	Self(ip string) (y bool)
 }

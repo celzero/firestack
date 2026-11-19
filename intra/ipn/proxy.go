@@ -493,7 +493,7 @@ func Reaches(p Proxy, urlOrHostPortOrIPPortCsv string, protos ...string) bool {
 }
 
 // Lightweight http transport client for one-time use
-func oneshothttp(ctx context.Context, p Proxy, url *url.URL) (client *http.Client) {
+func oneshothttp(_ context.Context, p Proxy, url *url.URL) (client *http.Client) {
 	v4, v6 := true, true
 	switch url.Fragment {
 	case "tcp", "udp":
@@ -729,11 +729,36 @@ func viaSupportsIPFamily(orig Proxy, hop Proxy) error {
 	return nil
 }
 
-func hasroute(p Proxy, who, ipp string) bool {
-	if p == nil {
-		return false
+func nextRoute(r x.Router, who, ipp string) (netip.Prefix, bool) {
+	var noRoute netip.Prefix
+	if r == nil || core.IsNil(r) {
+		return noRoute, false
 	}
-	return p.Router().Contains(who, ipp)
+	dst, err := core.IP2Cidr2(ipp)
+	if err != nil {
+		return noRoute, false
+	}
+	cidr, err := r.Next(who, ipp)
+	if err != nil {
+		return noRoute, false
+	}
+	route, err := netip.ParsePrefix(cidr)
+	if err != nil || !route.IsValid() || !route.Contains(dst.Addr()) {
+		return noRoute, false
+	}
+	return route, true
+}
+
+func routeFor(p Proxy, who, ipp string) (netip.Prefix, bool) {
+	if p == nil || core.IsNil(p) {
+		return netip.Prefix{}, false
+	}
+	return nextRoute(p.Router(), who, ipp)
+}
+
+func hasroute(p Proxy, who, ipp string) bool {
+	_, ok := routeFor(p, who, ipp)
+	return ok
 }
 
 func iscircular(p Proxy, ip string) bool {
