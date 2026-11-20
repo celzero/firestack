@@ -40,6 +40,7 @@ import (
 	"github.com/celzero/firestack/intra/log"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
+	"golang.org/x/sys/unix"
 )
 
 type zeroNetAddr struct{}
@@ -66,6 +67,38 @@ const (
 // TODO: invalidate cache on network changes.
 // TODO: with context.TODO, expmap's reaper goroutine will leak.
 var ippPins = core.NewSieve[netip.AddrPort, string](context.TODO(), "d.ippPins", desync_cache_ttl)
+
+// dbgTCPInfo is a DEBUG-INSTRUMENTATION helper (temporary, remove once
+// Zee5/PMTUD investigation is closed). It fetches kernel-level TCP_INFO
+// stats (retransmits, rtt, last-data-received) for c, if c is backed by a
+// real *net.TCPConn (best-effort; returns "" if unavailable). This lets us
+// see, precisely at the moment a Read() stalls or times out, whether the
+// kernel itself ever observed a retransmit from the peer during the stall
+// -- distinguishing a genuine network-path blackhole (no retransmits seen,
+// peer/path truly silent) from data arriving-but-undelivered (retransmits
+// seen, rx_queue would be non-zero) which would point back at our code.
+func dbgTCPInfo(c protect.Conn) string {
+	sc, ok := c.(syscall.Conn)
+	if !ok || sc == nil {
+		return ""
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil || raw == nil {
+		return ""
+	}
+	var info *unix.TCPInfo
+	var operr error
+	cerr := raw.Control(func(fd uintptr) {
+		info, operr = unix.GetsockoptTCPInfo(int(fd), unix.IPPROTO_TCP, unix.TCP_INFO)
+	})
+	if cerr != nil || operr != nil || info == nil {
+		return fmt.Sprintf("tcpinfo-err(ctl=%v,op=%v)", cerr, operr)
+	}
+	return fmt.Sprintf("tcpi[state=%d rtt=%dus rttvar=%dus retx=%d total_retx=%d last_data_recv=%dms last_data_sent=%dms unacked=%d snd_mss=%d rcv_mss=%d pmtu=%d]",
+		info.State, info.Rtt, info.Rttvar, info.Retransmits, info.Total_retrans,
+		info.Last_data_recv, info.Last_data_sent, info.Unacked,
+		info.Snd_mss, info.Rcv_mss, info.Pmtu)
+}
 
 // retrier implements the DuplexConn interface and must
 // be typecastable to *net.TCPConn (see: xdial.DialTCP)
@@ -308,6 +341,13 @@ func (r *retrier) dialStratLocked() (strat int32, err error) {
 		strat = r.dialerOpts.Strat
 	}
 
+	// DEBUG-INSTRUMENTATION (temporary, remove once Zee5/PMTUD investigation
+	// is closed): confirms at the dial layer exactly which split-strategy is
+	// actually being used per attempt, independent of what the UI/settings
+	// claim is configured.
+	log.I("retrier: dbg: %s: dialStrat: %s: strat=%d auto=%t retryStrat=%d split=%t retryCount=%d/%d",
+		r.dialerID(), r.raddr, strat, auto, retryStrat, split, r.retryCount, r.maxRetries)
+
 	return
 }
 
@@ -476,9 +516,25 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 
 	r.mu.Lock()
 	c := r.conn // r.conn may be provisional or final connection
+	rdeadline := r.readDeadline
 	r.mu.Unlock()
 
 	if c != nil {
+		// always (re)apply the caller's current read deadline (as set via
+		// SetReadDeadline, eg: rwext.extendr) to the underlying conn before
+		// reading from it; otherwise, once the retry sequence completes
+		// (see below), this deadline is applied to c just once and never
+		// again, so subsequent idle reads on c can block indefinitely even
+		// as callers keep extending r.readDeadline on every call.
+		_ = c.SetReadDeadline(rdeadline)
+
+		// DEBUG-INSTRUMENTATION (temporary, remove once Zee5/PMTUD
+		// investigation is closed): kernel TCP_INFO snapshot right before
+		// issuing the read, so we can diff against the post-read snapshot
+		// below to see exactly what changed (or didn't) at the kernel level
+		// during this call, especially across a timeout/stall.
+		preTCPInfo := dbgTCPInfo(c)
+
 		for reads := range maxEmptyReads {
 			n, err = c.Read(buf)
 			if n == 0 && err == nil { // no data and no error
@@ -488,6 +544,19 @@ func (r *retrier) Read(buf []byte) (n int, err error) {
 			} // else: check if retry is needed (c == nil or err != nil)
 			break
 		}
+
+		// DEBUG-INSTRUMENTATION (temporary, remove once Zee5/PMTUD
+		// investigation is closed): post-read snapshot. If Total_retrans
+		// increased between pre/post while err is a timeout, the kernel
+		// DID see retransmits from the peer during the stall (data was
+		// attempted but never fully arrived/ack'd) -- a genuine network
+		// issue. If Total_retrans is unchanged, the peer never even tried
+		// to resend, consistent with a silent path blackhole (eg PMTUD)
+		// upstream of this device entirely.
+		postTCPInfo := dbgTCPInfo(c)
+		log.I("retrier: dbg: %s: read-tcpinfo: [%s<=%s]; pre: %s; post: %s; n=%d err=%v",
+			r.dialerID(), laddr(c), r.raddr, preTCPInfo, postTCPInfo, n, err)
+
 		if n == 0 && err == nil {
 			err = io.ErrNoProgress
 		}
@@ -670,6 +739,7 @@ func (r *retrier) Write(b []byte) (int, error) {
 
 	r.mu.Lock()
 	c := r.conn // retry has completed, so r.conn is final and may not need locking?
+	wdeadline := r.writeDeadline
 	r.mu.Unlock()
 	if c == nil {
 		cerr := log.EE("retrier: write: %s: [] => %s (b: %d, tee: %d), not retrying, but no conn; after: %s",
@@ -677,6 +747,8 @@ func (r *retrier) Write(b []byte) (int, error) {
 		return 0, core.JoinErr(cerr, errNilConn)
 	}
 
+	// always (re)apply the caller's current write deadline; see Read() for why.
+	_ = c.SetWriteDeadline(wdeadline)
 	n, err := c.Write(b)
 	if err != nil {
 		err = log.EE("retrier: write: %s: [%s=>%s]; b: %d/%d (retried? %t); after: %s; err? %v",
@@ -746,8 +818,11 @@ func (r *retrier) WriteTo(w io.Writer) (bytes int64, err error) {
 	}
 
 	if !optimizedWriteTo {
-		// write to w from c until EOF
-		b, err = core.Stream(w, c)
+		// write to w from r (not raw c) until EOF, so that r.Read's
+		// per-call deadline refresh (see Read()) stays in effect; reading
+		// from c directly bypasses that refresh and can hang indefinitely
+		// once the retry sequence above has completed.
+		b, err = core.Stream(w, r)
 		bytes += b
 	}
 
@@ -842,8 +917,8 @@ func (r *retrier) ReadFrom(reader io.Reader) (bytes int64, err error) {
 	}
 
 	if !optimizedReadFrom {
-		// read from reader into c until EOF
-		b, err = core.Stream(c, reader)
+		// read from reader into r (not raw c) until EOF; see WriteTo for why.
+		b, err = core.Stream(r, reader)
 		bytes += b
 	}
 

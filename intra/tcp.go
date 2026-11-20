@@ -31,6 +31,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/core"
@@ -193,7 +194,7 @@ func (h *tcpHandler) ReverseProxy(gconn *netstack.GTCPConn, in net.Conn, to, fro
 	}
 
 	core.Go("tcp.reverse:"+cid, func() {
-		h.forward(gconn, rwext{in, tcptimeout}, smm)
+		h.forward(gconn, rwext{Conn: in, minidle: tcptimeout, warm: new(atomic.Bool)}, smm)
 	})
 	return true
 }
@@ -483,7 +484,7 @@ func (h *tcpHandler) handle(px ipn.Proxy, gconn *netstack.GTCPConn, src, target 
 	core.Go("tcp.forward."+smm.ID, func() {
 		defer h.loopUnassoc(smm)
 		h.flowing(smm)
-		h.forward(gconn, rwext{dst, tcptimeout}, smm) // src always *gonet.TCPConn
+		h.forward(gconn, rwext{Conn: dst, minidle: tcptimeout, warm: new(atomic.Bool)}, smm) // src always *gonet.TCPConn
 		// TODO: assoc if forward was successful
 		if eim {
 			h.natAssoc(smm.PID, src, dstlocal)

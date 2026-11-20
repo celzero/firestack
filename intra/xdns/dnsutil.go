@@ -1433,6 +1433,36 @@ func AQuadAUnspecified(msg *dns.Msg) bool {
 	return false
 }
 
+// AQuadALoopback returns true if any A/AAAA record in msg resolves to a
+// loopback address (127.0.0.0/8 or ::1). Some upstream resolvers (public
+// ad/tracker-blocking DNS providers) signal a block by sinkholing the
+// answer to loopback instead of the more common 0.0.0.0/:: unspecified
+// address that AQuadAUnspecified detects. Without this check, such
+// upstream-blocked answers are silently treated as valid, real answers:
+// the resulting connection attempt never reaches the VPN's tun interface
+// (loopback-destined traffic is routed by the OS outside any VPN tunnel),
+// so it is invisible to on-device firewall/connection logs, and is never
+// flagged as blocked even though nothing will ever answer on it.
+func AQuadALoopback(msg *dns.Msg) bool {
+	if msg == nil {
+		return false
+	}
+	ans := msg.Answer
+	for _, rr := range ans {
+		switch v := rr.(type) {
+		case *dns.AAAA:
+			if v.AAAA.IsLoopback() {
+				return true
+			}
+		case *dns.A:
+			if v.A.IsLoopback() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func Len(msg *dns.Msg) int {
 	if msg == nil {
 		return 0

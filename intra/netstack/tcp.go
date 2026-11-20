@@ -326,14 +326,26 @@ func (g *GTCPConn) RemoteAddr() net.Addr {
 
 func (g *GTCPConn) Write(data []byte) (int, error) {
 	if c := g.conn(); c != nil {
-		return c.Write(data)
+		n, err := c.Write(data)
+		// DEBUG-INSTRUMENTATION (temporary, remove once Zee5/PMTUD
+		// investigation is closed): app-facing (netstack) side write
+		// visibility, to check whether the app itself ever stops writing
+		// (eg: waiting on a stalled read) vs our exit-side relay stalling
+		// independently.
+		log.VV("netstack: dbg: gconn(%s): write: b=%d/%d; err=%v", g.o, n, len(data), err)
+		return n, err
 	}
 	return 0, netError(g, "tcp", g.o+":write", io.ErrClosedPipe)
 }
 
 func (g *GTCPConn) Read(data []byte) (int, error) {
 	if c := g.conn(); c != nil {
-		return c.Read(data)
+		n, err := c.Read(data)
+		// DEBUG-INSTRUMENTATION (temporary, remove once Zee5/PMTUD
+		// investigation is closed): app-facing (netstack) side read
+		// visibility, paired with the Write() log above.
+		log.VV("netstack: dbg: gconn(%s): read: b=%d/%d; err=%v", g.o, n, len(data), err)
+		return n, err
 	}
 	return 0, netError(g, "tcp", g.o+":read", io.ErrNoProgress)
 }

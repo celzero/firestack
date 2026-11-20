@@ -30,6 +30,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"github.com/celzero/firestack/intra/dnsx"
@@ -124,7 +125,7 @@ func (h *udpHandler) ReverseProxy(gconn *netstack.GUDPConn, in net.Conn, to, fro
 	}
 
 	core.Go("udp.reverse:"+cid, func() {
-		h.forward(gconn, rwext{in, udptimeout}, smm)
+		h.forward(gconn, rwext{Conn: in, minidle: udptimeout, warm: new(atomic.Bool)}, smm)
 	})
 	return true
 }
@@ -201,7 +202,7 @@ func (h *udpHandler) proxy(gconn *netstack.GUDPConn, src, dst netip.AddrPort, dm
 	core.Go("udp.forward."+cid, func() {
 		defer h.loopUnassoc(smm)
 		h.flowing(smm)
-		h.forward(gconn, rwext{remote, udptimeout}, smm)
+		h.forward(gconn, rwext{Conn: remote, minidle: udptimeout, warm: new(atomic.Bool)}, smm)
 	})
 	return true // ok
 }
