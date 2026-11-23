@@ -12,17 +12,24 @@ before_install:
   - sdk use java 17.0.20-tem
 # developer.android.com/tools/releases/platform-tools
   - set -e
-  - yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+# developer.android.com/tools/sdkmanager (deprecated)
+# android cli: developer.android.com/tools/agents (new)
+# - yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+  - curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
 # gomobile: failed to find android SDK platform: open /opt/android-sdk-linux/platforms: no such file or directory
-# developer.android.com/tools/sdkmanager
-# default sdk is at 35
-  - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-${SDKVER}.0"
-  - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;${SDKVER}.0.0"
+# developer.android.com/tools/agents/android-cli/commands/sdk
+# default sdk is version 35
+# developer.android.com/tools/agents/android-cli/commands/sdk_list
+  - android -V
+  - android sdk list
+  - android sdk cmdline-tools/latest
+  - android sdk install "platforms;android-${SDKVER}.0" -v
+  - android sdk install "build-tools;${SDKVER}.0.0" -v
 # default ndk is at v27; also: github.com/jitpack/jitpack.io/issues/4638
 # developer.android.com/ndk/downloads
 # github.com/android/ndk-samples/wiki/Configure-NDK-Path#the-sdkmanager-command-line-tool
 # github.com/AgregoreWeb/gomobile-android-docker/blob/3720e727fa/Dockerfile
-  - $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;${NDKVER}"
+  - android sdk install "ndk;${NDKVER}"
   - ./make-aar
 install:
   - ./mvn-install
