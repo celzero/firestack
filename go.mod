@@ -17,7 +17,7 @@ require (
 	github.com/txthinking/socks5 v0.0.0-20260601051520-339b044ab0eb
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20231121144256-b99613f794b6
 	golang.org/x/crypto v0.59.0
-	golang.org/x/mobile v0.0.0-20260508232728-bebd421c7fa8
+	golang.org/x/mobile v0.0.0-20261117202452-47699113848a
 	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/time v0.16.0
