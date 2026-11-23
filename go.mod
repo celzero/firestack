@@ -52,3 +52,5 @@ require (
 
 // TODO: remove all replaces
 // replace golang.org/x/mobile v0.0.0-20250506005352-78cd7a343bde => github.com/ignoramous/mobile v0.0.0-20260119111959-bc2c8adf6210
+
+tool golang.org/x/mobile/cmd/gobind
