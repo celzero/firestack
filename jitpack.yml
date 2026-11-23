@@ -22,7 +22,7 @@ before_install:
 # developer.android.com/tools/agents/android-cli/commands/sdk_list
   - android -V
   - android sdk list
-  - android sdk cmdline-tools/latest
+  - android sdk install cmdline-tools/latest
   - android sdk install "platforms;android-${SDKVER}.0" -v
   - android sdk install "build-tools;${SDKVER}.0.0" -v
 # default ndk is at v27; also: github.com/jitpack/jitpack.io/issues/4638
