@@ -115,6 +115,13 @@ jobs:
         wget --tries=2 --waitretry=3 --no-dns-cache https://github.com/Zxilly/go-size-analyzer/releases/download/v1.14.1/go-size-analyzer_1.14.1_linux_amd64v3.deb -O gsa.deb
         echo "ab2dada849d5c526886ef2dba7a18375850d7ff52958eabc5419996284762e26  gsa.deb" | sha256sum -c -
         sudo dpkg -i gsa.deb
+
+        curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
+        export PATH="$HOME/.local/bin:$PATH"
+
+        # developer.android.com/tools/agents/android-cli/commands/analyze
+        android analyze --analysis=optimization -f json "${FOUT}" --no-metrics
+
         # tun2socks*.aar/firestack*.aar; see: make-aar
         #
         # Archive:  firestack.aar
