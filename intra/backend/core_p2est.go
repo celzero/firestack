@@ -139,16 +139,16 @@ func (p *P2Quantiles) Close() {
 }
 
 // Reset stops the current estimators and starts a fresh set.
-func (p *P2Quantiles) Reset() Quants {
+func (p *P2Quantiles) Reset() *Quants {
 	if p == nil {
-		return Quants{}
+		return &Quants{}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.resetLocked()
 }
 
-func (p *P2Quantiles) resetLocked() Quants {
+func (p *P2Quantiles) resetLocked() *Quants {
 	ctx, cancel := context.WithCancel(context.Background())
 	p25 := core.NewP2QuantileEstimator(ctx, minQsamples, 0.25)
 	p50 := core.NewP2QuantileEstimator(ctx, minQsamples, 0.50)
@@ -172,9 +172,9 @@ func (p *P2Quantiles) resetLocked() Quants {
 }
 
 // All returns all quantile estimates and the reset timestamp.
-func (p *P2Quantiles) All() Quants {
+func (p *P2Quantiles) All() *Quants {
 	if p == nil {
-		return Quants{}
+		return &Quants{}
 	}
 
 	p.mu.Lock()
@@ -182,8 +182,8 @@ func (p *P2Quantiles) All() Quants {
 	return p.allLocked()
 }
 
-func (p *P2Quantiles) allLocked() Quants {
-	q := Quants{}
+func (p *P2Quantiles) allLocked() *Quants {
+	q := &Quants{}
 	if p.closed {
 		return q
 	}
