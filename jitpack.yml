@@ -16,6 +16,7 @@ before_install:
 # android cli: developer.android.com/tools/agents (new)
 # - yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
   - curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
+  - export PATH="$HOME/.local/bin:$PATH"
 # gomobile: failed to find android SDK platform: open /opt/android-sdk-linux/platforms: no such file or directory
 # developer.android.com/tools/agents/android-cli/commands/sdk
 # default sdk is version 35
