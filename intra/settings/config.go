@@ -34,6 +34,9 @@ var PortForward = atomic.Bool{}
 // for dual-stack (IPv4+IPv6) connections.
 var HappyEyeballs = atomic.Bool{}
 
+// WireGuardSearchDomains is a global flag to enable the use of search domains for DNS resolution over WireGuard.
+var WireGuardSearchDomains = atomic.Bool{}
+
 // ExperimentalWireGuard is a global flag to enable experimental
 // settings for WireGuard.
 var ExperimentalWireGuard = core.NewForeverFlow(false)

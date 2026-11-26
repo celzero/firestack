@@ -149,6 +149,10 @@ func (r *rpnp) DNS() string {
 	return r.ensureProxy().DNS()
 }
 
+func (r *rpnp) DNSSearchDomains() []string {
+	return r.ensureProxy().DNSSearchDomains()
+}
+
 // Status implements x.Proxy.
 func (r *rpnp) Status() int32 {
 	return r.ensureProxy().Status()

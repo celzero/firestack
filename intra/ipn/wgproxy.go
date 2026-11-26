@@ -40,6 +40,7 @@ import (
 	"github.com/celzero/firestack/intra/netstack"
 	"github.com/celzero/firestack/intra/protect"
 	"github.com/celzero/firestack/intra/settings"
+	"github.com/miekg/dns"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
@@ -93,6 +94,7 @@ var (
 
 type wgifopts struct {
 	ifaddrs, allowed []netip.Prefix
+	searchdomains    []string
 	willreplacepeers bool
 	peers            map[string]device.NoisePublicKey
 	dns              *multihost.MH
@@ -138,10 +140,11 @@ type wgtun struct {
 
 	rev core.MutexValue[netstack.GConnHandler] // reverser for local packets
 
-	dns     atomic.Pointer[multihost.MH]    // dns resolver for this interface
-	remote  atomic.Pointer[multihost.MHMap] // peer (remote endpoint) addrs
-	amnezia atomic.Pointer[wg.Amnezia]      // amnezia/warp config, if any
-	allowed atomic.Pointer[[]netip.Prefix]  // allowed ips by all peers
+	dns           atomic.Pointer[multihost.MH]    // dns resolver for this interface
+	searchdomains atomic.Pointer[[]string]        // dns search domains for this interface
+	remote        atomic.Pointer[multihost.MHMap] // peer (remote endpoint) addrs
+	amnezia       atomic.Pointer[wg.Amnezia]      // amnezia/warp config, if any
+	allowed       atomic.Pointer[[]netip.Prefix]  // allowed ips by all peers
 
 	rt x.IpTree // route table for this interface
 
@@ -547,9 +550,10 @@ func (w *wgproxy) update(id, txt string) (ok bool) {
 		w.remote.Load().Len() /*remote.Load may return nil*/, opts.eps.Len(), w.remote.Load().Endpoints(), opts.eps.Endpoints())
 
 	w.allowedIPs(opts.allowed)
-	w.remote.Store(opts.eps)             // requires refresh (wg.Conn:ParseEndpoint must be re-called)
-	w.remote.Load().Refresh()            // resolve endpoints now so ParseEndpoint below sees valid IPs
-	w.dns.Store(opts.dns)                // requires refresh (client must also re-add via intra.AddDNSProxy)
+	w.remote.Store(opts.eps)  // requires refresh (wg.Conn:ParseEndpoint must be re-called)
+	w.remote.Load().Refresh() // resolve endpoints now so ParseEndpoint below sees valid IPs
+	w.dns.Store(opts.dns)     // requires refresh (client must also re-add via intra.AddDNSProxy)
+	w.searchdomains.Store(&opts.searchdomains)
 	w.desiredmtu.Store(uint32(opts.mtu)) // requires reset; [NOMTU, MAXMTU)
 	w.amnezia.Store(opts.amnezia)
 	w.resetMtu(w.getVia())
@@ -633,9 +637,9 @@ func wgIfConfigOf(id string, txtptr *string) (opts wgifopts, err error) {
 				return
 			}
 		case "dns": // may exist more than once: github.com/celzero/rethink-app/issues/1298
-			n := loadMH(opts.dns, v)
-			aerr := loadIPNets(id, &opts.allowed, v)
-			loged(aerr)("proxy: wg: %s ifconfig: dns(%d) %s; allowed err? %v", id, n, v, aerr)
+			if err = loadDNS(id, opts.dns, &opts.allowed, &opts.searchdomains, v); err != nil {
+				return
+			}
 		case "mtu":
 			maxxed := false
 			if len(v) <= 0 || v == AUTOMTU || v == AUTOMTU2 {
@@ -763,6 +767,40 @@ func loadMH(mh *multihost.MH, v string) int {
 	}
 	vv := strings.Split(v, ",")
 	return mh.Add(vv) // vv may be host:port, ip:port, host, or ip
+}
+
+func loadDNS(id string, mh *multihost.MH, allowed *[]netip.Prefix, searchdomains *[]string, value string) error {
+	seen := make(map[string]struct{}, len(*searchdomains))
+	for _, domain := range *searchdomains {
+		seen[domain] = struct{}{}
+	}
+
+	for token := range strings.SplitSeq(value, ",") {
+		token = strings.TrimSpace(token)
+		if len(token) == 0 {
+			continue
+		}
+		if addr, err := netip.ParseAddr(token); err == nil {
+			mh.Add([]string{token})
+			*allowed = append(*allowed, netip.PrefixFrom(addr, addr.BitLen()))
+			continue
+		} else if addrport, err := netip.ParseAddrPort(token); err == nil {
+			mh.Add([]string{token})
+			addr := addrport.Addr()
+			*allowed = append(*allowed, netip.PrefixFrom(addr, addr.BitLen()))
+			continue
+		}
+
+		domain := strings.TrimSuffix(token, ".")
+		_, ok := dns.IsDomainName(domain)
+		if len(domain) == 0 || !ok {
+			log.W("proxy: wg: %s invalid dns server or search domain %q", id, token)
+		} else if _, exists := seen[domain]; !exists {
+			*searchdomains = append(*searchdomains, domain)
+			seen[domain] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func loadIPNets(id string, out *[]netip.Prefix, v string) (err error) {
@@ -970,6 +1008,7 @@ func makeWgTun(pctx context.Context, id, cfg string, ctl protect.Controller, px 
 	t.status.Store(TUP)
 	t.uapicfg.Store(cfg)
 	t.dns.Store(ifopts.dns)
+	t.searchdomains.Store(&ifopts.searchdomains)
 	t.remote.Store(ifopts.eps) // may be nil
 	t.allowed.Store(&ifopts.allowed)
 	t.amnezia.Store(ifopts.amnezia)
@@ -1624,6 +1663,13 @@ func (h *wgproxy) Resume() (resumed bool) {
 // DNS implements x.Proxy.
 func (h *wgtun) DNS() string {
 	return h.dnsResolvers()
+}
+
+func (h *wgtun) DNSSearchDomains() []string {
+	if domains := h.searchdomains.Load(); domains != nil {
+		return append([]string(nil), (*domains)...)
+	}
+	return nil
 }
 
 func (h *wgtun) dnsResolvers() string {

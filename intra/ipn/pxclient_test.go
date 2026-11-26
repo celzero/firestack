@@ -60,6 +60,7 @@ func (f *fakeProxy) Status() int32                          { return TOK }
 func (f *fakeProxy) GetAddr() string                        { return "" }
 func (f *fakeProxy) setSince(int64)                         {}
 func (f *fakeProxy) DNS() string                            { return "" }
+func (f *fakeProxy) DNSSearchDomains() []string             { return nil }
 func (f *fakeProxy) Ping() bool                             { return true }
 func (f *fakeProxy) Pause() bool                            { return false }
 func (f *fakeProxy) Resume() bool                           { return false }

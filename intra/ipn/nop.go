@@ -166,7 +166,15 @@ func (NoFwd) Probe(string, string) (protect.PacketConn, error) {
 	return nil, errProbeNotSupported
 }
 
-type NoDNS struct{}
+type NoDNSSearchDomains struct{}
+
+func (NoDNSSearchDomains) DNSSearchDomains() []string {
+	return nil
+}
+
+type NoDNS struct {
+	NoDNSSearchDomains
+}
 
 func (NoDNS) DNS() string {
 	return nodns

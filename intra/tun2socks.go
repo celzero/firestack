@@ -318,6 +318,12 @@ func FloodWireGuard(y bool) {
 	log.I("tun: flood wireguard? %t / ok? %t", y, ok)
 }
 
+// WireGuardSearchDomains enables/disables the use of DNS search domains for WireGuard.
+func WireGuardSearchDomains(y bool) {
+	ok := settings.WireGuardSearchDomains.CompareAndSwap(!y, y)
+	log.I("tun: wireguard DNS search domains? %t / ok? %t", y, ok)
+}
+
 // Loopback informs the network stack that it must deal with packets
 // originating from its own process routed back into the tunnel.
 func Loopback(y bool) {

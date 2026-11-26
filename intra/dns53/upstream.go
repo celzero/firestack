@@ -8,6 +8,7 @@ package dns53
 
 import (
 	"context"
+	"iter"
 	"net"
 	"net/netip"
 	"strings"
@@ -309,6 +310,59 @@ func (t *transport) chooseProxy(fid string, pids ...string) string {
 	return dnsx.ChooseHealthyProxyHostPort(fid+" dns53."+t.id, dnsx.NetTypeUDP, t.addrport, t.port, pids, t.proxies)
 }
 
+func (t *transport) searchDomains() []string {
+	if t.relayref == nil {
+		return nil
+	}
+	proxy, valid := t.relayref.Get()
+	if !valid {
+		return nil
+	}
+	return proxy.DNSSearchDomains()
+}
+
+func (t *transport) searchDomainQueries(q *dns.Msg) iter.Seq[*dns.Msg] {
+	dosearch := settings.WireGuardSearchDomains.Load()
+	hasq := q != nil && xdns.HasAnyQuestion(q)
+	hasrelay := len(t.relay) > 0
+	name, _ := xdns.NormalizeQName(xdns.QName(q))
+	hasqname := len(name) > 0
+	return func(yield func(*dns.Msg) bool) {
+		if !yield(q) {
+			return
+		}
+		if !dosearch || !hasq || !hasqname || !hasrelay {
+			return
+		}
+
+		domains := t.searchDomains()
+
+		seen := make(map[string]struct{}, len(domains))
+		for _, domain := range domains {
+			domain = strings.Trim(strings.TrimSpace(domain), ".")
+			if len(domain) == 0 {
+				continue
+			}
+			candidate := dns.Fqdn(name + "." + domain)
+			if _, exists := seen[candidate]; exists {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			query := q.Copy()
+			query.Question[0].Name = candidate
+			if !yield(query) {
+				return
+			}
+		}
+	}
+}
+
+func restoreSearchResponseQuestion(q, ans *dns.Msg) {
+	if q != nil && ans != nil {
+		ans.Question = q.Question
+	}
+}
+
 func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *dns.Msg, err error) {
 	var pid string
 	proto, pids := xdns.Net2ProxyID(network)
@@ -319,8 +373,23 @@ func (t *transport) Query(network string, q *dns.Msg, smm *x.DNSSummary) (ans *d
 		pid = t.chooseProxy(smm.FID, pids...)
 	}
 
-	ans, rpid, elapsed, qerr := t.send(proto, pid, q)
-	if qerr != nil { // only on send-request errors
+	var rpid string
+	var elapsed time.Duration
+	var qerr *dnsx.QueryError
+	var usedSearchDomain bool
+	for query := range t.searchDomainQueries(q) {
+		usedSearchDomain = usedSearchDomain || query != q
+		var duration time.Duration
+		ans, rpid, duration, qerr = t.send(proto, pid, query)
+		elapsed += duration
+		if qerr != nil || xdns.Rcode(ans) != dns.RcodeNameError {
+			break
+		}
+	}
+	if usedSearchDomain && ans != nil && q != nil {
+		restoreSearchResponseQuestion(q, ans)
+	}
+	if qerr != nil {
 		ans = xdns.Servfail(q)
 	}
 

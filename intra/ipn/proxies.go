@@ -169,9 +169,14 @@ var _ Proxy = (*ground)(nil)
 var _ Proxy = (*pipws)(nil)
 var _ Proxy = (*piph2)(nil)
 
+type DNSSearchDomainProvider interface {
+	DNSSearchDomains() []string
+}
+
 type Proxy interface {
 	x.Proxy
 	protect.RDialer
+	DNSSearchDomainProvider
 
 	// DialerHandle uniquely identifies the concrete type backing this proxy's dialer.
 	// Useful as a phantom reference to this dialer.
