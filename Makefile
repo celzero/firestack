@@ -38,12 +38,14 @@ LINUX_BUILDDIR=$(BUILDDIR)/linux
 # NDK llvm-objcopy for extracting / stripping debug symbols from .so files
 # ANDROID_NDK_HOME is exported by make-aar (or set in the environment)
 NDK_ROOT ?= $(ANDROID_NDK_HOME)
+# CI may set NDK_ROOT to the SDK's NDK parent; prefer the selected NDK version.
+NDK_TOOLCHAIN_ROOT = $(if $(strip $(ANDROID_NDK_HOME)),$(ANDROID_NDK_HOME),$(NDK_ROOT))
 # First tries the NDK-canonical path
 # falls back to command -v llvm-objcopy from PATH
 # Last resort: just llvm-objcopy (so it fails with a clearer error)
 LLVM_OBJCOPY ?= $(shell \
-  ndkcp="$(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy"; \
-  if [ -x "$$ndkcp" ]; then echo "$$ndkcp"; else command -v llvm-objcopy 2>/dev/null || echo "llvm-objcopy"; fi)
+	ndkcp="$(NDK_TOOLCHAIN_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy"; \
+	if [ -x "$$ndkcp" ]; then echo "$$ndkcp"; else command -v llvm-objcopy 2>/dev/null || echo "llvm-objcopy"; fi)
 ARCHS = armeabi-v7a arm64-v8a x86 x86_64
 DEBUG_SYMBOLS_DIR = $(BUILDDIR)/intra/debug-symbols
 DEBUG_SYMBOLS_ZIP = $(BUILDDIR)/intra/tun2socks-debug-symbols.zip
@@ -120,7 +122,7 @@ $(DEBUG_SYMBOLS_ZIP): $(BUILDDIR)/intra/tun2socks-debug.aar
 		mkdir -p $(DEBUG_SYMBOLS_DIR)/jni/$$arch; \
 		mkdir -p $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch; \
 		cp $$so $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/libgojni.so; \
-		echo "cp unstripped $$arch/libgojni.so => $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/libgojni.so"; \
+		echo "cp unstripped with $(LLVM_OBJCOPY): $$arch/libgojni.so => $(DEBUG_UNSTRIPPED_DIR)/jni/$$arch/libgojni.so"; \
 		$(LLVM_OBJCOPY) --only-keep-debug $$so $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so; \
 		$(LLVM_OBJCOPY) --strip-debug --strip-unneeded $$so; \
 		echo "stripped $$arch/libgojni.so, debug-only => $(DEBUG_SYMBOLS_DIR)/jni/$$arch/libgojni.so"; \
